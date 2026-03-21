@@ -14,12 +14,14 @@
 
 ## P2 — Richer interactions
 
+- [ ] **Voice message support** — Detect Discord voice messages (.ogg attachments), transcribe with OpenAI Whisper API, and feed the text to the agent. Enables hands-free interaction from phone.
 - [ ] **Image/attachment support** — Discord users send screenshots. Pass them to vision-capable models (GPT-4o, Claude) as base64 or URL. Requires extending FormatUserMessage to handle multimodal content.
 - [ ] **Streaming edits** — Send an initial "thinking..." message, then edit it as tokens arrive. Much better UX than waiting 5-10s for the full response. Requires streaming API support in the llm package.
+- [ ] **Voice responses** — Reply with audio (TTS) for a fully conversational experience. OpenAI and ElevenLabs both offer TTS APIs.
 - [ ] **Per-chat timeout** — Top-level timeout for the entire Chat() call (e.g. 2 minutes). If the agent gets stuck in a tool loop, cancel gracefully instead of hanging.
 
 ## P3 — Platform expansion
 
+- [x] ~~**Slash commands on Discord**~~ — Registered as application commands with autocomplete.
 - [ ] **Platform-agnostic bot interface** — Extract a `Bot` interface so Discord, Slack, Telegram share the same agent. The agent shouldn't know which platform it's running on.
 - [ ] **Group chat support** — Respond when mentioned in group channels, not just DMs. Requires mention detection and per-channel history.
-- [ ] **Slash commands on Discord** — Register Discord application commands instead of text-based `/help`, `/model`, etc.

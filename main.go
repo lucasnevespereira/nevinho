@@ -27,8 +27,16 @@ func main() {
 		log.Fatal("DISCORD_OWNER_ID is required (your Discord user ID)")
 	}
 
-	provider := detectProvider()
-	a := agent.New(provider)
+	config := agent.ProviderConfig{
+		AnthropicKey: os.Getenv("ANTHROPIC_API_KEY"),
+		OpenAIKey:    os.Getenv("OPENAI_API_KEY"),
+	}
+	if os.Getenv("OLLAMA_MODEL") != "" {
+		config.OllamaURL = "http://localhost:11434"
+	}
+
+	provider := detectProvider(config)
+	a := agent.New(provider, config)
 	bot, err := discord.New(token, ownerID, a)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
@@ -48,21 +56,19 @@ func main() {
 	bot.Stop()
 }
 
-func detectProvider() llm.Provider {
+func detectProvider(config agent.ProviderConfig) llm.Provider {
 	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	openaiKey := os.Getenv("OPENAI_API_KEY")
 
 	switch {
 	case ollamaModel != "":
 		logger.Info("provider: ollama (" + ollamaModel + ")")
-		return llm.NewOpenAI("", "http://localhost:11434", ollamaModel)
-	case anthropicKey != "":
+		return llm.NewOpenAI("", config.OllamaURL, ollamaModel)
+	case config.AnthropicKey != "":
 		logger.Info("provider: anthropic")
-		return llm.NewAnthropic(anthropicKey, "", "")
-	case openaiKey != "":
+		return llm.NewAnthropic(config.AnthropicKey, "", "")
+	case config.OpenAIKey != "":
 		logger.Info("provider: openai")
-		return llm.NewOpenAI(openaiKey, "", "")
+		return llm.NewOpenAI(config.OpenAIKey, "", "")
 	default:
 		log.Fatal("set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OLLAMA_MODEL in .env")
 		return nil

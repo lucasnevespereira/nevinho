@@ -104,6 +104,23 @@ func (r *Registry) Defs() []llm.ToolDef {
 
 // --- permissions ---
 
+func (r *Registry) ApprovedPaths() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var paths []string
+	for p := range r.approved {
+		paths = append(paths, shortenHome(p))
+	}
+	return paths
+}
+
+func (r *Registry) ClearApprovedPaths() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.approved = make(map[string]bool)
+	r.saveApproved()
+}
+
 func (r *Registry) PendingApproval(userID string) *Pending {
 	r.mu.Lock()
 	defer r.mu.Unlock()

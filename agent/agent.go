@@ -39,21 +39,33 @@ const (
 - If a file write fails due to permissions, tell the user which directory needs access and that they should reply yes to allow it.`
 )
 
-type Agent struct {
-	llm   llm.Provider
-	tools *tools.Registry
-
-	mu       sync.Mutex
-	history  map[string][]json.RawMessage
-	userLock map[string]*sync.Mutex
+// ProviderConfig holds API keys for all available providers.
+type ProviderConfig struct {
+	AnthropicKey string
+	OpenAIKey    string
+	OllamaURL    string // empty means no Ollama
 }
 
-func New(provider llm.Provider) *Agent {
+type Agent struct {
+	llm    llm.Provider
+	tools  *tools.Registry
+	config ProviderConfig
+
+	mu          sync.Mutex
+	history     map[string][]json.RawMessage
+	userLock    map[string]*sync.Mutex
+	startTime   time.Time
+	totalTokens int
+}
+
+func New(provider llm.Provider, config ProviderConfig) *Agent {
 	return &Agent{
-		llm:      provider,
-		tools:    tools.NewRegistry(),
-		history:  make(map[string][]json.RawMessage),
-		userLock: make(map[string]*sync.Mutex),
+		llm:       provider,
+		tools:     tools.NewRegistry(),
+		config:    config,
+		history:   make(map[string][]json.RawMessage),
+		userLock:  make(map[string]*sync.Mutex),
+		startTime: time.Now(),
 	}
 }
 
@@ -68,12 +80,11 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		switch p.Kind {
 		case "path":
 			a.tools.ApprovePending(userID)
-			logger.Info(fmt.Sprintf("approved: %s", shortenDetail(p)))
+			logger.Info(fmt.Sprintf("approved: %s", p.Detail))
 			text = text + "\n[Access granted to " + p.Detail + ". Retry the file operation.]"
 		case "code":
 			logger.Info("approved: code execution")
 			output := a.tools.ExecutePendingCode(userID)
-			// Feed the result back to the LLM so it can respond
 			text = text + "\n[Code execution approved. Output:\n" + output + "]"
 		}
 	}
@@ -103,6 +114,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 		// No tool calls — return the text response
 		if len(resp.ToolCalls) == 0 {
+			a.addTokens(usage.In + usage.Out)
 			logger.Done(start, usage.In+usage.Out, toolsUsed)
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
@@ -130,6 +142,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
+			a.addTokens(usage.In + usage.Out)
 			logger.Done(start, usage.In+usage.Out, toolsUsed)
 			logger.Nevinho(reply)
 			return reply, nil
@@ -137,6 +150,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	}
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
+	a.addTokens(usage.In + usage.Out)
 	logger.Done(start, usage.In+usage.Out, toolsUsed)
 	logger.Nevinho(reply)
 	return reply, nil
@@ -151,6 +165,84 @@ func (a *Agent) ClearHistory(userID string) {
 
 func (a *Agent) Model() string {
 	return a.llm.Model()
+}
+
+// SwitchModel changes the active LLM model, auto-detecting the provider
+// from the model name. Clears all conversation history since message
+// formats differ between providers.
+func (a *Agent) SwitchModel(name string) error {
+	var p llm.Provider
+	switch {
+	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
+		if a.config.OpenAIKey == "" {
+			return fmt.Errorf("OPENAI_API_KEY not configured")
+		}
+		p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+	case strings.HasPrefix(name, "claude-"):
+		if a.config.AnthropicKey == "" {
+			return fmt.Errorf("ANTHROPIC_API_KEY not configured")
+		}
+		p = llm.NewAnthropic(a.config.AnthropicKey, "", name)
+	default:
+		if a.config.OllamaURL != "" {
+			p = llm.NewOpenAI("", a.config.OllamaURL, name)
+		} else if a.config.OpenAIKey != "" {
+			p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+		} else {
+			return fmt.Errorf("unknown model: %s", name)
+		}
+	}
+
+	a.mu.Lock()
+	a.llm = p
+	// Clear all history — message formats differ between providers
+	a.history = make(map[string][]json.RawMessage)
+	a.mu.Unlock()
+
+	logger.Info("switched to " + name)
+	return nil
+}
+
+// Status returns a formatted status string for the /status command.
+func (a *Agent) Status() string {
+	a.mu.Lock()
+	tokens := a.totalTokens
+	a.mu.Unlock()
+
+	uptime := time.Since(a.startTime).Truncate(time.Second)
+	paths := a.tools.ApprovedPaths()
+
+	msg := fmt.Sprintf("**nevinho status**\n"+
+		"• Model: `%s`\n"+
+		"• Uptime: %s\n"+
+		"• Session tokens: %d\n"+
+		"• Approved paths: %d",
+		a.llm.Model(), formatDuration(uptime), tokens, len(paths))
+
+	if len(paths) > 0 {
+		msg += "\n"
+		for _, p := range paths {
+			msg += fmt.Sprintf("\n  `%s`", p)
+		}
+	}
+
+	return msg
+}
+
+// ApprovedPaths returns the list of approved filesystem paths.
+func (a *Agent) ApprovedPaths() []string {
+	return a.tools.ApprovedPaths()
+}
+
+// ClearApprovedPaths removes all approved filesystem paths.
+func (a *Agent) ClearApprovedPaths() {
+	a.tools.ClearApprovedPaths()
+}
+
+func (a *Agent) addTokens(n int) {
+	a.mu.Lock()
+	a.totalTokens += n
+	a.mu.Unlock()
 }
 
 // getUserLock returns a per-user mutex so different users can chat
@@ -191,7 +283,7 @@ func approvalMessage(p *tools.Pending) string {
 	}
 	switch p.Kind {
 	case "path":
-		return fmt.Sprintf("I need permission to write to `%s`. Reply **yes** to allow.", shortenDetail(p))
+		return fmt.Sprintf("I need permission to write to `%s`. Reply **yes** to allow.", p.Detail)
 	case "code":
 		return fmt.Sprintf("I want to run this:\n```\n%s\n```\nReply **yes** to allow.", p.Detail)
 	default:
@@ -199,12 +291,17 @@ func approvalMessage(p *tools.Pending) string {
 	}
 }
 
-func shortenDetail(p *tools.Pending) string {
-	if p.Kind == "path" {
-		// Use ~ for home directory in display
-		return p.Detail
+func formatDuration(d time.Duration) string {
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
 	}
-	return p.Detail
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 func trimHistory(msgs []json.RawMessage, maxLen int) []json.RawMessage {
@@ -222,17 +319,14 @@ func trimHistory(msgs []json.RawMessage, maxLen int) []json.RawMessage {
 			start++
 			continue
 		}
-		// Skip tool messages (OpenAI tool results)
 		if peek.Role == "tool" {
 			start++
 			continue
 		}
-		// Skip assistant messages (may have tool_calls)
 		if peek.Role == "assistant" {
 			start++
 			continue
 		}
-		// Skip Anthropic-style tool results (user message with array content)
 		if peek.Role == "user" && len(peek.Content) > 0 && peek.Content[0] == '[' {
 			start++
 			continue
