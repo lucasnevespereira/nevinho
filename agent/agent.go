@@ -29,7 +29,10 @@ const (
 - web_search gives you results with titles, URLs, and descriptions — that's often enough to answer without reading the page.
 - web_read works best on articles and docs. It won't work on JS-heavy sites (YouTube, Twitter, Reddit). If it returns garbage, use the search results you already have.
 - You can chain tools: search first, then read promising links, then summarize.
-- run_code is powerful — use it for calculations, data processing, or anything that needs precision. Each execution requires user permission.
+- run_code is powerful — use it for calculations, data processing, or anything that needs precision.
+- For filesystem tasks (listing, counting, finding files), prefer bash over python — it's simpler and less error-prone.
+- When writing python/node, always use print()/console.log() to output results. Use semicolons or proper newlines between statements.
+- If a tool call fails, try a different approach instead of repeating the same command.
 
 ## File operations
 - Absolute paths (~/path, /path) and simple names (notes.txt → workspace) both work.

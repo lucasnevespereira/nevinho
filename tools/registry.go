@@ -86,7 +86,7 @@ func (r *Registry) Defs() []llm.ToolDef {
 		},
 		{
 			Name:        "run_code",
-			Description: "Execute a code snippet. Supports python3, node, and bash. Requires user approval for each execution.",
+			Description: "Execute a code snippet. Supports python3, node, and bash. Destructive commands and access to sensitive paths require user approval.",
 			Schema:      `{"type":"object","properties":{"language":{"type":"string","enum":["python3","node","bash"],"description":"Programming language"},"code":{"type":"string","description":"Code to execute"}},"required":["language","code"]}`,
 		},
 		{
