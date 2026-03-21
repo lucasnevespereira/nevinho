@@ -79,6 +79,9 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	case "/help":
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
 		return
+	case "/model":
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Current model: `%s`", b.agent.Model()))
+		return
 	}
 
 	// Show typing indicator
@@ -139,6 +142,7 @@ func helpMessage() string {
 **Commands:**
 • /new — start a fresh conversation
 • /forget — delete all history
+• /model — show current LLM model
 • /help — show this message
 
 Just type what you need. I'll figure it out.`

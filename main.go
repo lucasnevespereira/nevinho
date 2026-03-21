@@ -10,10 +10,12 @@ import (
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/logger"
 )
 
 func main() {
 	_ = godotenv.Load()
+	logger.Init()
 
 	token := os.Getenv("DISCORD_BOT_TOKEN")
 	if token == "" {
@@ -36,13 +38,13 @@ func main() {
 		log.Fatalf("failed to start bot: %v", err)
 	}
 
-	log.Println("nevinho is online. Press Ctrl+C to stop.")
+	logger.Info("nevinho is online")
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
-	log.Println("shutting down...")
+	logger.Info("shutting down...")
 	bot.Stop()
 }
 
@@ -53,13 +55,13 @@ func detectProvider() llm.Provider {
 
 	switch {
 	case ollamaModel != "":
-		log.Printf("provider: ollama (%s)", ollamaModel)
+		logger.Info("provider: ollama (" + ollamaModel + ")")
 		return llm.NewOpenAI("", "http://localhost:11434", ollamaModel)
 	case anthropicKey != "":
-		log.Println("provider: anthropic")
+		logger.Info("provider: anthropic")
 		return llm.NewAnthropic(anthropicKey, "", "")
 	case openaiKey != "":
-		log.Println("provider: openai")
+		logger.Info("provider: openai")
 		return llm.NewOpenAI(openaiKey, "", "")
 	default:
 		log.Fatal("set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OLLAMA_MODEL in .env")
