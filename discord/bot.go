@@ -1,24 +1,28 @@
 package discord
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/auth"
 )
 
 const maxMessageLen = 2000
 
 type Bot struct {
-	session *discordgo.Session
-	ownerID string
-	agent   *agent.Agent
-	cmds    []*discordgo.ApplicationCommand
+	session     *discordgo.Session
+	ownerID     string
+	agent       *agent.Agent
+	credentials *auth.Store
+	cmds        []*discordgo.ApplicationCommand
 }
 
-func New(token, ownerID string, a *agent.Agent) (*Bot, error) {
+func New(token, ownerID string, a *agent.Agent, creds *auth.Store) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Discord session: %w", err)
@@ -27,9 +31,10 @@ func New(token, ownerID string, a *agent.Agent) (*Bot, error) {
 	session.Identify.Intents = discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 
 	bot := &Bot{
-		session: session,
-		ownerID: ownerID,
-		agent:   a,
+		session:     session,
+		ownerID:     ownerID,
+		agent:       a,
+		credentials: creds,
 	}
 
 	session.AddHandler(bot.onMessage)
@@ -90,6 +95,42 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		},
 	},
 	{
+		Name:        "connect",
+		Description: "Connect an external service",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "service",
+				Description: "Service to connect",
+				Required:    true,
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "GitHub", Value: "github"},
+					{Name: "Google", Value: "google"},
+				},
+			},
+		},
+	},
+	{
+		Name:        "disconnect",
+		Description: "Disconnect an external service",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "service",
+				Description: "Service to disconnect",
+				Required:    true,
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "GitHub", Value: "github"},
+					{Name: "Google", Value: "google"},
+				},
+			},
+		},
+	},
+	{
+		Name:        "accounts",
+		Description: "Show connected external services",
+	},
+	{
 		Name:        "help",
 		Description: "Show available commands and capabilities",
 	},
@@ -121,7 +162,6 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 		return
 	}
 
-	// Only respond to the owner
 	userID := ""
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -179,11 +219,154 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 				reply += "\nUse `/paths clear` to revoke all."
 			}
 		}
+
+	case "connect":
+		service := data.Options[0].StringValue()
+		b.handleConnect(s, i, userID, service)
+		return // response handled inside handleConnect
+
+	case "disconnect":
+		service := data.Options[0].StringValue()
+		reply = b.handleDisconnect(userID, service)
+
+	case "accounts":
+		reply = b.handleAccounts(userID)
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Content: reply},
+	})
+}
+
+// --- connect/disconnect/accounts ---
+
+func (b *Bot) handleConnect(s *discordgo.Session, i *discordgo.InteractionCreate, userID, service string) {
+	ctx := context.Background()
+	svc := auth.Service(service)
+
+	// Already connected?
+	if tok := b.credentials.Get(userID, svc); tok != nil {
+		label := tok.Username
+		if label == "" {
+			label = tok.Email
+		}
+		respond(s, i, fmt.Sprintf("Already connected to %s as **%s**.\nUse `/disconnect %s` first to reconnect.", service, label, service))
+		return
+	}
+
+	switch svc {
+	case auth.GitHub:
+		clientID := os.Getenv("GITHUB_CLIENT_ID")
+		if clientID == "" {
+			respond(s, i, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env\n\nCreate one at: https://github.com/settings/applications/new")
+			return
+		}
+
+		flow := &auth.GitHubFlow{ClientID: clientID}
+		dc, err := flow.StartDeviceFlow(ctx)
+		if err != nil {
+			respond(s, i, fmt.Sprintf("Failed to start GitHub auth: %v", err))
+			return
+		}
+
+		respond(s, i, fmt.Sprintf("**Connect GitHub**\n\n"+
+			"1. Open: %s\n"+
+			"2. Enter code: `%s`\n\n"+
+			"Waiting for authorization...", dc.VerificationURI, dc.UserCode))
+
+		go b.pollGitHub(s, i.ChannelID, userID, flow, dc)
+
+	case auth.Google:
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		if clientID == "" || clientSecret == "" {
+			respond(s, i, "Google not configured. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in .env\n\nCreate at: https://console.cloud.google.com/apis/credentials")
+			return
+		}
+
+		flow := &auth.GoogleFlow{ClientID: clientID, ClientSecret: clientSecret}
+		dc, err := flow.StartDeviceFlow(ctx)
+		if err != nil {
+			respond(s, i, fmt.Sprintf("Failed to start Google auth: %v", err))
+			return
+		}
+
+		respond(s, i, fmt.Sprintf("**Connect Google**\n\n"+
+			"1. Open: %s\n"+
+			"2. Enter code: `%s`\n\n"+
+			"Waiting for authorization...", dc.VerificationURI, dc.UserCode))
+
+		go b.pollGoogle(s, i.ChannelID, userID, flow, dc)
+
+	default:
+		respond(s, i, fmt.Sprintf("Unknown service: %s", service))
+	}
+}
+
+func (b *Bot) pollGitHub(s *discordgo.Session, channelID, userID string, flow *auth.GitHubFlow, dc *auth.DeviceCode) {
+	tok, err := flow.PollForToken(context.Background(), dc)
+	if err != nil {
+		s.ChannelMessageSend(channelID, fmt.Sprintf("GitHub connection failed: %v", err))
+		return
+	}
+	if err := b.credentials.Set(userID, auth.GitHub, tok); err != nil {
+		s.ChannelMessageSend(channelID, "Failed to save GitHub credentials.")
+		return
+	}
+	s.ChannelMessageSend(channelID, fmt.Sprintf("Connected to GitHub as **%s**!", tok.Username))
+}
+
+func (b *Bot) pollGoogle(s *discordgo.Session, channelID, userID string, flow *auth.GoogleFlow, dc *auth.DeviceCode) {
+	tok, err := flow.PollForToken(context.Background(), dc)
+	if err != nil {
+		s.ChannelMessageSend(channelID, fmt.Sprintf("Google connection failed: %v", err))
+		return
+	}
+	if err := b.credentials.Set(userID, auth.Google, tok); err != nil {
+		s.ChannelMessageSend(channelID, "Failed to save Google credentials.")
+		return
+	}
+	label := tok.Email
+	if label == "" {
+		label = tok.Username
+	}
+	s.ChannelMessageSend(channelID, fmt.Sprintf("Connected to Google as **%s**!", label))
+}
+
+func (b *Bot) handleDisconnect(userID, service string) string {
+	svc := auth.Service(service)
+	if tok := b.credentials.Get(userID, svc); tok == nil {
+		return fmt.Sprintf("Not connected to %s.", service)
+	}
+	if err := b.credentials.Delete(userID, svc); err != nil {
+		return fmt.Sprintf("Failed to disconnect: %v", err)
+	}
+	return fmt.Sprintf("Disconnected from %s.", service)
+}
+
+func (b *Bot) handleAccounts(userID string) string {
+	connected := b.credentials.Connected(userID)
+	if len(connected) == 0 {
+		return "No services connected.\n\nUse `/connect github` or `/connect google` to get started."
+	}
+
+	msg := "**Connected services:**\n"
+	for svc, tok := range connected {
+		label := tok.Username
+		if label == "" {
+			label = tok.Email
+		}
+		msg += fmt.Sprintf("• **%s** — %s\n", svc, label)
+	}
+	msg += "\nUse `/disconnect <service>` to remove."
+	return msg
+}
+
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: content},
 	})
 }
 
@@ -208,7 +391,6 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// Handle text-based commands as fallback (also handled by slash commands)
 	lower := strings.ToLower(text)
 	switch {
 	case lower == "/new":
@@ -223,6 +405,9 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	case lower == "/status":
 		s.ChannelMessageSend(m.ChannelID, b.agent.Status())
+		return
+	case lower == "/accounts":
+		s.ChannelMessageSend(m.ChannelID, b.handleAccounts(m.Author.ID))
 		return
 	case lower == "/paths":
 		paths := b.agent.ApprovedPaths()
@@ -250,12 +435,18 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Switched to `%s`. History cleared.", name))
 		}
 		return
+	case strings.HasPrefix(lower, "/connect "):
+		service := strings.TrimSpace(text[9:])
+		b.handleConnectText(s, m.ChannelID, m.Author.ID, service)
+		return
+	case strings.HasPrefix(lower, "/disconnect "):
+		service := strings.TrimSpace(text[12:])
+		s.ChannelMessageSend(m.ChannelID, b.handleDisconnect(m.Author.ID, service))
+		return
 	}
 
-	// Show typing indicator
 	s.ChannelTyping(m.ChannelID)
 
-	// Process with agent
 	response, err := b.agent.Chat(m.Author.ID, text)
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
@@ -269,6 +460,63 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	for _, chunk := range splitMessage(response) {
 		s.ChannelMessageSend(m.ChannelID, chunk)
+	}
+}
+
+// handleConnectText handles text-based /connect commands (non-slash).
+func (b *Bot) handleConnectText(s *discordgo.Session, channelID, userID, service string) {
+	ctx := context.Background()
+	svc := auth.Service(strings.ToLower(service))
+
+	if tok := b.credentials.Get(userID, svc); tok != nil {
+		label := tok.Username
+		if label == "" {
+			label = tok.Email
+		}
+		s.ChannelMessageSend(channelID, fmt.Sprintf("Already connected to %s as **%s**.\nUse `/disconnect %s` first.", service, label, service))
+		return
+	}
+
+	switch svc {
+	case auth.GitHub:
+		clientID := os.Getenv("GITHUB_CLIENT_ID")
+		if clientID == "" {
+			s.ChannelMessageSend(channelID, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env")
+			return
+		}
+		flow := &auth.GitHubFlow{ClientID: clientID}
+		dc, err := flow.StartDeviceFlow(ctx)
+		if err != nil {
+			s.ChannelMessageSend(channelID, fmt.Sprintf("Failed to start GitHub auth: %v", err))
+			return
+		}
+		s.ChannelMessageSend(channelID, fmt.Sprintf("**Connect GitHub**\n\n"+
+			"1. Open: %s\n"+
+			"2. Enter code: `%s`\n\n"+
+			"Waiting for authorization...", dc.VerificationURI, dc.UserCode))
+		go b.pollGitHub(s, channelID, userID, flow, dc)
+
+	case auth.Google:
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		if clientID == "" || clientSecret == "" {
+			s.ChannelMessageSend(channelID, "Google not configured. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in .env")
+			return
+		}
+		flow := &auth.GoogleFlow{ClientID: clientID, ClientSecret: clientSecret}
+		dc, err := flow.StartDeviceFlow(ctx)
+		if err != nil {
+			s.ChannelMessageSend(channelID, fmt.Sprintf("Failed to start Google auth: %v", err))
+			return
+		}
+		s.ChannelMessageSend(channelID, fmt.Sprintf("**Connect Google**\n\n"+
+			"1. Open: %s\n"+
+			"2. Enter code: `%s`\n\n"+
+			"Waiting for authorization...", dc.VerificationURI, dc.UserCode))
+		go b.pollGoogle(s, channelID, userID, flow, dc)
+
+	default:
+		s.ChannelMessageSend(channelID, fmt.Sprintf("Unknown service: `%s`. Try `github` or `google`.", service))
 	}
 }
 
@@ -310,6 +558,9 @@ func helpMessage() string {
 • /model — show or switch model
 • /status — uptime, tokens, model info
 • /paths — manage approved write paths
+• /connect — link GitHub or Google account
+• /disconnect — unlink a service
+• /accounts — show connected services
 • /help — show this message
 
 Just type what you need. I'll figure it out.`

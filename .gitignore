@@ -3,3 +3,4 @@ nevinho
 bin/
 .code
 .zed
+.internal/

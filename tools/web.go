@@ -64,13 +64,16 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	apiKey := os.Getenv("BRAVE_API_KEY")
-	if apiKey == "" {
-		return "web search not configured (BRAVE_API_KEY not set). Try web_read with a specific URL instead."
+	// Use Brave if configured, otherwise fall back to DuckDuckGo
+	if apiKey := os.Getenv("BRAVE_API_KEY"); apiKey != "" {
+		return searchBrave(in.Query, apiKey)
 	}
+	return searchDuckDuckGo(in.Query)
+}
 
+func searchBrave(query, apiKey string) string {
 	client := &http.Client{Timeout: httpTimeout}
-	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=5", url.QueryEscape(in.Query))
+	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=5", url.QueryEscape(query))
 
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
@@ -104,16 +107,152 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("failed to parse results: %v", err)
 	}
 
-	var sb strings.Builder
-	for i, r := range result.Web.Results {
-		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+	return formatSearchResults(result.Web.Results)
+}
+
+func searchDuckDuckGo(query string) string {
+	client := &http.Client{Timeout: httpTimeout}
+	reqURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return fmt.Sprintf("failed to create request: %v", err)
+	}
+	req.Header.Set("User-Agent", "Nevinho/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("search failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 500*1024))
+	if err != nil {
+		return fmt.Sprintf("failed to read response: %v", err)
 	}
 
-	if sb.Len() == 0 {
+	return parseDuckDuckGoHTML(string(body))
+}
+
+func parseDuckDuckGoHTML(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return "failed to parse search results"
+	}
+
+	type result struct {
+		Title, URL, Description string
+	}
+	var results []result
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "div" && hasClass(n, "result") {
+			r := result{}
+			// Extract link and title
+			if a := findNode(n, "a", "result__a"); a != nil {
+				r.Title = textContent(a)
+				for _, attr := range a.Attr {
+					if attr.Key == "href" {
+						r.URL = extractDDGURL(attr.Val)
+					}
+				}
+			}
+			// Extract snippet
+			if sn := findNode(n, "a", "result__snippet"); sn != nil {
+				r.Description = textContent(sn)
+			}
+			if r.Title != "" && r.URL != "" {
+				results = append(results, r)
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if len(results) == 0 {
 		return "no results found"
 	}
+	if len(results) > 5 {
+		results = results[:5]
+	}
 
+	var sb strings.Builder
+	for i, r := range results {
+		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+	}
 	return sb.String()
+}
+
+func formatSearchResults(results []struct {
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+}) string {
+	if len(results) == 0 {
+		return "no results found"
+	}
+	var sb strings.Builder
+	for i, r := range results {
+		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+	}
+	return sb.String()
+}
+
+// --- DuckDuckGo HTML helpers ---
+
+func hasClass(n *html.Node, class string) bool {
+	for _, attr := range n.Attr {
+		if attr.Key == "class" {
+			for _, c := range strings.Fields(attr.Val) {
+				if c == class {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func findNode(n *html.Node, tag, class string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == tag && hasClass(n, class) {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findNode(c, tag, class); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func textContent(n *html.Node) string {
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			sb.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return strings.TrimSpace(sb.String())
+}
+
+func extractDDGURL(raw string) string {
+	// DDG wraps URLs like //duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&...
+	if strings.Contains(raw, "uddg=") {
+		if u, err := url.Parse(raw); err == nil {
+			if decoded := u.Query().Get("uddg"); decoded != "" {
+				return decoded
+			}
+		}
+	}
+	return raw
 }
 
 // --- URL validation ---
