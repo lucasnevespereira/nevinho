@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,7 +65,6 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	// Use Brave if configured, otherwise fall back to DuckDuckGo
 	if apiKey := os.Getenv("BRAVE_API_KEY"); apiKey != "" {
 		return searchBrave(in.Query, apiKey)
 	}
@@ -181,7 +181,7 @@ func parseDuckDuckGoHTML(htmlContent string) string {
 
 	var sb strings.Builder
 	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description)
 	}
 	return sb.String()
 }
@@ -196,21 +196,15 @@ func formatSearchResults(results []struct {
 	}
 	var sb strings.Builder
 	for i, r := range results {
-		sb.WriteString(fmt.Sprintf("%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description))
+		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description)
 	}
 	return sb.String()
 }
 
-// --- DuckDuckGo HTML helpers ---
-
 func hasClass(n *html.Node, class string) bool {
 	for _, attr := range n.Attr {
 		if attr.Key == "class" {
-			for _, c := range strings.Fields(attr.Val) {
-				if c == class {
-					return true
-				}
-			}
+			return slices.Contains(strings.Fields(attr.Val), class)
 		}
 	}
 	return false
@@ -244,7 +238,6 @@ func textContent(n *html.Node) string {
 }
 
 func extractDDGURL(raw string) string {
-	// DDG wraps URLs like //duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&...
 	if strings.Contains(raw, "uddg=") {
 		if u, err := url.Parse(raw); err == nil {
 			if decoded := u.Query().Get("uddg"); decoded != "" {
@@ -254,8 +247,6 @@ func extractDDGURL(raw string) string {
 	}
 	return raw
 }
-
-// --- URL validation ---
 
 func validateURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
@@ -283,7 +274,19 @@ func validateURL(rawURL string) error {
 	return nil
 }
 
-// --- HTML text extraction ---
+var skipTags = map[string]bool{
+	"script": true, "style": true, "noscript": true, "svg": true,
+	"iframe": true, "nav": true, "footer": true, "header": true,
+	"aside": true, "form": true, "button": true, "select": true,
+	"textarea": true, "input": true,
+}
+
+var blockTags = map[string]bool{
+	"p": true, "div": true, "br": true, "hr": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"li": true, "tr": true, "dt": true, "dd": true,
+	"blockquote": true, "pre": true, "article": true, "section": true,
+}
 
 func extractText(htmlContent string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
@@ -291,11 +294,27 @@ func extractText(htmlContent string) string {
 		return htmlContent
 	}
 
+	var root *html.Node
+	if main := findTag(doc, "main"); main != nil {
+		root = main
+	} else if article := findTag(doc, "article"); article != nil {
+		root = article
+	} else {
+		root = doc
+	}
+
 	var sb strings.Builder
 	var extract func(*html.Node)
 	extract = func(n *html.Node) {
-		if n.Type == html.ElementNode && (n.Data == "script" || n.Data == "style" || n.Data == "nav" || n.Data == "header" || n.Data == "footer") {
+		if n.Type == html.ElementNode && skipTags[n.Data] {
 			return
+		}
+		if n.Type == html.ElementNode {
+			for _, a := range n.Attr {
+				if a.Key == "hidden" || (a.Key == "aria-hidden" && a.Val == "true") {
+					return
+				}
+			}
 		}
 		if n.Type == html.TextNode {
 			text := strings.TrimSpace(n.Data)
@@ -307,14 +326,40 @@ func extractText(htmlContent string) string {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			extract(c)
 		}
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr":
-				sb.WriteString("\n")
-			}
+		if n.Type == html.ElementNode && blockTags[n.Data] {
+			sb.WriteString("\n")
 		}
 	}
 
-	extract(doc)
-	return strings.TrimSpace(sb.String())
+	extract(root)
+
+	text := sb.String()
+	lines := strings.Split(text, "\n")
+	var out []string
+	blanks := 0
+	for _, line := range lines {
+		line = strings.TrimRight(line, " \t")
+		if line == "" {
+			blanks++
+			if blanks <= 1 {
+				out = append(out, "")
+			}
+		} else {
+			blanks = 0
+			out = append(out, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func findTag(n *html.Node, tag string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == tag {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findTag(c, tag); found != nil {
+			return found
+		}
+	}
+	return nil
 }

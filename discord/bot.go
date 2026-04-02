@@ -56,8 +56,6 @@ func (b *Bot) Stop() {
 	b.session.Close()
 }
 
-// --- slash commands ---
-
 var slashCommands = []*discordgo.ApplicationCommand{
 	{
 		Name:        "new",
@@ -212,11 +210,13 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 			if len(paths) == 0 {
 				reply = "No approved paths."
 			} else {
-				reply = "**Approved paths:**\n"
+				var sb strings.Builder
+				sb.WriteString("**Approved paths:**\n")
 				for _, p := range paths {
-					reply += fmt.Sprintf("• `%s`\n", p)
+					fmt.Fprintf(&sb, "• `%s`\n", p)
 				}
-				reply += "\nUse `/paths clear` to revoke all."
+				sb.WriteString("\nUse `/paths clear` to revoke all.")
+				reply = sb.String()
 			}
 		}
 
@@ -239,13 +239,10 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	})
 }
 
-// --- connect/disconnect/accounts ---
-
 func (b *Bot) handleConnect(s *discordgo.Session, i *discordgo.InteractionCreate, userID, service string) {
 	ctx := context.Background()
 	svc := auth.Service(service)
 
-	// Already connected?
 	if tok := b.credentials.Get(userID, svc); tok != nil {
 		label := tok.Username
 		if label == "" {
@@ -351,16 +348,17 @@ func (b *Bot) handleAccounts(userID string) string {
 		return "No services connected.\n\nUse `/connect github` or `/connect google` to get started."
 	}
 
-	msg := "**Connected services:**\n"
+	var sb strings.Builder
+	sb.WriteString("**Connected services:**\n")
 	for svc, tok := range connected {
 		label := tok.Username
 		if label == "" {
 			label = tok.Email
 		}
-		msg += fmt.Sprintf("• **%s** — %s\n", svc, label)
+		fmt.Fprintf(&sb, "• **%s** — %s\n", svc, label)
 	}
-	msg += "\nUse `/disconnect <service>` to remove."
-	return msg
+	sb.WriteString("\nUse `/disconnect <service>` to remove.")
+	return sb.String()
 }
 
 func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
@@ -369,8 +367,6 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content strin
 		Data: &discordgo.InteractionResponseData{Content: content},
 	})
 }
-
-// --- text message handling ---
 
 func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
@@ -414,12 +410,13 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if len(paths) == 0 {
 			s.ChannelMessageSend(m.ChannelID, "No approved paths.")
 		} else {
-			msg := "**Approved paths:**\n"
+			var sb strings.Builder
+			sb.WriteString("**Approved paths:**\n")
 			for _, p := range paths {
-				msg += fmt.Sprintf("• `%s`\n", p)
+				fmt.Fprintf(&sb, "• `%s`\n", p)
 			}
-			msg += "\nUse `/paths clear` to revoke all."
-			s.ChannelMessageSend(m.ChannelID, msg)
+			sb.WriteString("\nUse `/paths clear` to revoke all.")
+			s.ChannelMessageSend(m.ChannelID, sb.String())
 		}
 		return
 	case lower == "/paths clear":

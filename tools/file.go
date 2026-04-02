@@ -79,8 +79,6 @@ func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
 	return fmt.Sprintf("saved to %s", in.Path)
 }
 
-// --- path helpers ---
-
 func resolvePath(path, userID string) (string, error) {
 	if strings.HasPrefix(path, "~/") {
 		resolved, err := expandHome(path)

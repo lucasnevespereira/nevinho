@@ -108,8 +108,6 @@ func (s *Store) Connected(userID string) map[Service]*Token {
 	return out
 }
 
-// --- encryption ---
-
 func (s *Store) load() error {
 	enc, err := os.ReadFile(s.filePath)
 	if err != nil {
