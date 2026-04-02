@@ -4,10 +4,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/auth"
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
@@ -35,9 +37,16 @@ func main() {
 		config.OllamaURL = "http://localhost:11434"
 	}
 
+	home, _ := os.UserHomeDir()
+	configDir := filepath.Join(home, ".config", "nevinho")
+	creds, err := auth.NewStore(configDir)
+	if err != nil {
+		log.Fatalf("failed to init credentials: %v", err)
+	}
+
 	provider := detectProvider(config)
 	a := agent.New(provider, config)
-	bot, err := discord.New(token, ownerID, a)
+	bot, err := discord.New(token, ownerID, a, creds)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
 	}

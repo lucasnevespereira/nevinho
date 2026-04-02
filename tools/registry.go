@@ -11,7 +11,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/llm"
 )
 
-const maxResponseLen = 10000 // chars, shared across tools
+const maxResponseLen = 10000
 
 func configDir() string {
 	home, err := os.UserHomeDir()
@@ -21,10 +21,9 @@ func configDir() string {
 	return filepath.Join(home, ".config", "nevinho")
 }
 
-// Pending represents an action awaiting user approval.
 type Pending struct {
 	Kind   string // "path" or "code"
-	Detail string // display info: resolved dir path, or code preview
+	Detail string
 	Code   *pendingCode
 }
 
@@ -33,11 +32,10 @@ type pendingCode struct {
 	UserID string
 }
 
-// Registry manages tool execution and permissions.
 type Registry struct {
 	mu       sync.Mutex
-	approved map[string]bool     // approved filesystem paths (persisted)
-	pending  map[string]*Pending // userID → what's awaiting approval
+	approved map[string]bool
+	pending  map[string]*Pending
 	permFile string
 }
 
@@ -76,12 +74,12 @@ func (r *Registry) Defs() []llm.ToolDef {
 	return []llm.ToolDef{
 		{
 			Name:        "web_read",
-			Description: "Fetch a URL and return the text content.",
+			Description: "Fetch a web page and return its readable text content. Use this after web_search to read the full content of relevant pages, or to fetch any URL directly.",
 			Schema:      `{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"}},"required":["url"]}`,
 		},
 		{
 			Name:        "web_search",
-			Description: "Search the web and return top results.",
+			Description: "Search the web and return a list of results with titles, URLs, and short snippets. This only returns summaries — to get the full content of a page, call web_read with the URL. Always follow up with web_read on the most relevant results to get detailed information before answering.",
 			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"The search query"}},"required":["query"]}`,
 		},
 		{
@@ -101,8 +99,6 @@ func (r *Registry) Defs() []llm.ToolDef {
 		},
 	}
 }
-
-// --- permissions ---
 
 func (r *Registry) ApprovedPaths() []string {
 	r.mu.Lock()
@@ -138,11 +134,9 @@ func (r *Registry) ApprovePending(userID string) {
 		r.approved[p.Detail] = true
 		r.saveApproved()
 	}
-	// For "code", approval is consumed by re-executing the pending command
 	delete(r.pending, userID)
 }
 
-// ExecutePendingCode runs the code that was blocked and is now approved.
 func (r *Registry) ExecutePendingCode(userID string) string {
 	r.mu.Lock()
 	p := r.pending[userID]
@@ -150,7 +144,6 @@ func (r *Registry) ExecutePendingCode(userID string) string {
 	if p == nil || p.Kind != "code" || p.Code == nil {
 		return ""
 	}
-	// Mark approved so the re-execution passes the permission check
 	r.mu.Lock()
 	delete(r.pending, userID)
 	r.mu.Unlock()

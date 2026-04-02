@@ -2,7 +2,6 @@ package llm
 
 import "encoding/json"
 
-// Provider abstracts LLM API differences (Anthropic, OpenAI, Ollama).
 type Provider interface {
 	Complete(req *Request) (*Response, error)
 	FormatUserMessage(text string) json.RawMessage

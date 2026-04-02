@@ -12,9 +12,9 @@ import (
 
 const codeTimeout = 10 * time.Second
 
-// Dangerous command patterns — if matched, require user approval.
+// Patterns that require user approval before execution.
 var dangerousPatterns = []*regexp.Regexp{
-	// Destructive commands
+	// Destructive
 	regexp.MustCompile(`\brm\b`),
 	regexp.MustCompile(`\brmdir\b`),
 	regexp.MustCompile(`\bmkfs\b`),
@@ -26,7 +26,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bsu\b`),
 	regexp.MustCompile(`\bdoas\b`),
 
-	// Permission/ownership changes
+	// Permission changes
 	regexp.MustCompile(`\bchmod\b`),
 	regexp.MustCompile(`\bchown\b`),
 	regexp.MustCompile(`\bchgrp\b`),
@@ -36,7 +36,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bkillall\b`),
 	regexp.MustCompile(`\bpkill\b`),
 
-	// Network exfiltration patterns
+	// Network exfiltration
 	regexp.MustCompile(`\bcurl\b.*\|`),
 	regexp.MustCompile(`\bwget\b.*\|`),
 	regexp.MustCompile(`\bcurl\b.*-[oO]`),
@@ -45,14 +45,14 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`>\s*/dev/`),
 	regexp.MustCompile(`>\s*/etc/`),
 
-	// Fork bomb patterns
+	// Fork bomb
 	regexp.MustCompile(`:\(\)\s*\{`),
 
-	// Eval/exec of remote code
+	// Eval of remote code
 	regexp.MustCompile(`\beval\b.*\$\(`),
 }
 
-// Sensitive paths — code touching these requires approval.
+// Paths that require approval when referenced in code.
 var sensitivePaths = []string{
 	"/.ssh",
 	"/.gnupg",

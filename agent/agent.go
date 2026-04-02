@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,33 +18,31 @@ const (
 	maxLoops   = 10
 	maxHistory = 20
 
-	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You are resourceful and always try to deliver an answer.
+	systemPrompt = `You are nevinho, a personal AI assistant on Discord.
 
 ## Style
-- Be concise. Messages should be short and readable on a phone.
-- Use markdown: **bold**, ` + "`" + `code` + "`" + `, code blocks, bullet points. Keep it clean.
+- Be concise. Messages should be readable on a phone.
+- Use markdown: **bold**, ` + "`" + `code` + "`" + `, code blocks, bullet points.
 
 ## Tool use
-- Always prefer action over clarification. Just do it.
-- Be persistent. If one approach fails, try another. Never say "I can't access that" without trying alternatives.
-- web_search gives you results with titles, URLs, and descriptions — that's often enough to answer without reading the page.
-- web_read works best on articles and docs. It won't work on JS-heavy sites (YouTube, Twitter, Reddit). If it returns garbage, use the search results you already have.
-- You can chain tools: search first, then read promising links, then summarize.
-- run_code is powerful — use it for calculations, data processing, or anything that needs precision.
-- For filesystem tasks (listing, counting, finding files), prefer bash over python — it's simpler and less error-prone.
-- When writing python/node, always use print()/console.log() to output results. Use semicolons or proper newlines between statements.
-- If a tool call fails, try a different approach instead of repeating the same command.
+- Prefer action over clarification.
+- If one approach fails, try another before giving up.
+- web_search returns titles, URLs, and snippets — often enough without reading the page.
+- web_read works on articles and docs, not JS-heavy sites (YouTube, Twitter, Reddit).
+- Chain tools: search → read promising links → summarize.
+- run_code handles calculations, data processing, anything needing precision.
+- For filesystem tasks, prefer bash over python.
+- Always use print()/console.log() to output results from python/node.
 
 ## File operations
 - Absolute paths (~/path, /path) and simple names (notes.txt → workspace) both work.
-- If a file write fails due to permissions, tell the user which directory needs access and that they should reply yes to allow it.`
+- If a write fails due to permissions, tell the user which directory needs access.`
 )
 
-// ProviderConfig holds API keys for all available providers.
 type ProviderConfig struct {
 	AnthropicKey string
 	OpenAIKey    string
-	OllamaURL    string // empty means no Ollama
+	OllamaURL    string
 }
 
 type Agent struct {
@@ -70,12 +69,10 @@ func New(provider llm.Provider, config ProviderConfig) *Agent {
 }
 
 func (a *Agent) Chat(userID, text string) (string, error) {
-	// Serialize messages per user to prevent history corruption
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Handle pending approval
 	if p := a.tools.PendingApproval(userID); p != nil && looksLikeApproval(text) {
 		switch p.Kind {
 		case "path":
@@ -112,7 +109,6 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		usage.Out += resp.Usage.Out
 		a.history[userID] = append(a.history[userID], resp.AssistantMessage)
 
-		// No tool calls — return the text response
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In + usage.Out)
 			logger.Done(start, usage.In+usage.Out, toolsUsed)
@@ -120,7 +116,6 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			return resp.Text, nil
 		}
 
-		// Execute tools and collect results
 		var results []llm.ToolResult
 		needsApproval := false
 		for _, tc := range resp.ToolCalls {
@@ -133,8 +128,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			}
 		}
 
-		// Always append tool results before any early return — the API
-		// requires tool responses after every assistant message with tool_calls
+		// The API requires tool results after every assistant message with tool_use
 		for _, msg := range a.llm.FormatToolResults(results) {
 			a.history[userID] = append(a.history[userID], msg)
 		}
@@ -167,9 +161,6 @@ func (a *Agent) Model() string {
 	return a.llm.Model()
 }
 
-// SwitchModel changes the active LLM model, auto-detecting the provider
-// from the model name. Clears all conversation history since message
-// formats differ between providers.
 func (a *Agent) SwitchModel(name string) error {
 	var p llm.Provider
 	switch {
@@ -195,7 +186,6 @@ func (a *Agent) SwitchModel(name string) error {
 
 	a.mu.Lock()
 	a.llm = p
-	// Clear all history — message formats differ between providers
 	a.history = make(map[string][]json.RawMessage)
 	a.mu.Unlock()
 
@@ -203,7 +193,6 @@ func (a *Agent) SwitchModel(name string) error {
 	return nil
 }
 
-// Status returns a formatted status string for the /status command.
 func (a *Agent) Status() string {
 	a.mu.Lock()
 	tokens := a.totalTokens
@@ -212,29 +201,25 @@ func (a *Agent) Status() string {
 	uptime := time.Since(a.startTime).Truncate(time.Second)
 	paths := a.tools.ApprovedPaths()
 
-	msg := fmt.Sprintf("**nevinho status**\n"+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "**nevinho status**\n"+
 		"• Model: `%s`\n"+
 		"• Uptime: %s\n"+
 		"• Session tokens: %d\n"+
 		"• Approved paths: %d",
 		a.llm.Model(), formatDuration(uptime), tokens, len(paths))
 
-	if len(paths) > 0 {
-		msg += "\n"
-		for _, p := range paths {
-			msg += fmt.Sprintf("\n  `%s`", p)
-		}
+	for _, p := range paths {
+		fmt.Fprintf(&sb, "\n  `%s`", p)
 	}
 
-	return msg
+	return sb.String()
 }
 
-// ApprovedPaths returns the list of approved filesystem paths.
 func (a *Agent) ApprovedPaths() []string {
 	return a.tools.ApprovedPaths()
 }
 
-// ClearApprovedPaths removes all approved filesystem paths.
 func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
 }
@@ -245,8 +230,6 @@ func (a *Agent) addTokens(n int) {
 	a.mu.Unlock()
 }
 
-// getUserLock returns a per-user mutex so different users can chat
-// concurrently while the same user's messages are serialized.
 func (a *Agent) getUserLock(userID string) *sync.Mutex {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -256,9 +239,6 @@ func (a *Agent) getUserLock(userID string) *sync.Mutex {
 	return a.userLock[userID]
 }
 
-// appendHistory adds a message and trims if over the limit, ensuring
-// the window always starts on a plain user message (not a tool result
-// or assistant with tool_calls, which would break the API contract).
 func (a *Agent) appendHistory(userID string, msg json.RawMessage) {
 	a.history[userID] = append(a.history[userID], msg)
 	if len(a.history[userID]) > maxHistory {
@@ -266,7 +246,6 @@ func (a *Agent) appendHistory(userID string, msg json.RawMessage) {
 	}
 }
 
-// executeTool runs a tool with panic recovery so a broken tool can't crash the bot.
 func (a *Agent) executeTool(name string, input json.RawMessage, userID string) (output string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -339,7 +318,6 @@ func trimHistory(msgs []json.RawMessage, maxLen int) []json.RawMessage {
 	return msgs[start:]
 }
 
-// toolDetail extracts a one-line summary from tool input for logging.
 func toolDetail(name string, input json.RawMessage) string {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(input, &fields); err != nil {
@@ -375,12 +353,8 @@ func toolDetail(name string, input json.RawMessage) string {
 	}
 }
 
+var approvalWords = []string{"yes", "yep", "yeah", "sure", "ok", "okay", "go ahead", "allow", "approve", "y", "oui"}
+
 func looksLikeApproval(text string) bool {
-	t := strings.ToLower(strings.TrimSpace(text))
-	for _, word := range []string{"yes", "yep", "yeah", "sure", "ok", "okay", "go ahead", "allow", "approve", "y", "oui"} {
-		if t == word {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(approvalWords, strings.ToLower(strings.TrimSpace(text)))
 }
