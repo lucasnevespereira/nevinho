@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 	"github.com/lucasnevespereira/nevinho/tools"
@@ -57,11 +58,11 @@ type Agent struct {
 	totalTokens int
 }
 
-func New(provider llm.Provider, config ProviderConfig) *Agent {
+func New(provider llm.Provider, providerCfg ProviderConfig, cfg *config.Config) *Agent {
 	return &Agent{
 		llm:       provider,
-		tools:     tools.NewRegistry(),
-		config:    config,
+		tools:     tools.NewRegistry(cfg),
+		config:    providerCfg,
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		startTime: time.Now(),
@@ -222,6 +223,12 @@ func (a *Agent) ApprovedPaths() []string {
 
 func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
+}
+
+func (a *Agent) UpdateConfig(pc ProviderConfig) {
+	a.mu.Lock()
+	a.config = pc
+	a.mu.Unlock()
 }
 
 func (a *Agent) addTokens(n int) {

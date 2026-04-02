@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 )
 
@@ -34,14 +35,16 @@ type pendingCode struct {
 
 type Registry struct {
 	mu       sync.Mutex
+	cfg      *config.Config
 	approved map[string]bool
 	pending  map[string]*Pending
 	permFile string
 }
 
-func NewRegistry() *Registry {
+func NewRegistry(cfg *config.Config) *Registry {
 	base := configDir()
 	r := &Registry{
+		cfg:      cfg,
 		approved: make(map[string]bool),
 		pending:  make(map[string]*Pending),
 		permFile: filepath.Join(base, "approved_paths.json"),

@@ -1,15 +1,13 @@
 package auth
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/lucasnevespereira/nevinho/crypto"
 )
 
 // Service identifies an external service.
@@ -49,7 +47,7 @@ type Store struct {
 
 // NewStore creates a credential store, loading existing tokens from disk.
 func NewStore(configDir string) (*Store, error) {
-	key, err := loadOrCreateKey(configDir)
+	key, err := crypto.LoadOrCreateKey(configDir)
 	if err != nil {
 		return nil, fmt.Errorf("auth key: %w", err)
 	}
@@ -113,7 +111,7 @@ func (s *Store) load() error {
 	if err != nil {
 		return err
 	}
-	plain, err := decrypt(s.key, enc)
+	plain, err := crypto.Decrypt(s.key, enc)
 	if err != nil {
 		return err
 	}
@@ -125,70 +123,9 @@ func (s *Store) save() error {
 	if err != nil {
 		return err
 	}
-	enc, err := encrypt(s.key, plain)
+	enc, err := crypto.Encrypt(s.key, plain)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(s.filePath, enc, 0600)
-}
-
-func encrypt(key [32]byte, plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return gcm.Seal(nonce, nonce, plaintext, nil), nil
-}
-
-func decrypt(key [32]byte, ciphertext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	if len(ciphertext) < gcm.NonceSize() {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	nonce := ciphertext[:gcm.NonceSize()]
-	return gcm.Open(nil, nonce, ciphertext[gcm.NonceSize():], nil)
-}
-
-func loadOrCreateKey(configDir string) ([32]byte, error) {
-	// Prefer env var
-	if secret := os.Getenv("NEVINHO_SECRET"); secret != "" {
-		return sha256.Sum256([]byte(secret)), nil
-	}
-
-	// Fall back to auto-generated key file
-	keyFile := filepath.Join(configDir, "secret.key")
-	data, err := os.ReadFile(keyFile)
-	if err == nil && len(data) == 32 {
-		var key [32]byte
-		copy(key[:], data)
-		return key, nil
-	}
-
-	// Generate new key
-	var key [32]byte
-	if _, err := rand.Read(key[:]); err != nil {
-		return key, fmt.Errorf("generate key: %w", err)
-	}
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return key, err
-	}
-	if err := os.WriteFile(keyFile, key[:], 0600); err != nil {
-		return key, err
-	}
-	return key, nil
 }
