@@ -69,7 +69,7 @@ OLLAMA_MODEL=llama3
 BRAVE_API_KEY=paste_your_brave_key
 ```
 
-## 6. Run it
+## 6. Run it locally
 
 ```bash
 make run
@@ -82,7 +82,29 @@ provider: openai
 nevinho is online
 ```
 
-## 7. Test it
+## 7. Run it on a VPS
+
+```bash
+# Install Go if needed: https://go.dev/doc/install
+
+git clone https://github.com/lucasnevespereira/nevinho.git
+cd nevinho
+cp .env.example .env
+# Edit .env with your keys
+make build
+```
+
+Start it in the background so it survives after you close SSH:
+
+```bash
+nohup ./bin/nevinho > nevinho.log 2>&1 &
+```
+
+Check logs: `tail -f nevinho.log`
+
+Stop it: `pkill nevinho`
+
+## 8. Test it
 
 Open Discord. DM the bot. Try:
 
