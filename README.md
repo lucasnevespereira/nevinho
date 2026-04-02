@@ -96,4 +96,4 @@ logger/      colored terminal output
 
 ## License
 
-MIT
+[MIT](LICENSE)

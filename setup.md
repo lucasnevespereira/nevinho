@@ -50,7 +50,7 @@ You need at least one LLM provider. You can configure multiple and switch betwee
 ## 5. Configure the project
 
 ```bash
-cd ~/dev/play/nevinho
+cd nevinho
 cp .env.example .env
 ```
 
