@@ -12,11 +12,11 @@ Comes with tools for web search, code execution, and file management.
 
 Works with multiple LLM backends. Set one in your `.env`:
 
-| Provider | Env var | Default model |
-|----------|---------|---------------|
-| Anthropic | `ANTHROPIC_API_KEY` | claude-haiku-4-5 |
-| OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
-| Ollama | `OLLAMA_MODEL=llama3` | any local model |
+| Provider  | Env var               | Default model    |
+| --------- | --------------------- | ---------------- |
+| Anthropic | `ANTHROPIC_API_KEY`   | claude-haiku-4-5 |
+| OpenAI    | `OPENAI_API_KEY`      | gpt-4o-mini      |
+| Ollama    | `OLLAMA_MODEL=llama3` | any local model  |
 
 Detection priority: Ollama > Anthropic > OpenAI.
 
@@ -30,34 +30,34 @@ cp .env.example .env
 go run main.go
 ```
 
-See [setup.md](setup.md) for Discord bot creation steps.
+See [SETUP.md](SETUP.md) for Discord bot creation steps.
 
 ## Tools
 
-| Tool | What it does |
-|------|-------------|
+| Tool         | What it does                                |
+| ------------ | ------------------------------------------- |
 | `web_search` | Search via Brave API or DuckDuckGo fallback |
-| `web_read` | Fetch a URL and extract readable text |
-| `run_code` | Execute Python, Node, or bash (10s timeout) |
-| `file_read` | Read a file from workspace or absolute path |
+| `web_read`   | Fetch a URL and extract readable text       |
+| `run_code`   | Execute Python, Node, or bash (10s timeout) |
+| `file_read`  | Read a file from workspace or absolute path |
 | `file_write` | Write a file (absolute paths need approval) |
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `/new` | Start a fresh conversation |
-| `/model` | Show current model |
-| `/model <name>` | Switch model |
-| `/status` | Uptime, token usage, model info |
-| `/paths` | List approved write paths |
-| `/paths clear` | Revoke all path permissions |
-| `/connect <service>` | Link GitHub or Google via device flow |
-| `/disconnect <service>` | Unlink a service |
-| `/accounts` | Show connected services |
-| `/help` | Show capabilities |
+| Command                 | What it does                          |
+| ----------------------- | ------------------------------------- |
+| `/new`                  | Start a fresh conversation            |
+| `/model`                | Show current model                    |
+| `/model <name>`         | Switch model                          |
+| `/status`               | Uptime, token usage, model info       |
+| `/paths`                | List approved write paths             |
+| `/paths clear`          | Revoke all path permissions           |
+| `/connect <service>`    | Link GitHub or Google via device flow |
+| `/disconnect <service>` | Unlink a service                      |
+| `/accounts`             | Show connected services               |
+| `/help`                 | Show capabilities                     |
 
 All commands also work as plain text messages in the DM.
 
