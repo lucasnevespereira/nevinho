@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/lucasnevespereira/nevinho/config"
 )
 
 const serviceFile = "/etc/systemd/system/nevinho.service"
@@ -14,6 +17,21 @@ const serviceFile = "/etc/systemd/system/nevinho.service"
 func startService(configDir string) {
 	if runtime.GOOS != "linux" {
 		run(configDir)
+		return
+	}
+
+	// Pre-flight: verify config exists before installing a service that would crash-loop
+	cfg, err := config.Load(configDir)
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.DiscordBotToken == "" || cfg.DiscordOwnerID == "" {
+		fmt.Println("Config incomplete. Run 'nevinho setup' first.")
+		return
+	}
+
+	if isRunning() {
+		fmt.Println("nevinho is already running.")
 		return
 	}
 
@@ -32,6 +50,10 @@ func stopService() {
 		fmt.Println("On macOS, stop with Ctrl+C.")
 		return
 	}
+	if !isRunning() {
+		fmt.Println("nevinho is not running.")
+		return
+	}
 	systemctl("stop", "nevinho")
 	fmt.Println("nevinho stopped.")
 }
@@ -47,6 +69,33 @@ func showLogs() {
 	cmd.Run()
 }
 
+func serviceStatus() {
+	if runtime.GOOS != "linux" {
+		fmt.Println("nevinho " + version)
+		fmt.Println("Service management is only available on Linux.")
+		return
+	}
+
+	fmt.Println("nevinho " + version)
+	if isRunning() {
+		fmt.Println("Status: running")
+	} else {
+		fmt.Println("Status: stopped")
+	}
+}
+
+func restartService() {
+	if runtime.GOOS != "linux" || !isRunning() {
+		return
+	}
+	systemctl("restart", "nevinho")
+}
+
+func isRunning() bool {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", "nevinho")
+	return cmd.Run() == nil
+}
+
 func installService() {
 	binPath, err := os.Executable()
 	if err != nil {
@@ -57,6 +106,8 @@ func installService() {
 		log.Fatalf("failed to resolve binary path: %v", err)
 	}
 
+	home, _ := os.UserHomeDir()
+
 	unit := fmt.Sprintf(`[Unit]
 Description=nevinho
 After=network.target
@@ -66,10 +117,12 @@ Type=simple
 ExecStart=%s --run
 Restart=always
 RestartSec=5
+TimeoutStopSec=5
+Environment=HOME=%s
 
 [Install]
 WantedBy=multi-user.target
-`, binPath)
+`, binPath, home)
 
 	if err := os.WriteFile(serviceFile, []byte(unit), 0644); err != nil {
 		log.Fatalf("failed to write service file (try running as root): %v", err)
@@ -84,6 +137,6 @@ func systemctl(args ...string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("systemctl %v failed: %v", args, err)
+		log.Fatalf("systemctl %s failed: %v", strings.Join(args, " "), err)
 	}
 }
