@@ -123,7 +123,8 @@ You can also use a `.env` file in the project directory for development. Env var
 
 ```
 main.go      entry point, CLI commands, provider detection
-service.go   systemd service management, self-upgrade
+service.go   systemd service management
+upgrade.go   self-update from GitHub releases
 agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
