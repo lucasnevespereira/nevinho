@@ -14,7 +14,12 @@ Comes with tools for web search, code execution, and file management.
 curl -sSL https://raw.githubusercontent.com/lucasnevespereira/nevinho/main/install.sh | bash
 ```
 
-This downloads the binary and walks you through setup (Discord token, LLM key, etc.).
+Then configure and start:
+
+```bash
+nevinho --setup
+nevinho
+```
 
 You can also reconfigure later from Discord with `/config`.
 
