@@ -2,7 +2,6 @@
 set -e
 
 REPO="lucasnevespereira/nevinho"
-INSTALL_DIR="$HOME/.local/bin"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -34,19 +33,25 @@ if ! curl -fsSL "https://github.com/${REPO}/releases/download/${LATEST}/${BINARY
 fi
 chmod +x /tmp/nevinho
 
-mkdir -p "$INSTALL_DIR"
-mv /tmp/nevinho "$INSTALL_DIR/nevinho"
-echo "Installed to ${INSTALL_DIR}/nevinho"
-
-# Add to PATH for future sessions
-if ! echo "$PATH" | grep -qF "$INSTALL_DIR"; then
-  SHELL_RC="$HOME/.bashrc"
-  [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
-  touch "$SHELL_RC"
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+# Try /usr/local/bin first (in PATH everywhere), fall back to ~/.local/bin
+if [ -w /usr/local/bin ]; then
+  mv /tmp/nevinho /usr/local/bin/nevinho
+  echo "Installed to /usr/local/bin/nevinho"
+else
+  INSTALL_DIR="$HOME/.local/bin"
+  mkdir -p "$INSTALL_DIR"
+  mv /tmp/nevinho "$INSTALL_DIR/nevinho"
+  echo "Installed to $INSTALL_DIR/nevinho"
+  if ! echo "$PATH" | grep -qF "$INSTALL_DIR"; then
+    SHELL_RC="$HOME/.bashrc"
+    [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
+    touch "$SHELL_RC"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
+    echo "Run 'source $SHELL_RC' to update your PATH."
+  fi
 fi
 
 echo ""
 echo "Done! Run:"
-echo "  $INSTALL_DIR/nevinho --setup"
-echo "  $INSTALL_DIR/nevinho"
+echo "  nevinho --setup"
+echo "  nevinho"
