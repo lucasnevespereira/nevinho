@@ -40,16 +40,10 @@ const (
 - If a write fails due to permissions, tell the user which directory needs access.`
 )
 
-type ProviderConfig struct {
-	AnthropicKey string
-	OpenAIKey    string
-	OllamaURL    string
-}
-
 type Agent struct {
-	llm    llm.Provider
-	tools  *tools.Registry
-	config ProviderConfig
+	llm   llm.Provider
+	tools *tools.Registry
+	cfg   *config.Config
 
 	mu          sync.Mutex
 	history     map[string][]json.RawMessage
@@ -58,11 +52,11 @@ type Agent struct {
 	totalTokens int
 }
 
-func New(provider llm.Provider, providerCfg ProviderConfig, cfg *config.Config) *Agent {
+func New(provider llm.Provider, cfg *config.Config) *Agent {
 	return &Agent{
 		llm:       provider,
 		tools:     tools.NewRegistry(cfg),
-		config:    providerCfg,
+		cfg:       cfg,
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		startTime: time.Now(),
@@ -163,23 +157,24 @@ func (a *Agent) Model() string {
 }
 
 func (a *Agent) SwitchModel(name string) error {
+	pc := a.cfg.ProviderConfig()
 	var p llm.Provider
 	switch {
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
-		if a.config.OpenAIKey == "" {
+		if pc.OpenAIKey == "" {
 			return fmt.Errorf("OPENAI_API_KEY not configured")
 		}
-		p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+		p = llm.NewOpenAI(pc.OpenAIKey, "", name)
 	case strings.HasPrefix(name, "claude-"):
-		if a.config.AnthropicKey == "" {
+		if pc.AnthropicKey == "" {
 			return fmt.Errorf("ANTHROPIC_API_KEY not configured")
 		}
-		p = llm.NewAnthropic(a.config.AnthropicKey, "", name)
+		p = llm.NewAnthropic(pc.AnthropicKey, "", name)
 	default:
-		if a.config.OllamaURL != "" {
-			p = llm.NewOpenAI("", a.config.OllamaURL, name)
-		} else if a.config.OpenAIKey != "" {
-			p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+		if pc.OllamaURL != "" {
+			p = llm.NewOpenAI("", pc.OllamaURL, name)
+		} else if pc.OpenAIKey != "" {
+			p = llm.NewOpenAI(pc.OpenAIKey, "", name)
 		} else {
 			return fmt.Errorf("unknown model: %s", name)
 		}
@@ -223,12 +218,6 @@ func (a *Agent) ApprovedPaths() []string {
 
 func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
-}
-
-func (a *Agent) UpdateConfig(pc ProviderConfig) {
-	a.mu.Lock()
-	a.config = pc
-	a.mu.Unlock()
 }
 
 func (a *Agent) addTokens(n int) {

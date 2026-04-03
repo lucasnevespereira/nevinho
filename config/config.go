@@ -148,12 +148,21 @@ func (c *Config) Keys() []KeyStatus {
 	return out
 }
 
-// ValidKeys returns the list of accepted key names.
-func ValidKeys() []string {
-	return []string{
-		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
-		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
-		"BRAVE_API_KEY",
-		"GITHUB_CLIENT_ID", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+type ProviderConfig struct {
+	AnthropicKey string
+	OpenAIKey    string
+	OllamaURL    string
+}
+
+func (c *Config) ProviderConfig() ProviderConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	pc := ProviderConfig{
+		AnthropicKey: c.AnthropicAPIKey,
+		OpenAIKey:    c.OpenAIAPIKey,
 	}
+	if c.OllamaModel != "" {
+		pc.OllamaURL = "http://localhost:11434"
+	}
+	return pc
 }

@@ -665,14 +665,6 @@ func (b *Bot) configDelete(key string) string {
 }
 
 func (b *Bot) reloadProvider() {
-	pc := agent.ProviderConfig{
-		AnthropicKey: b.cfg.AnthropicAPIKey,
-		OpenAIKey:    b.cfg.OpenAIAPIKey,
-	}
-	if b.cfg.OllamaModel != "" {
-		pc.OllamaURL = "http://localhost:11434"
-	}
-	b.agent.UpdateConfig(pc)
 	b.agent.SwitchModel(b.agent.Model())
 }
 
