@@ -53,5 +53,5 @@ fi
 
 echo ""
 echo "Done! Run:"
-echo "  nevinho --setup"
-echo "  nevinho"
+echo "  nevinho setup"
+echo "  nevinho start"

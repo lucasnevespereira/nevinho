@@ -25,18 +25,34 @@ func main() {
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".config", "nevinho")
 
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println("nevinho " + version)
-		return
+	cmd := ""
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
 	}
 
-	if len(os.Args) > 1 && os.Args[1] == "--setup" {
+	switch cmd {
+	case "version", "--version":
+		fmt.Println("nevinho " + version)
+	case "setup", "--setup":
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
 		}
-		return
+	case "start":
+		if os.Getenv("INVOCATION_ID") != "" {
+			run(configDir)
+		} else {
+			startService()
+		}
+	case "stop":
+		stopService()
+	case "logs":
+		showLogs()
+	default:
+		printUsage()
 	}
+}
 
+func run(configDir string) {
 	logger.Init()
 
 	cfg, err := config.Load(configDir)
@@ -45,10 +61,10 @@ func main() {
 	}
 
 	if cfg.DiscordBotToken == "" {
-		log.Fatal("DISCORD_BOT_TOKEN is required (run nevinho --setup or set in .env)")
+		log.Fatal("DISCORD_BOT_TOKEN is required (run nevinho setup)")
 	}
 	if cfg.DiscordOwnerID == "" {
-		log.Fatal("DISCORD_OWNER_ID is required (run nevinho --setup or set in .env)")
+		log.Fatal("DISCORD_OWNER_ID is required (run nevinho setup)")
 	}
 
 	provider := detectProvider(cfg)
@@ -91,7 +107,18 @@ func detectProvider(cfg *config.Config) llm.Provider {
 		logger.Info("provider: openai")
 		return llm.NewOpenAI(pc.OpenAIKey, "", "")
 	default:
-		log.Fatal("no LLM provider configured (run nevinho --setup or set keys in .env)")
+		log.Fatal("no LLM provider configured (run nevinho setup)")
 		return nil
 	}
+}
+
+func printUsage() {
+	fmt.Println("nevinho " + version)
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  nevinho setup    configure Discord token and LLM keys")
+	fmt.Println("  nevinho start    start the bot")
+	fmt.Println("  nevinho stop     stop the bot")
+	fmt.Println("  nevinho logs     show live logs")
+	fmt.Println("  nevinho version  show version")
 }
