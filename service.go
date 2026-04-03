@@ -35,10 +35,7 @@ func startService(configDir string) {
 		return
 	}
 
-	if _, err := os.Stat(serviceFile); os.IsNotExist(err) {
-		installService()
-	}
-
+	installService()
 	systemctl("start", "nevinho")
 	fmt.Println("nevinho started.")
 	fmt.Println("  nevinho logs     show live logs")
