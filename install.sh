@@ -45,6 +45,6 @@ if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
 fi
 
 echo ""
-echo "Running setup..."
-echo ""
-nevinho --setup
+echo "Done! Next steps:"
+echo "  nevinho --setup    configure Discord token and LLM keys"
+echo "  nevinho             start the bot"
