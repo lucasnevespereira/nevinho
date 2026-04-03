@@ -11,12 +11,9 @@ import (
 
 const serviceFile = "/etc/systemd/system/nevinho.service"
 
-func startService() {
-	if runtime.GOOS != "linux" || !hasSystemd() {
-		fmt.Println("No systemd found. On macOS or non-systemd Linux, run:")
-		fmt.Println("  nohup nevinho start &")
-		fmt.Println()
-		fmt.Println("Or use 'nevinho start' on a Linux server with systemd.")
+func startService(configDir string) {
+	if runtime.GOOS != "linux" {
+		run(configDir)
 		return
 	}
 
@@ -24,24 +21,24 @@ func startService() {
 		installService()
 	}
 
-	runCmd("systemctl", "start", "nevinho")
+	systemctl("start", "nevinho")
 	fmt.Println("nevinho started.")
 	fmt.Println("  nevinho logs     show live logs")
 	fmt.Println("  nevinho stop     stop the bot")
 }
 
 func stopService() {
-	if !hasSystemd() {
-		fmt.Println("No systemd found. Use: pkill nevinho")
+	if runtime.GOOS != "linux" {
+		fmt.Println("On macOS, stop with Ctrl+C.")
 		return
 	}
-	runCmd("systemctl", "stop", "nevinho")
+	systemctl("stop", "nevinho")
 	fmt.Println("nevinho stopped.")
 }
 
 func showLogs() {
-	if !hasSystemd() {
-		fmt.Println("No systemd found. Logs are only available with systemd.")
+	if runtime.GOOS != "linux" {
+		fmt.Println("Logs are available on Linux with systemd.")
 		return
 	}
 	cmd := exec.Command("journalctl", "-u", "nevinho", "-f", "--no-pager")
@@ -66,7 +63,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%s start
+ExecStart=%s --run
 Restart=always
 RestartSec=5
 
@@ -78,20 +75,15 @@ WantedBy=multi-user.target
 		log.Fatalf("failed to write service file (try running as root): %v", err)
 	}
 
-	runCmd("systemctl", "daemon-reload")
-	runCmd("systemctl", "enable", "nevinho")
+	systemctl("daemon-reload")
+	systemctl("enable", "nevinho")
 }
 
-func hasSystemd() bool {
-	_, err := exec.LookPath("systemctl")
-	return err == nil
-}
-
-func runCmd(name string, args ...string) {
-	cmd := exec.Command(name, args...)
+func systemctl(args ...string) {
+	cmd := exec.Command("systemctl", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("%s failed: %v", name, err)
+		log.Fatalf("systemctl %v failed: %v", args, err)
 	}
 }

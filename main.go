@@ -31,22 +31,20 @@ func main() {
 	}
 
 	switch cmd {
-	case "version", "--version":
-		fmt.Println("nevinho " + version)
-	case "setup", "--setup":
+	case "setup":
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
 		}
 	case "start":
-		if os.Getenv("INVOCATION_ID") != "" {
-			run(configDir)
-		} else {
-			startService()
-		}
+		startService(configDir)
 	case "stop":
 		stopService()
 	case "logs":
 		showLogs()
+	case "version":
+		fmt.Println("nevinho " + version)
+	case "--run":
+		run(configDir)
 	default:
 		printUsage()
 	}
