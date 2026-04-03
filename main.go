@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -16,11 +17,18 @@ import (
 	"github.com/lucasnevespereira/nevinho/logger"
 )
 
+var version = "dev"
+
 func main() {
 	_ = godotenv.Load()
 
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".config", "nevinho")
+
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("nevinho " + version)
+		return
+	}
 
 	if len(os.Args) > 1 && os.Args[1] == "--setup" {
 		if err := config.RunSetup(configDir); err != nil {
@@ -50,7 +58,7 @@ func main() {
 		log.Fatalf("failed to init credentials: %v", err)
 	}
 
-	a := agent.New(provider, cfg)
+	a := agent.New(provider, cfg, version)
 	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, creds, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)

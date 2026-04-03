@@ -41,9 +41,10 @@ const (
 )
 
 type Agent struct {
-	llm   llm.Provider
-	tools *tools.Registry
-	cfg   *config.Config
+	llm     llm.Provider
+	tools   *tools.Registry
+	cfg     *config.Config
+	version string
 
 	mu          sync.Mutex
 	history     map[string][]json.RawMessage
@@ -52,11 +53,12 @@ type Agent struct {
 	totalTokens int
 }
 
-func New(provider llm.Provider, cfg *config.Config) *Agent {
+func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
 	return &Agent{
 		llm:       provider,
 		tools:     tools.NewRegistry(cfg),
 		cfg:       cfg,
+		version:   version,
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		startTime: time.Now(),
@@ -198,12 +200,12 @@ func (a *Agent) Status() string {
 	paths := a.tools.ApprovedPaths()
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**nevinho status**\n"+
+	fmt.Fprintf(&sb, "**nevinho %s**\n"+
 		"• Model: `%s`\n"+
 		"• Uptime: %s\n"+
 		"• Session tokens: %d\n"+
 		"• Approved paths: %d",
-		a.llm.Model(), formatDuration(uptime), tokens, len(paths))
+		a.version, a.llm.Model(), formatDuration(uptime), tokens, len(paths))
 
 	for _, p := range paths {
 		fmt.Fprintf(&sb, "\n  `%s`", p)
