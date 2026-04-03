@@ -38,20 +38,15 @@ mkdir -p "$INSTALL_DIR"
 mv /tmp/nevinho "$INSTALL_DIR/nevinho"
 echo "Installed to ${INSTALL_DIR}/nevinho"
 
-# Add to PATH if not already there
+# Add to PATH for future sessions
 if ! echo "$PATH" | grep -qF "$INSTALL_DIR"; then
   SHELL_RC="$HOME/.bashrc"
   [ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
   touch "$SHELL_RC"
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
-  echo "Added ~/.local/bin to PATH in $(basename "$SHELL_RC")"
-  echo ""
-  echo "Run this to start using nevinho now:"
-  echo ""
-  echo "  exec \$SHELL"
-  echo ""
 fi
 
-echo "Next steps:"
-echo "  nevinho --setup    configure Discord token and LLM keys"
-echo "  nevinho             start the bot"
+echo ""
+echo "Done! Run:"
+echo "  $INSTALL_DIR/nevinho --setup"
+echo "  $INSTALL_DIR/nevinho"
