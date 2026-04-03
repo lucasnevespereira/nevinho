@@ -17,11 +17,23 @@ curl -sSL https://raw.githubusercontent.com/lucasnevespereira/nevinho/main/insta
 Then configure and start:
 
 ```bash
-nevinho --setup
-nevinho
+nevinho setup
+nevinho start
 ```
 
+On Linux, `start` runs as a background service (systemd). On macOS, it runs in the foreground.
+
 You can also reconfigure later from Discord with `/config`.
+
+## CLI
+
+```
+nevinho setup    configure Discord token and LLM keys
+nevinho start    start the bot
+nevinho stop     stop the bot
+nevinho logs     show live logs
+nevinho version  show version
+```
 
 ## Manual setup
 
@@ -109,7 +121,8 @@ You can also use a `.env` file in the project directory for development. Env var
 ## Project structure
 
 ```
-main.go      entry point, provider detection, setup
+main.go      entry point, CLI commands, provider detection
+service.go   systemd/launchd service management
 agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
