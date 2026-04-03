@@ -53,6 +53,6 @@ func RunSetup(configDir string) error {
 
 	fmt.Println()
 	fmt.Printf("Config saved to %s\n", configDir)
-	fmt.Println("Run 'nevinho' to start.")
+	fmt.Println("Run 'nevinho start' to start.")
 	return nil
 }

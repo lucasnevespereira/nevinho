@@ -41,6 +41,8 @@ func main() {
 		stopService()
 	case "logs":
 		showLogs()
+	case "upgrade":
+		upgrade()
 	case "version":
 		fmt.Println("nevinho " + version)
 	case "--run":
@@ -118,5 +120,6 @@ func printUsage() {
 	fmt.Println("  nevinho start    start the bot")
 	fmt.Println("  nevinho stop     stop the bot")
 	fmt.Println("  nevinho logs     show live logs")
+	fmt.Println("  nevinho upgrade  update to latest version")
 	fmt.Println("  nevinho version  show version")
 }
