@@ -66,7 +66,8 @@ func upgrade() {
 		log.Fatalf("failed to replace binary: %v", err)
 	}
 
-	fmt.Printf("Updated to %s. Restart with 'nevinho start'.\n", latest)
+	fmt.Printf("Updated to %s.\n", latest)
+	restartService()
 }
 
 func fetchLatestVersion() (string, error) {
