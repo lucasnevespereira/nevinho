@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/auth"
+	"github.com/lucasnevespereira/nevinho/config"
 )
 
 const maxMessageLen = 2000
@@ -19,10 +19,11 @@ type Bot struct {
 	ownerID     string
 	agent       *agent.Agent
 	credentials *auth.Store
+	cfg         *config.Config
 	cmds        []*discordgo.ApplicationCommand
 }
 
-func New(token, ownerID string, a *agent.Agent, creds *auth.Store) (*Bot, error) {
+func New(token, ownerID string, a *agent.Agent, creds *auth.Store, cfg *config.Config) (*Bot, error) {
 	session, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Discord session: %w", err)
@@ -35,6 +36,7 @@ func New(token, ownerID string, a *agent.Agent, creds *auth.Store) (*Bot, error)
 		ownerID:     ownerID,
 		agent:       a,
 		credentials: creds,
+		cfg:         cfg,
 	}
 
 	session.AddHandler(bot.onMessage)
@@ -131,6 +133,24 @@ var slashCommands = []*discordgo.ApplicationCommand{
 	{
 		Name:        "help",
 		Description: "Show available commands and capabilities",
+	},
+	{
+		Name:        "config",
+		Description: "View or update configuration",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "key",
+				Description: "Config key to set (e.g. ANTHROPIC_API_KEY)",
+				Required:    false,
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "value",
+				Description: "New value (message is ephemeral, only you see it)",
+				Required:    false,
+			},
+		},
 	},
 }
 
@@ -231,6 +251,10 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	case "accounts":
 		reply = b.handleAccounts(userID)
+
+	case "config":
+		b.handleConfigSlash(s, i, data)
+		return
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -254,7 +278,7 @@ func (b *Bot) handleConnect(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	switch svc {
 	case auth.GitHub:
-		clientID := os.Getenv("GITHUB_CLIENT_ID")
+		clientID := b.cfg.GitHubClientID
 		if clientID == "" {
 			respond(s, i, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env\n\nCreate one at: https://github.com/settings/applications/new")
 			return
@@ -275,8 +299,8 @@ func (b *Bot) handleConnect(s *discordgo.Session, i *discordgo.InteractionCreate
 		go b.pollGitHub(s, i.ChannelID, userID, flow, dc)
 
 	case auth.Google:
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
-		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		clientID := b.cfg.GoogleClientID
+		clientSecret := b.cfg.GoogleClientSecret
 		if clientID == "" || clientSecret == "" {
 			respond(s, i, "Google not configured. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in .env\n\nCreate at: https://console.cloud.google.com/apis/credentials")
 			return
@@ -440,6 +464,19 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		service := strings.TrimSpace(text[12:])
 		s.ChannelMessageSend(m.ChannelID, b.handleDisconnect(m.Author.ID, service))
 		return
+	case lower == "/config":
+		s.ChannelMessageSend(m.ChannelID, b.configStatus())
+		return
+	case strings.HasPrefix(lower, "/config "):
+		// Delete the message immediately since it may contain a secret
+		s.ChannelMessageDelete(m.ChannelID, m.ID)
+		parts := strings.Fields(text[8:])
+		if len(parts) == 1 {
+			s.ChannelMessageSend(m.ChannelID, b.configDelete(parts[0]))
+		} else if len(parts) >= 2 {
+			s.ChannelMessageSend(m.ChannelID, b.configSet(parts[0], strings.Join(parts[1:], " ")))
+		}
+		return
 	}
 
 	s.ChannelTyping(m.ChannelID)
@@ -476,7 +513,7 @@ func (b *Bot) handleConnectText(s *discordgo.Session, channelID, userID, service
 
 	switch svc {
 	case auth.GitHub:
-		clientID := os.Getenv("GITHUB_CLIENT_ID")
+		clientID := b.cfg.GitHubClientID
 		if clientID == "" {
 			s.ChannelMessageSend(channelID, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env")
 			return
@@ -494,8 +531,8 @@ func (b *Bot) handleConnectText(s *discordgo.Session, channelID, userID, service
 		go b.pollGitHub(s, channelID, userID, flow, dc)
 
 	case auth.Google:
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
-		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		clientID := b.cfg.GoogleClientID
+		clientSecret := b.cfg.GoogleClientSecret
 		if clientID == "" || clientSecret == "" {
 			s.ChannelMessageSend(channelID, "Google not configured. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in .env")
 			return
@@ -541,24 +578,119 @@ func splitMessage(text string) []string {
 	return chunks
 }
 
+func (b *Bot) handleConfigSlash(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
+	var key, value string
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "key":
+			key = opt.StringValue()
+		case "value":
+			value = opt.StringValue()
+		}
+	}
+
+	// No args: show current config
+	if key == "" {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: b.configStatus(),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Key + value: update
+	if value != "" {
+		reply := b.configSet(key, value)
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: reply,
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Key only: delete
+	reply := b.configDelete(key)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: reply,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
+func (b *Bot) configStatus() string {
+	keys := b.cfg.Keys()
+	var sb strings.Builder
+	sb.WriteString("**Configuration**\n")
+	for _, k := range keys {
+		if k.Set {
+			fmt.Fprintf(&sb, "• `%s`: set (%s)\n", k.Name, k.Source)
+		} else {
+			fmt.Fprintf(&sb, "• `%s`: not set\n", k.Name)
+		}
+	}
+	sb.WriteString("\nUpdate: `/config key:KEY value:VALUE`")
+	sb.WriteString("\nClear: `/config key:KEY`")
+	return sb.String()
+}
+
+func (b *Bot) configSet(key, value string) string {
+	if err := b.cfg.Set(key, value); err != nil {
+		return fmt.Sprintf("Failed: %v", err)
+	}
+
+	// Reload provider if an LLM key changed
+	if isLLMKey(key) {
+		b.reloadProvider()
+	}
+
+	return fmt.Sprintf("Updated `%s`.", key)
+}
+
+func (b *Bot) configDelete(key string) string {
+	if err := b.cfg.Delete(key); err != nil {
+		return fmt.Sprintf("Failed: %v", err)
+	}
+	if isLLMKey(key) {
+		b.reloadProvider()
+	}
+	return fmt.Sprintf("Cleared `%s`.", key)
+}
+
+func (b *Bot) reloadProvider() {
+	b.agent.SwitchModel(b.agent.Model())
+}
+
+func isLLMKey(key string) bool {
+	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "OLLAMA_MODEL"
+}
+
 func helpMessage() string {
-	return `**nevinho** — your AI assistant
+	return `**nevinho**
 
 **What I can do:**
 • Browse the web and read articles
 • Search the web for information
 • Run code (Python, JavaScript, bash)
-• Save and read files (notes, code, etc.)
+• Save and read files
 
 **Commands:**
-• /new — start a fresh conversation
-• /model — show or switch model
-• /status — uptime, tokens, model info
-• /paths — manage approved write paths
-• /connect — link GitHub or Google account
-• /disconnect — unlink a service
-• /accounts — show connected services
-• /help — show this message
+• /new start a fresh conversation
+• /model show or switch model
+• /status uptime, tokens, model info
+• /paths manage approved write paths
+• /config view or update configuration
+• /connect link GitHub or Google account
+• /disconnect unlink a service
+• /accounts show connected services
+• /help show this message
 
-Just type what you need. I'll figure it out.`
+Just type what you need.`
 }

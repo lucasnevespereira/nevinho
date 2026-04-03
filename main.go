@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -10,43 +11,55 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/auth"
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 )
 
+var version = "dev"
+
 func main() {
 	_ = godotenv.Load()
-	logger.Init()
-
-	token := os.Getenv("DISCORD_BOT_TOKEN")
-	if token == "" {
-		log.Fatal("DISCORD_BOT_TOKEN is required")
-	}
-
-	ownerID := os.Getenv("DISCORD_OWNER_ID")
-	if ownerID == "" {
-		log.Fatal("DISCORD_OWNER_ID is required (your Discord user ID)")
-	}
-
-	config := agent.ProviderConfig{
-		AnthropicKey: os.Getenv("ANTHROPIC_API_KEY"),
-		OpenAIKey:    os.Getenv("OPENAI_API_KEY"),
-	}
-	if os.Getenv("OLLAMA_MODEL") != "" {
-		config.OllamaURL = "http://localhost:11434"
-	}
 
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".config", "nevinho")
+
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("nevinho " + version)
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "--setup" {
+		if err := config.RunSetup(configDir); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	logger.Init()
+
+	cfg, err := config.Load(configDir)
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.DiscordBotToken == "" {
+		log.Fatal("DISCORD_BOT_TOKEN is required (run nevinho --setup or set in .env)")
+	}
+	if cfg.DiscordOwnerID == "" {
+		log.Fatal("DISCORD_OWNER_ID is required (run nevinho --setup or set in .env)")
+	}
+
+	provider := detectProvider(cfg)
+
 	creds, err := auth.NewStore(configDir)
 	if err != nil {
 		log.Fatalf("failed to init credentials: %v", err)
 	}
 
-	provider := detectProvider(config)
-	a := agent.New(provider, config)
-	bot, err := discord.New(token, ownerID, a, creds)
+	a := agent.New(provider, cfg, version)
+	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, creds, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
 	}
@@ -65,21 +78,20 @@ func main() {
 	bot.Stop()
 }
 
-func detectProvider(config agent.ProviderConfig) llm.Provider {
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-
+func detectProvider(cfg *config.Config) llm.Provider {
+	pc := cfg.ProviderConfig()
 	switch {
-	case ollamaModel != "":
-		logger.Info("provider: ollama (" + ollamaModel + ")")
-		return llm.NewOpenAI("", config.OllamaURL, ollamaModel)
-	case config.AnthropicKey != "":
+	case cfg.OllamaModel != "":
+		logger.Info("provider: ollama (" + cfg.OllamaModel + ")")
+		return llm.NewOpenAI("", pc.OllamaURL, cfg.OllamaModel)
+	case pc.AnthropicKey != "":
 		logger.Info("provider: anthropic")
-		return llm.NewAnthropic(config.AnthropicKey, "", "")
-	case config.OpenAIKey != "":
+		return llm.NewAnthropic(pc.AnthropicKey, "", "")
+	case pc.OpenAIKey != "":
 		logger.Info("provider: openai")
-		return llm.NewOpenAI(config.OpenAIKey, "", "")
+		return llm.NewOpenAI(pc.OpenAIKey, "", "")
 	default:
-		log.Fatal("set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OLLAMA_MODEL in .env")
+		log.Fatal("no LLM provider configured (run nevinho --setup or set keys in .env)")
 		return nil
 	}
 }

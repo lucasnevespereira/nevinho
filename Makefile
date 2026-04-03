@@ -6,7 +6,7 @@ lint:
 	@echo "Lint passed."
 
 build:
-	@go build -o bin/nevinho
+	@go build -ldflags "-X main.version=$$(git describe --tags --always)" -o bin/nevinho
 
 run:
 	@go run main.go

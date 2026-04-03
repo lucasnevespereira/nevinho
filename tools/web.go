@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -65,8 +64,8 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	if apiKey := os.Getenv("BRAVE_API_KEY"); apiKey != "" {
-		return searchBrave(in.Query, apiKey)
+	if r.cfg.BraveAPIKey != "" {
+		return searchBrave(in.Query, r.cfg.BraveAPIKey)
 	}
 	return searchDuckDuckGo(in.Query)
 }

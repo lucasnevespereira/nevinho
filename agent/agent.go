@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 	"github.com/lucasnevespereira/nevinho/tools"
@@ -39,16 +40,11 @@ const (
 - If a write fails due to permissions, tell the user which directory needs access.`
 )
 
-type ProviderConfig struct {
-	AnthropicKey string
-	OpenAIKey    string
-	OllamaURL    string
-}
-
 type Agent struct {
-	llm    llm.Provider
-	tools  *tools.Registry
-	config ProviderConfig
+	llm     llm.Provider
+	tools   *tools.Registry
+	cfg     *config.Config
+	version string
 
 	mu          sync.Mutex
 	history     map[string][]json.RawMessage
@@ -57,11 +53,12 @@ type Agent struct {
 	totalTokens int
 }
 
-func New(provider llm.Provider, config ProviderConfig) *Agent {
+func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
 	return &Agent{
 		llm:       provider,
-		tools:     tools.NewRegistry(),
-		config:    config,
+		tools:     tools.NewRegistry(cfg),
+		cfg:       cfg,
+		version:   version,
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		startTime: time.Now(),
@@ -162,23 +159,24 @@ func (a *Agent) Model() string {
 }
 
 func (a *Agent) SwitchModel(name string) error {
+	pc := a.cfg.ProviderConfig()
 	var p llm.Provider
 	switch {
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
-		if a.config.OpenAIKey == "" {
+		if pc.OpenAIKey == "" {
 			return fmt.Errorf("OPENAI_API_KEY not configured")
 		}
-		p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+		p = llm.NewOpenAI(pc.OpenAIKey, "", name)
 	case strings.HasPrefix(name, "claude-"):
-		if a.config.AnthropicKey == "" {
+		if pc.AnthropicKey == "" {
 			return fmt.Errorf("ANTHROPIC_API_KEY not configured")
 		}
-		p = llm.NewAnthropic(a.config.AnthropicKey, "", name)
+		p = llm.NewAnthropic(pc.AnthropicKey, "", name)
 	default:
-		if a.config.OllamaURL != "" {
-			p = llm.NewOpenAI("", a.config.OllamaURL, name)
-		} else if a.config.OpenAIKey != "" {
-			p = llm.NewOpenAI(a.config.OpenAIKey, "", name)
+		if pc.OllamaURL != "" {
+			p = llm.NewOpenAI("", pc.OllamaURL, name)
+		} else if pc.OpenAIKey != "" {
+			p = llm.NewOpenAI(pc.OpenAIKey, "", name)
 		} else {
 			return fmt.Errorf("unknown model: %s", name)
 		}
@@ -202,12 +200,12 @@ func (a *Agent) Status() string {
 	paths := a.tools.ApprovedPaths()
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**nevinho status**\n"+
+	fmt.Fprintf(&sb, "**nevinho %s**\n"+
 		"• Model: `%s`\n"+
 		"• Uptime: %s\n"+
 		"• Session tokens: %d\n"+
 		"• Approved paths: %d",
-		a.llm.Model(), formatDuration(uptime), tokens, len(paths))
+		a.version, a.llm.Model(), formatDuration(uptime), tokens, len(paths))
 
 	for _, p := range paths {
 		fmt.Fprintf(&sb, "\n  `%s`", p)

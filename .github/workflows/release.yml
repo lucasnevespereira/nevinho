@@ -20,10 +20,12 @@ jobs:
 
       - name: Build binaries
         run: |
-          GOOS=linux GOARCH=amd64 go build -o nevinho-linux-amd64
-          GOOS=linux GOARCH=arm64 go build -o nevinho-linux-arm64
-          GOOS=darwin GOARCH=amd64 go build -o nevinho-darwin-amd64
-          GOOS=darwin GOARCH=arm64 go build -o nevinho-darwin-arm64
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X main.version=${VERSION}"
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o nevinho-linux-amd64
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o nevinho-linux-arm64
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o nevinho-darwin-amd64
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o nevinho-darwin-arm64
 
       - name: Create release
         uses: softprops/action-gh-release@v2
