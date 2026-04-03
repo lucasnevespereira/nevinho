@@ -32,6 +32,7 @@ nevinho setup    configure Discord token and LLM keys
 nevinho start    start the bot
 nevinho stop     stop the bot
 nevinho logs     show live logs
+nevinho upgrade  update to latest version
 nevinho version  show version
 ```
 
@@ -122,7 +123,7 @@ You can also use a `.env` file in the project directory for development. Env var
 
 ```
 main.go      entry point, CLI commands, provider detection
-service.go   systemd/launchd service management
+service.go   systemd service management, self-upgrade
 agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
