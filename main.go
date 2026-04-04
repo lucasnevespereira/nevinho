@@ -10,7 +10,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/lucasnevespereira/nevinho/agent"
-	"github.com/lucasnevespereira/nevinho/auth"
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -71,13 +70,8 @@ func run(configDir string) {
 
 	provider := detectProvider(cfg)
 
-	creds, err := auth.NewStore(configDir)
-	if err != nil {
-		log.Fatalf("failed to init credentials: %v", err)
-	}
-
 	a := agent.New(provider, cfg, version)
-	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, creds, cfg)
+	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
 	}

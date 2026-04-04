@@ -62,8 +62,8 @@ func (r *Registry) Execute(name string, input json.RawMessage, userID string) st
 		return r.webRead(input)
 	case "web_search":
 		return r.webSearch(input)
-	case "run_code":
-		return r.runCode(input, userID)
+	case "bash":
+		return r.runBash(input, userID)
 	case "file_read":
 		return r.fileRead(input, userID)
 	case "file_write":
@@ -86,9 +86,9 @@ func (r *Registry) Defs() []llm.ToolDef {
 			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"The search query"}},"required":["query"]}`,
 		},
 		{
-			Name:        "run_code",
-			Description: "Execute a code snippet. Supports python3, node, and bash. Destructive commands and access to sensitive paths require user approval.",
-			Schema:      `{"type":"object","properties":{"language":{"type":"string","enum":["python3","node","bash"],"description":"Programming language"},"code":{"type":"string","description":"Code to execute"}},"required":["language","code"]}`,
+			Name:        "bash",
+			Description: "Run a bash command.",
+			Schema:      `{"type":"object","properties":{"command":{"type":"string","description":"The command to run"}},"required":["command"]}`,
 		},
 		{
 			Name:        "file_read",
@@ -150,7 +150,7 @@ func (r *Registry) ExecutePendingCode(userID string) string {
 	r.mu.Lock()
 	delete(r.pending, userID)
 	r.mu.Unlock()
-	return r.executeCode(p.Code.Input)
+	return r.executePendingBash(p.Code.Input)
 }
 
 func (r *Registry) checkWritePermission(resolved, userID string) error {

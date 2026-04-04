@@ -4,9 +4,9 @@
 
 # nevinho
 
-A personal agent harness that runs in your Discord DMs.
+A minimal personal AI harness that runs in your Discord DMs.
 Supports Anthropic, OpenAI, and Ollama.
-Comes with tools for web search, code execution, and file management.
+Comes with tools for bash, web search, and file management.
 
 ## Install
 
@@ -68,9 +68,9 @@ Switch models at runtime with `/model claude-sonnet-4-6` or `/model gpt-4o`.
 
 | Tool | What it does |
 |------|-------------|
+| `bash` | Run any bash command |
 | `web_search` | Search via Brave API or DuckDuckGo fallback |
 | `web_read` | Fetch a URL and extract readable text |
-| `run_code` | Execute Python, Node, or bash (10s timeout) |
 | `file_read` | Read a file from workspace or absolute path |
 | `file_write` | Write a file (absolute paths need approval) |
 
@@ -88,9 +88,6 @@ The agent chains tools automatically. Ask it to "find the latest Go release" and
 | `/config KEY VALUE` | Set a config value |
 | `/paths` | List approved write paths |
 | `/paths clear` | Revoke all path permissions |
-| `/connect <service>` | Link GitHub or Google via device flow |
-| `/disconnect <service>` | Unlink a service |
-| `/accounts` | Show connected services |
 | `/help` | Show capabilities |
 
 All commands also work as plain text messages in the DM.
@@ -99,7 +96,7 @@ All commands also work as plain text messages in the DM.
 
 Dangerous operations require approval before execution.
 
-**Code execution** is scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval. The agent shows a preview and waits for you to reply "yes".
+**Bash commands** are scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval. The agent shows a preview and waits for you to reply "yes".
 
 **File writes** outside the per-user workspace require one-time directory approval. Approved paths persist across restarts.
 
@@ -111,7 +108,6 @@ Configuration is encrypted and stored in `~/.config/nevinho/`:
 
 ```
 config.enc          encrypted configuration (AES-256-GCM)
-credentials.enc     encrypted OAuth tokens
 secret.key          auto-generated encryption key
 workspace/          per-user sandboxed file storage
 approved_paths.json persisted write permissions
@@ -129,9 +125,8 @@ agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
 llm/         provider interface (Anthropic, OpenAI, Ollama)
-tools/       web search, code execution, file I/O
+tools/       bash, web search, file I/O
 discord/     bot, slash commands, message handling
-auth/        OAuth device flow, encrypted credential storage
 logger/      colored terminal output
 ```
 

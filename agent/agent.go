@@ -19,33 +19,21 @@ const (
 	maxLoops   = 10
 	maxHistory = 20
 
-	systemPrompt = `You are nevinho, a personal AI assistant on Discord.
+	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You help users by running commands, searching the web, and managing files.
 
-## Style
+Available tools:
+- bash: Execute bash commands
+- web_search: Search the web for information
+- web_read: Fetch and read a web page
+- file_read: Read file contents
+- file_write: Create or overwrite files
+
+Guidelines:
+- Use bash for system tasks, installs, git, and running code
+- Use web_search then web_read to research topics
+- Use file_read to examine files before modifying them
 - Be concise. Messages should be readable on a phone.
-- Use markdown: **bold**, ` + "`" + `code` + "`" + `, code blocks, bullet points.
-
-## Tool use
-- Prefer action over clarification.
-- If one approach fails, try another before giving up.
-- web_search returns titles, URLs, and snippets — often enough without reading the page.
-- web_read works on articles and docs, not JS-heavy sites (YouTube, Twitter, Reddit).
-- Chain tools: search → read promising links → summarize.
-- run_code handles calculations, data processing, anything needing precision.
-- For filesystem tasks, prefer bash over python.
-- Always use print()/console.log() to output results from python/node.
-
-## File operations
-- Absolute paths (~/path, /path) and simple names (notes.txt → workspace) both work.
-- If a write fails due to permissions, tell the user which directory needs access.
-
-## run_code limitations
-- You cannot run interactive commands (anything that waits for user input).
-- For CLI tools that need auth (gh, gcloud, aws), use their non-interactive modes:
-  gh auth login --with-token, gcloud auth activate-service-account, aws configure set.
-- For tools that support device flow (gh auth login --web), run the command, parse the code/URL from the output, and show it to the user.
-- If a command needs a password or confirmation, ask the user to provide it and pass it via stdin or flags.
-- Long-running commands have a 10s timeout. For installs, use -y flags (apt install -y, yum install -y).`
+- Prefer action over clarification.`
 )
 
 type Agent struct {
@@ -345,13 +333,8 @@ func toolDetail(name string, input json.RawMessage) string {
 		return str("query")
 	case "web_read":
 		return str("url")
-	case "run_code":
-		lang := str("language")
-		code := str("code")
-		if lang != "" && code != "" {
-			return lang + ": " + code
-		}
-		return code
+	case "bash":
+		return str("command")
 	case "file_read", "file_write":
 		return str("path")
 	default:
