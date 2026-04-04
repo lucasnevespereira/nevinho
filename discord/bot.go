@@ -176,7 +176,7 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 				reply = fmt.Sprintf("Switched to `%s`. History cleared.", name)
 			}
 		} else {
-			reply = fmt.Sprintf("Current model: `%s`", b.agent.Model())
+			reply = b.modelStatus()
 		}
 
 	case "status":
@@ -241,7 +241,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
 		return
 	case lower == "/model":
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Current model: `%s`", b.agent.Model()))
+		s.ChannelMessageSend(m.ChannelID, b.modelStatus())
 		return
 	case lower == "/status":
 		s.ChannelMessageSend(m.ChannelID, b.agent.Status())
@@ -441,6 +441,32 @@ func (b *Bot) reloadProvider() {
 
 func isLLMKey(key string) bool {
 	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "OLLAMA_MODEL"
+}
+
+func (b *Bot) modelStatus() string {
+	current := b.agent.Model()
+	pc := b.cfg.ProviderConfig()
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "**Current model:** `%s`\n\n", current)
+	sb.WriteString("**Available:**\n")
+
+	if pc.AnthropicKey != "" {
+		sb.WriteString("• `claude-haiku-4-5`\n")
+		sb.WriteString("• `claude-sonnet-4-6`\n")
+		sb.WriteString("• `claude-opus-4-6`\n")
+	}
+	if pc.OpenAIKey != "" {
+		sb.WriteString("• `gpt-4o-mini`\n")
+		sb.WriteString("• `gpt-4o`\n")
+		sb.WriteString("• `o4-mini`\n")
+	}
+	if pc.OllamaURL != "" {
+		sb.WriteString("• any Ollama model name\n")
+	}
+
+	sb.WriteString("\nSwitch: `/model <name>`")
+	return sb.String()
 }
 
 func friendlyError(err error) string {
