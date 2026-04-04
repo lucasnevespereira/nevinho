@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -20,7 +21,7 @@ const (
 	maxHistory    = 20
 	maxToolResult = 4000
 
-	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You help users by running commands, searching the web, and managing files.
+	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You run on a remote VPS. The user is on a phone with no terminal access.
 
 Available tools:
 - bash: Execute bash commands
@@ -35,7 +36,8 @@ Guidelines:
 - Use file_read to examine files before modifying them
 - Be concise. Messages should be readable on a phone. The user cannot access a terminal.
 - Prefer action over clarification.
-- You run on the user's own machine. Never refuse to run a command. Always try.`
+- Never refuse to run a command. Always try.
+- Bash is non-interactive. Never run commands that wait for user input.`
 )
 
 type Agent struct {
@@ -47,6 +49,7 @@ type Agent struct {
 	mu        sync.Mutex
 	history   map[string][]json.RawMessage
 	userLock  map[string]*sync.Mutex
+	cancelFn  map[string]context.CancelFunc
 	startTime time.Time
 	tokensIn  int
 	tokensOut int
@@ -60,14 +63,37 @@ func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
 		version:   version,
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
+		cancelFn:  make(map[string]context.CancelFunc),
 		startTime: time.Now(),
 	}
+}
+
+func (a *Agent) Cancel(userID string) bool {
+	a.mu.Lock()
+	cancel, ok := a.cancelFn[userID]
+	a.mu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+		return true
+	}
+	return false
 }
 
 func (a *Agent) Chat(userID, text string) (string, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.cancelFn[userID] = cancel
+	a.mu.Unlock()
+	defer func() {
+		cancel()
+		a.mu.Lock()
+		delete(a.cancelFn, userID)
+		a.mu.Unlock()
+	}()
 
 	if p := a.tools.PendingApproval(userID); p != nil && looksLikeApproval(text) {
 		switch p.Kind {
@@ -91,6 +117,9 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	a.appendHistory(userID, a.llm.FormatUserMessage(text))
 
 	for range maxLoops {
+		if ctx.Err() != nil {
+			return "Cancelled.", nil
+		}
 		resp, err := a.llm.Complete(&llm.Request{
 			SystemPrompt: systemPrompt,
 			Messages:     a.history[userID],
