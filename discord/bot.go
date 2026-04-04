@@ -303,6 +303,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		response = "Done. (no text response)"
 	}
 
+	response = collapseNewlines(response)
 	for _, chunk := range splitMessage(response) {
 		s.ChannelMessageSend(m.ChannelID, chunk)
 	}
@@ -323,6 +324,14 @@ func keepTyping(s *discordgo.Session, channelID string) func() {
 		}
 	}()
 	return func() { close(stop) }
+}
+
+// collapseNewlines replaces 3+ consecutive newlines with 2, reducing big gaps in Discord.
+func collapseNewlines(s string) string {
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return s
 }
 
 func splitMessage(text string) []string {
@@ -448,24 +457,22 @@ func (b *Bot) modelStatus() string {
 	pc := b.cfg.ProviderConfig()
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Current model:** `%s`\n\n", current)
-	sb.WriteString("**Available:**\n")
+	fmt.Fprintf(&sb, "Current: `%s`\n\n", current)
 
 	if pc.AnthropicKey != "" {
-		sb.WriteString("• `claude-haiku-4-5`\n")
-		sb.WriteString("• `claude-sonnet-4-6`\n")
-		sb.WriteString("• `claude-opus-4-6`\n")
+		sb.WriteString("**Anthropic**\n")
+		sb.WriteString("`claude-haiku-4-5` · `claude-sonnet-4-6` · `claude-opus-4-6`\n\n")
 	}
 	if pc.OpenAIKey != "" {
-		sb.WriteString("• `gpt-4o-mini`\n")
-		sb.WriteString("• `gpt-4o`\n")
-		sb.WriteString("• `o4-mini`\n")
+		sb.WriteString("**OpenAI**\n")
+		sb.WriteString("`gpt-4o-mini` · `gpt-4o` · `o4-mini`\n\n")
 	}
 	if pc.OllamaURL != "" {
-		sb.WriteString("• any Ollama model name\n")
+		sb.WriteString("**Ollama**\n")
+		sb.WriteString("Any local model name\n\n")
 	}
 
-	sb.WriteString("\nSwitch: `/model <name>`")
+	sb.WriteString("Switch: `/model <name>`")
 	return sb.String()
 }
 
@@ -474,7 +481,7 @@ func friendlyError(err error) string {
 	switch {
 	case strings.Contains(msg, "API 401"):
 		return "API key is invalid or expired. Check `/config`."
-	case strings.Contains(msg, "API 402") || strings.Contains(msg, "insufficient"):
+	case strings.Contains(msg, "API 402") || strings.Contains(msg, "insufficient") || strings.Contains(msg, "credit balance"):
 		return "Insufficient funds on your API account."
 	case strings.Contains(msg, "API 429"):
 		return "Rate limited by the API. Wait a moment and try again."
@@ -492,18 +499,15 @@ func friendlyError(err error) string {
 func helpMessage() string {
 	return `**nevinho**
 
-**What I can do:**
-• Run bash commands
-• Browse and read the web
-• Read and write files
+**Tools:** bash · web search · web read · file read · file write
 
 **Commands:**
-• /new start a fresh conversation
-• /model show or switch model
-• /status uptime, tokens, model info
-• /paths manage approved write paths
-• /config view or update configuration
-• /help show this message
+` + "`/new`" + ` fresh conversation
+` + "`/model`" + ` show or switch model
+` + "`/status`" + ` uptime, tokens, cost
+` + "`/paths`" + ` manage approved write paths
+` + "`/config`" + ` view or update configuration
+` + "`/help`" + ` this message
 
 Just type what you need.`
 }

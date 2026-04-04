@@ -199,16 +199,17 @@ func (a *Agent) Status() string {
 	cost := estimateCost(model, in, out)
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "**nevinho %s**\n"+
-		"• Model: `%s`\n"+
-		"• Uptime: %s\n"+
-		"• Tokens: %d in / %d out\n"+
-		"• Estimated cost: $%.4f\n"+
-		"• Approved paths: %d",
-		a.version, model, formatDuration(uptime), in, out, cost, len(paths))
+	fmt.Fprintf(&sb, "**nevinho %s**\n\n", a.version)
+	fmt.Fprintf(&sb, "Model: `%s`\n", model)
+	fmt.Fprintf(&sb, "Uptime: %s\n", formatDuration(uptime))
+	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", in, out)
+	fmt.Fprintf(&sb, "Cost: $%.2f\n", cost)
 
-	for _, p := range paths {
-		fmt.Fprintf(&sb, "\n  `%s`", p)
+	if len(paths) > 0 {
+		fmt.Fprintf(&sb, "\nApproved paths:\n")
+		for _, p := range paths {
+			fmt.Fprintf(&sb, "• `%s`\n", p)
+		}
 	}
 
 	return sb.String()
