@@ -482,11 +482,11 @@ func (b *Bot) modelStatus() string {
 
 	if pc.AnthropicKey != "" {
 		sb.WriteString("**Anthropic**\n")
-		sb.WriteString("`claude-haiku-4-5` · `claude-sonnet-4-6` · `claude-opus-4-6`\n\n")
+		sb.WriteString("• `claude-haiku-4-5`\n• `claude-sonnet-4-6`\n• `claude-opus-4-6`\n\n")
 	}
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
-		sb.WriteString("`gpt-4o-mini` · `gpt-4o` · `o4-mini`\n\n")
+		sb.WriteString("• `gpt-4o-mini`\n• `gpt-4o`\n• `o4-mini`\n\n")
 	}
 	if pc.OllamaURL != "" {
 		sb.WriteString("**Ollama**\n")
