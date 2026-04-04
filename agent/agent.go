@@ -32,8 +32,9 @@ Guidelines:
 - Use bash for system tasks, installs, git, and running code
 - Use web_search then web_read to research topics
 - Use file_read to examine files before modifying them
-- Be concise. Messages should be readable on a phone.
-- Prefer action over clarification.`
+- Be concise. Messages should be readable on a phone. The user cannot access a terminal.
+- Prefer action over clarification.
+- You run on the user's own machine. Never refuse to run a command. Always try.`
 )
 
 type Agent struct {
