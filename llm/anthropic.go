@@ -25,12 +25,24 @@ func NewAnthropic(apiKey, baseURL, model string) *Anthropic {
 func (a *Anthropic) Model() string { return a.model }
 
 func (a *Anthropic) Complete(req *Request) (*Response, error) {
+	tools := a.formatTools(req.Tools)
+	// Mark last tool with cache_control so the entire prefix (system + tools) is cached
+	if len(tools) > 0 {
+		tools[len(tools)-1]["cache_control"] = map[string]string{"type": "ephemeral"}
+	}
+
 	body := map[string]interface{}{
 		"model":      a.model,
 		"max_tokens": req.MaxTokens,
-		"system":     req.SystemPrompt,
-		"messages":   ensureSlice(req.Messages),
-		"tools":      a.formatTools(req.Tools),
+		"system": []map[string]interface{}{
+			{
+				"type":          "text",
+				"text":          req.SystemPrompt,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			},
+		},
+		"messages": ensureSlice(req.Messages),
+		"tools":    tools,
 	}
 
 	data, err := doHTTP(a.baseURL+"/v1/messages", body, map[string]string{
@@ -46,8 +58,10 @@ func (a *Anthropic) Complete(req *Request) (*Response, error) {
 		Content    []json.RawMessage `json:"content"`
 		StopReason string            `json:"stop_reason"`
 		Usage      struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -55,7 +69,12 @@ func (a *Anthropic) Complete(req *Request) (*Response, error) {
 	}
 
 	resp := &Response{
-		Usage: Usage{In: raw.Usage.InputTokens, Out: raw.Usage.OutputTokens},
+		Usage: Usage{
+			In:         raw.Usage.InputTokens,
+			Out:        raw.Usage.OutputTokens,
+			CacheRead:  raw.Usage.CacheReadInputTokens,
+			CacheWrite: raw.Usage.CacheCreationInputTokens,
+		},
 	}
 
 	assistantMsg, _ := json.Marshal(map[string]interface{}{

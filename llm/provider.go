@@ -35,8 +35,10 @@ type ToolResult struct {
 }
 
 type Usage struct {
-	In  int
-	Out int
+	In         int
+	Out        int
+	CacheRead  int
+	CacheWrite int
 }
 
 type ToolDef struct {

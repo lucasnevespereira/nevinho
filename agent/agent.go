@@ -84,6 +84,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	logger.User(text)
 	start := time.Now()
 	var usage llm.Usage
+	var cacheRead int
 	var toolsUsed []string
 
 	a.appendHistory(userID, a.llm.FormatUserMessage(text))
@@ -102,11 +103,12 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 		usage.In += resp.Usage.In
 		usage.Out += resp.Usage.Out
+		cacheRead += resp.Usage.CacheRead
 		a.history[userID] = append(a.history[userID], resp.AssistantMessage)
 
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
 		}
@@ -132,7 +134,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
 			logger.Nevinho(reply)
 			return reply, nil
 		}
@@ -140,7 +142,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
 	a.addTokens(usage.In, usage.Out)
-	logger.Done(start, usage.In, usage.Out, toolsUsed)
+	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
 	logger.Nevinho(reply)
 	return reply, nil
 }
