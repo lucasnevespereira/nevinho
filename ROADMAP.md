@@ -12,7 +12,7 @@ Guiding principles:
 
 These are the highest-impact changes. They directly reduce token waste and make every conversation cheaper and smarter.
 
-- [ ] **Prompt caching** — Add `cache_control` breakpoints to the system prompt and tool definitions so turns 2+ reuse the cached prefix instead of re-processing ~900 tokens every call. Single biggest cost reduction available.
+- [x] **Prompt caching** — Add `cache_control` breakpoints to the system prompt and tool definitions so turns 2+ reuse the cached prefix instead of re-processing ~900 tokens every call. Single biggest cost reduction available.
 - [ ] **Cap tool results before history** — Truncate tool outputs (web_read, run_code) to ~4k chars before appending to conversation history. A single large page fetch currently bloats the entire context window for all remaining turns.
 - [ ] **Token-aware history trimming** — Replace the fixed `maxHistory = 20` message count with a token budget (~30k tokens). Count tokens approximately (`len/4`) and trim from the oldest messages first. This prevents both wasted context (20 short messages = underuse) and blown context (20 long tool results = overflow).
 - [ ] **Summarize on trim** — When messages are evicted from history, summarize them into a single "conversation so far" preamble instead of silently dropping them. The model loses less context and the user doesn't hit dead-ends from forgotten instructions.
