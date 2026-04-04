@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const codeTimeout = 10 * time.Second
+const bashTimeout = 10 * time.Second
 
 // Patterns that require user approval before execution.
 var dangerousPatterns = []*regexp.Regexp{
@@ -52,7 +52,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\beval\b.*\$\(`),
 }
 
-// Paths that require approval when referenced in code.
+// Paths that require approval when referenced in commands.
 var sensitivePaths = []string{
 	"/.ssh",
 	"/.gnupg",
@@ -78,56 +78,37 @@ var sensitivePaths = []string{
 	"password",
 }
 
-type runCodeInput struct {
-	Language string `json:"language"`
-	Code     string `json:"code"`
+type bashInput struct {
+	Command string `json:"command"`
 }
 
-func (r *Registry) runCode(input json.RawMessage, userID string) string {
-	var in runCodeInput
+func (r *Registry) runBash(input json.RawMessage, userID string) string {
+	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	// Check if the code looks dangerous
-	if reason := isDangerous(in.Code); reason != "" {
-		preview := in.Language + ": " + in.Code
-		if err := r.checkCodePermission(userID, preview, input); err != nil {
+	if reason := isDangerous(in.Command); reason != "" {
+		if err := r.checkCodePermission(userID, in.Command, input); err != nil {
 			return err.Error()
 		}
 	}
 
-	return r.executeCode(input)
+	return r.executeBash(in.Command)
 }
 
-// executeCode runs code without permission checks (called after approval or when safe).
-func (r *Registry) executeCode(input json.RawMessage) string {
-	var in runCodeInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
-	}
-
-	var cmd *exec.Cmd
-	ctx, cancel := context.WithTimeout(context.Background(), codeTimeout)
+// executeBash runs a command without permission checks (called after approval or when safe).
+func (r *Registry) executeBash(command string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), bashTimeout)
 	defer cancel()
 
-	switch in.Language {
-	case "python3":
-		cmd = exec.CommandContext(ctx, "python3", "-c", in.Code)
-	case "node":
-		cmd = exec.CommandContext(ctx, "node", "-e", in.Code)
-	case "bash":
-		cmd = exec.CommandContext(ctx, "bash", "-c", in.Code)
-	default:
-		return fmt.Sprintf("unsupported language: %s (use python3, node, or bash)", in.Language)
-	}
-
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	output, err := cmd.CombinedOutput()
 	result := string(output)
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "code execution timed out (10 second limit)"
+			return result + "\n(timed out after 10s)"
 		}
 		result += "\n" + err.Error()
 	}
@@ -143,10 +124,18 @@ func (r *Registry) executeCode(input json.RawMessage) string {
 	return result
 }
 
-// isDangerous checks if code matches dangerous patterns or touches sensitive paths.
-// Returns the reason if dangerous, empty string if safe.
-func isDangerous(code string) string {
-	lower := strings.ToLower(code)
+// ExecutePendingCode runs a previously approved bash command.
+func (r *Registry) executePendingBash(input json.RawMessage) string {
+	var in bashInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Sprintf("invalid input: %v", err)
+	}
+	return r.executeBash(in.Command)
+}
+
+// isDangerous checks if a command matches dangerous patterns or touches sensitive paths.
+func isDangerous(command string) string {
+	lower := strings.ToLower(command)
 
 	for _, pat := range dangerousPatterns {
 		if pat.MatchString(lower) {

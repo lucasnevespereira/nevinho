@@ -19,33 +19,21 @@ const (
 	maxLoops   = 10
 	maxHistory = 20
 
-	systemPrompt = `You are nevinho, a personal AI assistant on Discord.
+	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You help users by running commands, searching the web, and managing files.
 
-## Style
+Available tools:
+- bash: Execute bash commands
+- web_search: Search the web for information
+- web_read: Fetch and read a web page
+- file_read: Read file contents
+- file_write: Create or overwrite files
+
+Guidelines:
+- Use bash for system tasks, installs, git, and running code
+- Use web_search then web_read to research topics
+- Use file_read to examine files before modifying them
 - Be concise. Messages should be readable on a phone.
-- Use markdown: **bold**, ` + "`" + `code` + "`" + `, code blocks, bullet points.
-
-## Tool use
-- Prefer action over clarification.
-- If one approach fails, try another before giving up.
-- web_search returns titles, URLs, and snippets — often enough without reading the page.
-- web_read works on articles and docs, not JS-heavy sites (YouTube, Twitter, Reddit).
-- Chain tools: search → read promising links → summarize.
-- run_code handles calculations, data processing, anything needing precision.
-- For filesystem tasks, prefer bash over python.
-- Always use print()/console.log() to output results from python/node.
-
-## File operations
-- Absolute paths (~/path, /path) and simple names (notes.txt → workspace) both work.
-- If a write fails due to permissions, tell the user which directory needs access.
-
-## run_code limitations
-- You cannot run interactive commands (anything that waits for user input).
-- For CLI tools that need auth (gh, gcloud, aws), use their non-interactive modes:
-  gh auth login --with-token, gcloud auth activate-service-account, aws configure set.
-- For tools that support device flow (gh auth login --web), run the command, parse the code/URL from the output, and show it to the user.
-- If a command needs a password or confirmation, ask the user to provide it and pass it via stdin or flags.
-- Long-running commands have a 10s timeout. For installs, use -y flags (apt install -y, yum install -y).`
+- Prefer action over clarification.`
 )
 
 type Agent struct {
@@ -54,11 +42,12 @@ type Agent struct {
 	cfg     *config.Config
 	version string
 
-	mu          sync.Mutex
-	history     map[string][]json.RawMessage
-	userLock    map[string]*sync.Mutex
-	startTime   time.Time
-	totalTokens int
+	mu        sync.Mutex
+	history   map[string][]json.RawMessage
+	userLock  map[string]*sync.Mutex
+	startTime time.Time
+	tokensIn  int
+	tokensOut int
 }
 
 func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
@@ -115,8 +104,8 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		a.history[userID] = append(a.history[userID], resp.AssistantMessage)
 
 		if len(resp.ToolCalls) == 0 {
-			a.addTokens(usage.In + usage.Out)
-			logger.Done(start, usage.In+usage.Out, toolsUsed)
+			a.addTokens(usage.In, usage.Out)
+			logger.Done(start, usage.In, usage.Out, toolsUsed)
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
 		}
@@ -141,16 +130,16 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
-			a.addTokens(usage.In + usage.Out)
-			logger.Done(start, usage.In+usage.Out, toolsUsed)
+			a.addTokens(usage.In, usage.Out)
+			logger.Done(start, usage.In, usage.Out, toolsUsed)
 			logger.Nevinho(reply)
 			return reply, nil
 		}
 	}
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
-	a.addTokens(usage.In + usage.Out)
-	logger.Done(start, usage.In+usage.Out, toolsUsed)
+	a.addTokens(usage.In, usage.Out)
+	logger.Done(start, usage.In, usage.Out, toolsUsed)
 	logger.Nevinho(reply)
 	return reply, nil
 }
@@ -201,25 +190,52 @@ func (a *Agent) SwitchModel(name string) error {
 
 func (a *Agent) Status() string {
 	a.mu.Lock()
-	tokens := a.totalTokens
+	in, out := a.tokensIn, a.tokensOut
 	a.mu.Unlock()
 
+	model := a.llm.Model()
 	uptime := time.Since(a.startTime).Truncate(time.Second)
 	paths := a.tools.ApprovedPaths()
+	cost := estimateCost(model, in, out)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "**nevinho %s**\n"+
 		"• Model: `%s`\n"+
 		"• Uptime: %s\n"+
-		"• Session tokens: %d\n"+
+		"• Tokens: %d in / %d out\n"+
+		"• Estimated cost: $%.4f\n"+
 		"• Approved paths: %d",
-		a.version, a.llm.Model(), formatDuration(uptime), tokens, len(paths))
+		a.version, model, formatDuration(uptime), in, out, cost, len(paths))
 
 	for _, p := range paths {
 		fmt.Fprintf(&sb, "\n  `%s`", p)
 	}
 
 	return sb.String()
+}
+
+// estimateCost returns estimated USD cost based on model pricing per 1M tokens.
+func estimateCost(model string, tokensIn, tokensOut int) float64 {
+	var inPer1M, outPer1M float64
+	switch {
+	case strings.Contains(model, "haiku"):
+		inPer1M, outPer1M = 0.80, 4.00
+	case strings.Contains(model, "sonnet"):
+		inPer1M, outPer1M = 3.00, 15.00
+	case strings.Contains(model, "opus"):
+		inPer1M, outPer1M = 15.00, 75.00
+	case strings.Contains(model, "gpt-4o-mini"):
+		inPer1M, outPer1M = 0.15, 0.60
+	case strings.Contains(model, "gpt-4o"):
+		inPer1M, outPer1M = 2.50, 10.00
+	case strings.Contains(model, "o3-mini"):
+		inPer1M, outPer1M = 1.10, 4.40
+	case strings.Contains(model, "o4-mini"):
+		inPer1M, outPer1M = 1.10, 4.40
+	default:
+		return 0 // local models / unknown
+	}
+	return (float64(tokensIn) * inPer1M / 1_000_000) + (float64(tokensOut) * outPer1M / 1_000_000)
 }
 
 func (a *Agent) ApprovedPaths() []string {
@@ -230,9 +246,10 @@ func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
 }
 
-func (a *Agent) addTokens(n int) {
+func (a *Agent) addTokens(in, out int) {
 	a.mu.Lock()
-	a.totalTokens += n
+	a.tokensIn += in
+	a.tokensOut += out
 	a.mu.Unlock()
 }
 
@@ -345,13 +362,8 @@ func toolDetail(name string, input json.RawMessage) string {
 		return str("query")
 	case "web_read":
 		return str("url")
-	case "run_code":
-		lang := str("language")
-		code := str("code")
-		if lang != "" && code != "" {
-			return lang + ": " + code
-		}
-		return code
+	case "bash":
+		return str("command")
 	case "file_read", "file_write":
 		return str("path")
 	default:

@@ -16,29 +16,23 @@ type Config struct {
 	key      [32]byte
 	filePath string
 
-	DiscordBotToken    string `json:"discord_bot_token"`
-	DiscordOwnerID     string `json:"discord_owner_id"`
-	AnthropicAPIKey    string `json:"anthropic_api_key"`
-	OpenAIAPIKey       string `json:"openai_api_key"`
-	OllamaModel        string `json:"ollama_model"`
-	BraveAPIKey        string `json:"brave_api_key"`
-	GitHubClientID     string `json:"github_client_id"`
-	GoogleClientID     string `json:"google_client_id"`
-	GoogleClientSecret string `json:"google_client_secret"`
+	DiscordBotToken string `json:"discord_bot_token"`
+	DiscordOwnerID  string `json:"discord_owner_id"`
+	AnthropicAPIKey string `json:"anthropic_api_key"`
+	OpenAIAPIKey    string `json:"openai_api_key"`
+	OllamaModel     string `json:"ollama_model"`
+	BraveAPIKey     string `json:"brave_api_key"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
 func (c *Config) keymap() map[string]*string {
 	return map[string]*string{
-		"DISCORD_BOT_TOKEN":    &c.DiscordBotToken,
-		"DISCORD_OWNER_ID":     &c.DiscordOwnerID,
-		"ANTHROPIC_API_KEY":    &c.AnthropicAPIKey,
-		"OPENAI_API_KEY":       &c.OpenAIAPIKey,
-		"OLLAMA_MODEL":         &c.OllamaModel,
-		"BRAVE_API_KEY":        &c.BraveAPIKey,
-		"GITHUB_CLIENT_ID":     &c.GitHubClientID,
-		"GOOGLE_CLIENT_ID":     &c.GoogleClientID,
-		"GOOGLE_CLIENT_SECRET": &c.GoogleClientSecret,
+		"DISCORD_BOT_TOKEN": &c.DiscordBotToken,
+		"DISCORD_OWNER_ID":  &c.DiscordOwnerID,
+		"ANTHROPIC_API_KEY": &c.AnthropicAPIKey,
+		"OPENAI_API_KEY":    &c.OpenAIAPIKey,
+		"OLLAMA_MODEL":      &c.OllamaModel,
+		"BRAVE_API_KEY":     &c.BraveAPIKey,
 	}
 }
 
@@ -130,7 +124,6 @@ func (c *Config) Keys() []KeyStatus {
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
 		"BRAVE_API_KEY",
-		"GITHUB_CLIENT_ID", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
 	}
 
 	km := c.keymap()
