@@ -280,8 +280,7 @@ func (b *Bot) handleConnect(s *discordgo.Session, i *discordgo.InteractionCreate
 	case auth.GitHub:
 		clientID := b.cfg.GitHubClientID
 		if clientID == "" {
-			respond(s, i, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env\n\nCreate one at: https://github.com/settings/applications/new")
-			return
+			clientID = auth.DefaultGitHubClientID
 		}
 
 		flow := &auth.GitHubFlow{ClientID: clientID}
@@ -515,8 +514,7 @@ func (b *Bot) handleConnectText(s *discordgo.Session, channelID, userID, service
 	case auth.GitHub:
 		clientID := b.cfg.GitHubClientID
 		if clientID == "" {
-			s.ChannelMessageSend(channelID, "GitHub not configured. Set `GITHUB_CLIENT_ID` in .env")
-			return
+			clientID = auth.DefaultGitHubClientID
 		}
 		flow := &auth.GitHubFlow{ClientID: clientID}
 		dc, err := flow.StartDeviceFlow(ctx)
