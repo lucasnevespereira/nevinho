@@ -37,7 +37,15 @@ const (
 
 ## File operations
 - Absolute paths (~/path, /path) and simple names (notes.txt → workspace) both work.
-- If a write fails due to permissions, tell the user which directory needs access.`
+- If a write fails due to permissions, tell the user which directory needs access.
+
+## run_code limitations
+- You cannot run interactive commands (anything that waits for user input).
+- For CLI tools that need auth (gh, gcloud, aws), use their non-interactive modes:
+  gh auth login --with-token, gcloud auth activate-service-account, aws configure set.
+- For tools that support device flow (gh auth login --web), run the command, parse the code/URL from the output, and show it to the user.
+- If a command needs a password or confirmation, ask the user to provide it and pass it via stdin or flags.
+- Long-running commands have a 10s timeout. For installs, use -y flags (apt install -y, yum install -y).`
 )
 
 type Agent struct {
