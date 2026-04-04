@@ -108,7 +108,7 @@ func (r *Registry) executeBash(command string) string {
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return result + "\n(timed out after 10s)"
+			return result + "\n(timed out after 2m)"
 		}
 		result += "\n" + err.Error()
 	}

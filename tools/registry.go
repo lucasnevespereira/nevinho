@@ -77,12 +77,12 @@ func (r *Registry) Defs() []llm.ToolDef {
 	return []llm.ToolDef{
 		{
 			Name:        "web_read",
-			Description: "Fetch a web page and return its readable text content. Use this after web_search to read the full content of relevant pages, or to fetch any URL directly.",
+			Description: "Fetch a web page and return its readable text content.",
 			Schema:      `{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"}},"required":["url"]}`,
 		},
 		{
 			Name:        "web_search",
-			Description: "Search the web and return a list of results with titles, URLs, and short snippets. This only returns summaries — to get the full content of a page, call web_read with the URL. Always follow up with web_read on the most relevant results to get detailed information before answering.",
+			Description: "Search the web. Returns titles, URLs, and snippets.",
 			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"The search query"}},"required":["query"]}`,
 		},
 		{

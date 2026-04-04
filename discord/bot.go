@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
@@ -288,8 +289,10 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	s.ChannelTyping(m.ChannelID)
+	stopTyping := keepTyping(s, m.ChannelID)
 
 	response, err := b.agent.Chat(m.Author.ID, text)
+	stopTyping()
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
 		s.ChannelMessageSend(m.ChannelID, friendlyError(err))
@@ -303,6 +306,23 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for _, chunk := range splitMessage(response) {
 		s.ChannelMessageSend(m.ChannelID, chunk)
 	}
+}
+
+func keepTyping(s *discordgo.Session, channelID string) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(8 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.ChannelTyping(channelID)
+			}
+		}
+	}()
+	return func() { close(stop) }
 }
 
 func splitMessage(text string) []string {
