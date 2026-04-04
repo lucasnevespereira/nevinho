@@ -113,8 +113,8 @@ func (r *Registry) executeBash(command string) string {
 		result += "\n" + err.Error()
 	}
 
-	if len(result) > 5000 {
-		result = result[:5000] + "\n...(truncated)"
+	if len(result) > maxResponseLen {
+		result = result[:maxResponseLen] + "\n...(truncated)"
 	}
 
 	if result == "" {

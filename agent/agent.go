@@ -17,7 +17,8 @@ import (
 const (
 	maxTokens  = 4096
 	maxLoops   = 10
-	maxHistory = 20
+	maxHistory    = 20
+	maxToolResult = 4000
 
 	systemPrompt = `You are nevinho, a personal AI assistant on Discord. You help users by running commands, searching the web, and managing files.
 
@@ -119,6 +120,9 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			toolsUsed = append(toolsUsed, tc.Name)
 			logger.Tool(tc.Name, toolDetail(tc.Name, tc.Input))
 			output := a.executeTool(tc.Name, tc.Input, userID)
+			if len(output) > maxToolResult {
+				output = output[:maxToolResult] + "\n...(truncated)"
+			}
 			results = append(results, llm.ToolResult{ID: tc.ID, Output: output})
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
