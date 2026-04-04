@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const bashTimeout = 10 * time.Second
+const bashTimeout = 120 * time.Second
 
 // Patterns that require user approval before execution.
 var dangerousPatterns = []*regexp.Regexp{
