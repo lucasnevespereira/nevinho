@@ -12,7 +12,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/llm"
 )
 
-const maxResponseLen = 10000
+const maxResponseLen = 8000
 
 func configDir() string {
 	home, err := os.UserHomeDir()
