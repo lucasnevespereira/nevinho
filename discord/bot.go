@@ -233,6 +233,13 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	lower := strings.ToLower(text)
 	switch {
+	case lower == "/cancel":
+		if b.agent.Cancel(m.Author.ID) {
+			s.ChannelMessageSend(m.ChannelID, "Cancelled.")
+		} else {
+			s.ChannelMessageSend(m.ChannelID, "Nothing running.")
+		}
+		return
 	case lower == "/new":
 		b.agent.ClearHistory(m.Author.ID)
 		s.ChannelMessageSend(m.ChannelID, "Fresh conversation started.")
@@ -305,7 +312,10 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	response = collapseNewlines(response)
 	for _, chunk := range splitMessage(response) {
-		s.ChannelMessageSend(m.ChannelID, chunk)
+		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+			Content: chunk,
+			Flags:   discordgo.MessageFlagsSuppressEmbeds,
+		})
 	}
 }
 
