@@ -57,6 +57,10 @@ func (b *Bot) Stop() {
 
 var slashCommands = []*discordgo.ApplicationCommand{
 	{
+		Name:        "cancel",
+		Description: "Cancel the current operation",
+	},
+	{
 		Name:        "new",
 		Description: "Start a fresh conversation",
 	},
@@ -159,6 +163,13 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	var reply string
 
 	switch data.Name {
+	case "cancel":
+		if b.agent.Cancel(userID) {
+			reply = "Cancelled."
+		} else {
+			reply = "Nothing running."
+		}
+
 	case "new":
 		b.agent.ClearHistory(userID)
 		reply = "Fresh conversation started."
@@ -512,6 +523,7 @@ func helpMessage() string {
 **Tools:** bash · web search · web read · file read · file write
 
 **Commands:**
+` + "`/cancel`" + ` cancel current operation
 ` + "`/new`" + ` fresh conversation
 ` + "`/model`" + ` show or switch model
 ` + "`/status`" + ` uptime, tokens, cost
