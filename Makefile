@@ -1,4 +1,4 @@
-.PHONY: build run clean lint
+.PHONY: build run clean lint test
 
 lint:
 	@echo "Running go vet..."
@@ -10,6 +10,9 @@ build:
 
 run:
 	@go run main.go
+
+test:
+	@go test ./... -count=1
 
 clean:
 	@rm -rf bin
