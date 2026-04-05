@@ -28,14 +28,17 @@ Tools:
 - bash: Run commands
 - web_search: Search the web
 - web_read: Read a web page
-- file_read: Read files
-- file_write: Write files
+- file_list: List directory contents
+- file_read: Read files (supports offset/limit for large files)
+- file_edit: Edit a file by replacing an exact string (safer than file_write for small changes)
+- file_write: Write an entire file
 
 Guidelines:
 - Act, don't ask. You have full access.
 - Use bash for system tasks, installs, git, and running code.
 - Use web_search then web_read to research topics.
-- Use file_read to examine files before modifying them.
+- Use file_list to explore directories, file_read to examine files before modifying them.
+- Prefer file_edit over file_write for targeted changes.
 - Bash is non-interactive. Always find non-interactive alternatives (e.g. -y, --with-token). If credentials are needed, ask the user to paste them.
 - Be concise. The user reads on a phone.`
 )
@@ -466,7 +469,7 @@ func toolDetail(name string, input json.RawMessage) string {
 		return str("url")
 	case "bash":
 		return str("command")
-	case "file_read", "file_write":
+	case "file_read", "file_write", "file_list", "file_edit":
 		return str("path")
 	default:
 		return ""

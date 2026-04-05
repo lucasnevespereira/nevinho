@@ -23,19 +23,27 @@ A single transient error or stuck call should not kill a conversation.
 - [x] **Top-level timeout on Chat()** -- Wrap the chat loop in a 5-minute deadline. Prevents a stuck API call or infinite tool loop from hanging the bot.
 - [x] **Cost-per-message logging** -- Extend `logger.Done()` to include estimated cost (e.g., `1.2s · 1,340 tokens · $0.002`). Already have `estimateCost()`, just needs wiring.
 
-## P2: Streaming
+## P2: Harness-Level Memory
+
+The agent should learn from corrections and preferences without polluting the system prompt with memory instructions.
+
+- [ ] **Auto-inject memory into system prompt** -- On `Chat()`, read `~/.config/nevinho/memory.md` and append its content to the system prompt as a `[Memory]` block. File missing or empty = no-op. Content gets prompt-cached with the rest of the system prefix.
+- [ ] **Harness-driven memory writes** -- After each assistant reply, the harness scans for correction patterns (e.g. "use X instead of Y", "I prefer X", "don't do X") and appends one-line entries to `memory.md`. The LLM never sees write instructions -- the harness owns the file.
+- [ ] **Memory cap** -- Hard limit of ~500 tokens (~20 entries). Oldest entries rotate out. Keeps the cache-key stable and the prompt lean.
+
+## P3: Streaming
 
 Waiting 20-40s with only a typing indicator provides no feedback. Streaming fixes this.
 
 - [ ] **Streaming responses** -- Use the streaming API endpoint. Edit the Discord message as tokens arrive instead of waiting for the full response.
 
-## P3: Persist Across Restarts
+## P4: Persist Across Restarts
 
 Conversations should survive process restarts and upgrades.
 
 - [ ] **Conversation summaries to disk** -- On trim or shutdown, write a summary to `~/.config/nevinho/summaries/{userID}.md`. On next message from that user, load the summary as context preamble.
 
-## P4: Richer Interactions
+## P5: Richer Interactions
 
 Only after the foundation is solid.
 

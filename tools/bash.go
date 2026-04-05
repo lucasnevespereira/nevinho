@@ -40,6 +40,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bcurl\b.*\|`),
 	regexp.MustCompile(`\bwget\b.*\|`),
 	regexp.MustCompile(`\bcurl\b.*-[oO]`),
+	regexp.MustCompile(`\bcurl\b.*--output`),
 
 	// Dangerous redirects
 	regexp.MustCompile(`>\s*/dev/`),
@@ -114,7 +115,8 @@ func (r *Registry) executeBash(command string) string {
 	}
 
 	if len(result) > maxResponseLen {
-		result = result[:maxResponseLen] + "\n...(truncated)"
+		total := len(result)
+		result = result[:maxResponseLen] + fmt.Sprintf("\n...(truncated: showing %d of %d chars)", maxResponseLen, total)
 	}
 
 	if result == "" {
