@@ -72,43 +72,43 @@ func TestTrimHistoryByTokens(t *testing.T) {
 	tests := []struct {
 		name      string
 		msgs      []json.RawMessage
-		maxTokens    int
+		maxTokens int
 		wantCount int
 	}{
 		{
 			name:      "under maxTokens keeps everything",
 			msgs:      []json.RawMessage{small, assistantMsg("hey")},
-			maxTokens:    10000,
+			maxTokens: 10000,
 			wantCount: 2,
 		},
 		{
 			name:      "over maxTokens trims oldest messages",
 			msgs:      []json.RawMessage{big, big, big, small},
-			maxTokens:    estimateTokens([]json.RawMessage{big, small}),
+			maxTokens: estimateTokens([]json.RawMessage{big, small}),
 			wantCount: 2,
 		},
 		{
 			name:      "skips orphaned tool results to find clean boundary",
 			msgs:      []json.RawMessage{big, toolMsg(), small, assistantMsg("ok")},
-			maxTokens:    estimateTokens([]json.RawMessage{small, assistantMsg("ok")}),
+			maxTokens: estimateTokens([]json.RawMessage{small, assistantMsg("ok")}),
 			wantCount: 2,
 		},
 		{
 			name:      "skips orphaned assistant messages",
 			msgs:      []json.RawMessage{big, assistantMsg("old"), small, assistantMsg("new")},
-			maxTokens:    estimateTokens([]json.RawMessage{small, assistantMsg("new")}),
+			maxTokens: estimateTokens([]json.RawMessage{small, assistantMsg("new")}),
 			wantCount: 2,
 		},
 		{
 			name:      "skips tool_use array user messages",
 			msgs:      []json.RawMessage{big, toolUseUserMsg(), small},
-			maxTokens:    estimateTokens([]json.RawMessage{small}),
+			maxTokens: estimateTokens([]json.RawMessage{small}),
 			wantCount: 1,
 		},
 		{
 			name:      "keeps at least the last message when everything exceeds maxTokens",
 			msgs:      []json.RawMessage{big, big, big},
-			maxTokens:    1,
+			maxTokens: 1,
 			wantCount: 1,
 		},
 	}
@@ -272,7 +272,7 @@ func TestLooksLikeApproval(t *testing.T) {
 	}
 }
 
-func TestAppendHistory_EvictsWhenOverBudget(t *testing.T) {
+func TestAppendHistory_EvictsWhenOverLimit(t *testing.T) {
 	a := &Agent{
 		history: make(map[string][]json.RawMessage),
 	}
@@ -291,7 +291,7 @@ func TestAppendHistory_EvictsWhenOverBudget(t *testing.T) {
 	}
 }
 
-func TestAppendHistory_NoEvictionUnderBudget(t *testing.T) {
+func TestAppendHistory_NoEvictionUnderLimit(t *testing.T) {
 	a := &Agent{
 		history: make(map[string][]json.RawMessage),
 	}
