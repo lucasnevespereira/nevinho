@@ -20,6 +20,13 @@ type Pending struct {
 	Code   *pendingCode
 }
 
+// FileDisplay holds file content to be sent directly to Discord.
+type FileDisplay struct {
+	Path    string
+	Lang    string
+	Content string
+}
+
 type pendingCode struct {
 	Input  json.RawMessage
 	UserID string
@@ -30,6 +37,7 @@ type Registry struct {
 	cfg      *config.Config
 	approved map[string]bool
 	pending  map[string]*Pending
+	files    map[string][]FileDisplay
 	permFile string
 }
 
@@ -38,6 +46,7 @@ func NewRegistry(cfg *config.Config) *Registry {
 		cfg:      cfg,
 		approved: make(map[string]bool),
 		pending:  make(map[string]*Pending),
+		files:    make(map[string][]FileDisplay),
 		permFile: filepath.Join(cfg.Dir(), "approved_paths.json"),
 	}
 	r.loadApproved()
@@ -126,6 +135,20 @@ func (r *Registry) PendingApproval(userID string) *Pending {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.pending[userID]
+}
+
+func (r *Registry) QueueFileDisplay(userID, path, lang, content string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.files[userID] = append(r.files[userID], FileDisplay{Path: path, Lang: lang, Content: content})
+}
+
+func (r *Registry) DrainFileDisplays(userID string) []FileDisplay {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	files := r.files[userID]
+	delete(r.files, userID)
+	return files
 }
 
 func (r *Registry) ClearPending(userID string) {

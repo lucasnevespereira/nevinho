@@ -36,44 +36,42 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	}
 
 	content := string(data)
-
 	lang := langFromExt(resolved)
+	totalLines := strings.Count(content, "\n") + 1
 
 	// Paginated read: offset/limit work on lines.
 	if in.Offset > 0 || in.Limit > 0 {
 		lines := strings.Split(content, "\n")
-		total := len(lines)
 
 		start := 0
 		if in.Offset > 0 {
 			start = in.Offset - 1
 		}
-		if start >= total {
-			return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, total)
+		if start >= totalLines {
+			return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
 		}
 
-		end := total
-		if in.Limit > 0 && start+in.Limit < total {
+		end := totalLines
+		if in.Limit > 0 && start+in.Limit < totalLines {
 			end = start + in.Limit
 		}
 
 		chunk := strings.Join(lines[start:end], "\n")
-		header := fmt.Sprintf("(lines %d-%d of %d)\n", start+1, end, total)
-		return header + wrapCodeFence(lang, chunk)
+		r.QueueFileDisplay(userID, in.Path, lang, chunk)
+		return fmt.Sprintf("lines %d-%d of %d shown to user", start+1, end, totalLines)
 	}
 
 	// Full read with truncation.
-	if len(content) > maxResponseLen {
-		truncated := content[:maxResponseLen]
-		if idx := strings.LastIndex(truncated, "\n"); idx != -1 {
-			truncated = truncated[:idx]
+	display := content
+	if len(display) > maxResponseLen {
+		display = display[:maxResponseLen]
+		if idx := strings.LastIndex(display, "\n"); idx != -1 {
+			display = display[:idx]
 		}
-		totalLines := strings.Count(content, "\n") + 1
-		shownLines := strings.Count(truncated, "\n") + 1
-		return wrapCodeFence(lang, truncated) + fmt.Sprintf("\n(truncated: showing %d of %d lines)", shownLines, totalLines)
 	}
 
-	return wrapCodeFence(lang, content)
+	r.QueueFileDisplay(userID, in.Path, lang, display)
+	return fmt.Sprintf("%s (%d lines) shown to user", in.Path, totalLines)
 }
 
 type fileWriteInput struct {
@@ -214,10 +212,6 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	}
 
 	return fmt.Sprintf("edited %s", in.Path)
-}
-
-func wrapCodeFence(lang, content string) string {
-	return "```" + lang + "\n" + content + "\n```"
 }
 
 func langFromExt(path string) string {

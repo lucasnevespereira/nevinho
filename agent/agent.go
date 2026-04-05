@@ -45,9 +45,6 @@ Guidelines:
 - When asked to build a full project, write a plan.md first with structure, features, and steps. Check plan.md before each step and mark completed items. If you lose context, re-read plan.md.`
 )
 
-// ProgressFunc is called before each tool execution with the tool name and a short detail.
-type ProgressFunc func(tool, detail string)
-
 type Agent struct {
 	llm     llm.Provider
 	tools   *tools.Registry
@@ -58,7 +55,6 @@ type Agent struct {
 	history   map[string][]json.RawMessage
 	userLock  map[string]*sync.Mutex
 	cancelFn  map[string]context.CancelFunc
-	progress  map[string]ProgressFunc
 	startTime time.Time
 	tokensIn  int
 	tokensOut int
@@ -73,7 +69,6 @@ func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		cancelFn:  make(map[string]context.CancelFunc),
-		progress:  make(map[string]ProgressFunc),
 		startTime: time.Now(),
 	}
 }
@@ -159,14 +154,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		needsApproval := false
 		for _, tc := range resp.ToolCalls {
 			toolsUsed = append(toolsUsed, tc.Name)
-			detail := toolDetail(tc.Name, tc.Input)
-			logger.Tool(tc.Name, detail)
-			a.mu.Lock()
-			fn := a.progress[userID]
-			a.mu.Unlock()
-			if fn != nil {
-				fn(tc.Name, detail)
-			}
+			logger.Tool(tc.Name, toolDetail(tc.Name, tc.Input))
 			output := a.executeTool(tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
@@ -277,18 +265,12 @@ func estimateCost(model string, tokensIn, tokensOut int) float64 {
 	return (float64(tokensIn) * inPer1M / 1_000_000) + (float64(tokensOut) * outPer1M / 1_000_000)
 }
 
-func (a *Agent) SetProgress(userID string, fn ProgressFunc) {
-	a.mu.Lock()
-	if fn != nil {
-		a.progress[userID] = fn
-	} else {
-		delete(a.progress, userID)
-	}
-	a.mu.Unlock()
-}
-
 func (a *Agent) HasPendingApproval(userID string) bool {
 	return a.tools.PendingApproval(userID) != nil
+}
+
+func (a *Agent) DrainFileDisplays(userID string) []tools.FileDisplay {
+	return a.tools.DrainFileDisplays(userID)
 }
 
 func (a *Agent) ClearPending(userID string) {

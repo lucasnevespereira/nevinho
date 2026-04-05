@@ -322,28 +322,20 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelTyping(m.ChannelID)
 	stopTyping := keepTyping(s, m.ChannelID)
 
-	// Send a progress message and edit it as tools run
-	progressMsg, _ := s.ChannelMessageSend(m.ChannelID, "Thinking...")
-	b.agent.SetProgress(m.Author.ID, func(tool, detail string) {
-		if progressMsg == nil {
-			return
-		}
-		status := formatProgress(tool, detail)
-		s.ChannelMessageEdit(m.ChannelID, progressMsg.ID, status)
-	})
-
 	response, err := b.agent.Chat(m.Author.ID, text)
-	b.agent.SetProgress(m.Author.ID, nil)
 	stopTyping()
-
-	// Clean up progress message
-	if progressMsg != nil {
-		s.ChannelMessageDelete(m.ChannelID, progressMsg.ID)
-	}
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
 		s.ChannelMessageSend(m.ChannelID, friendlyError(err))
 		return
+	}
+
+	// Send any file contents directly as code blocks
+	for _, f := range b.agent.DrainFileDisplays(m.Author.ID) {
+		block := "```" + f.Lang + "\n" + f.Content + "\n```"
+		for _, chunk := range splitMessage(block) {
+			s.ChannelMessageSend(m.ChannelID, chunk)
+		}
 	}
 
 	if response == "" {
@@ -740,17 +732,6 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 	}
 
 	return options
-}
-
-func formatProgress(tool, detail string) string {
-	if detail != "" {
-		// Truncate long details for Discord display
-		if len(detail) > 80 {
-			detail = detail[:80] + "..."
-		}
-		return fmt.Sprintf("**%s** `%s`", tool, detail)
-	}
-	return fmt.Sprintf("**%s**", tool)
 }
 
 func helpMessage() string {
