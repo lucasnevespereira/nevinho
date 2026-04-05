@@ -143,6 +143,8 @@ func (c *Config) Keys() []KeyStatus {
 	return out
 }
 
+func (c *Config) Dir() string { return c.dir }
+
 type ProviderConfig struct {
 	AnthropicKey string
 	OpenAIKey    string

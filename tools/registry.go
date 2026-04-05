@@ -14,14 +14,6 @@ import (
 
 const maxResponseLen = 8000
 
-func configDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".nevinho"
-	}
-	return filepath.Join(home, ".nevinho")
-}
-
 type Pending struct {
 	Kind   string // "path" or "code"
 	Detail string
@@ -42,15 +34,11 @@ type Registry struct {
 }
 
 func NewRegistry(cfg *config.Config) *Registry {
-	base := configDir()
 	r := &Registry{
 		cfg:      cfg,
 		approved: make(map[string]bool),
 		pending:  make(map[string]*Pending),
-		permFile: filepath.Join(base, "approved_paths.json"),
-	}
-	if err := os.MkdirAll(base, 0755); err != nil {
-		log.Printf("failed to create config dir: %v", err)
+		permFile: filepath.Join(cfg.Dir(), "approved_paths.json"),
 	}
 	r.loadApproved()
 	return r

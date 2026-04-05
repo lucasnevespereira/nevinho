@@ -22,7 +22,7 @@ func main() {
 	_ = godotenv.Load()
 
 	home, _ := os.UserHomeDir()
-	configDir := filepath.Join(home, ".config", "nevinho")
+	configDir := filepath.Join(home, ".nevinho")
 
 	cmd := ""
 	if len(os.Args) > 1 {

@@ -259,7 +259,7 @@ Writing to new path?
     |--- no (approved path) --> execute
 ```
 
-Approved paths persist across sessions in `~/.config/nevinho/approved_paths.json`.
+Approved paths persist across sessions in `~/.nevinho/approved_paths.json`.
 
 ---
 

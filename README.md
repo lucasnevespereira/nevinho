@@ -104,7 +104,7 @@ Dangerous operations require approval before execution.
 
 ## Config
 
-Configuration is encrypted and stored in `~/.config/nevinho/`:
+Configuration is encrypted and stored in `~/.nevinho/`:
 
 ```
 config.enc          encrypted configuration (AES-256-GCM)

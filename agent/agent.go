@@ -394,12 +394,12 @@ func estimateTokens(msgs []json.RawMessage) int {
 	return total
 }
 
-func trimHistoryByTokens(msgs []json.RawMessage, maxOutputTokens int) []json.RawMessage {
-	if estimateTokens(msgs) <= maxOutputTokens {
+func trimHistoryByTokens(msgs []json.RawMessage, limit int) []json.RawMessage {
+	if estimateTokens(msgs) <= limit {
 		return msgs
 	}
 	start := 0
-	for start < len(msgs) && estimateTokens(msgs[start:]) > maxOutputTokens {
+	for start < len(msgs) && estimateTokens(msgs[start:]) > limit {
 		start++
 	}
 	// Walk forward to find a clean boundary (plain user message)
