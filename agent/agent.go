@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	maxTokens  = 4096
-	maxLoops   = 10
+	maxTokens        = 4096
+	maxLoops         = 10
 	maxContextTokens = 30_000
-	maxToolResult = 4000
+	maxToolResult    = 4000
+	chatTimeout      = 5 * time.Minute
 
 	systemPrompt = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
@@ -83,7 +84,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), chatTimeout)
 	a.mu.Lock()
 	a.cancelFn[userID] = cancel
 	a.mu.Unlock()
@@ -121,7 +122,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		if ctx.Err() != nil {
 			return "Cancelled.", nil
 		}
-		resp, err := a.llm.Complete(&llm.Request{
+		resp, err := a.llm.Complete(ctx, &llm.Request{
 			SystemPrompt: systemPrompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
@@ -139,7 +140,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
 		}
@@ -166,7 +167,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 			logger.Nevinho(reply)
 			return reply, nil
 		}
@@ -174,7 +175,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
 	a.addTokens(usage.In, usage.Out)
-	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
 	return reply, nil
 }
@@ -355,7 +356,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	if flat == "" {
 		return
 	}
-	resp, err := a.llm.Complete(&llm.Request{
+	resp, err := a.llm.Complete(context.Background(), &llm.Request{
 		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
 		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
 		MaxTokens:    200,

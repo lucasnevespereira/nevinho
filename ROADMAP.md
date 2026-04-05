@@ -19,9 +19,9 @@ Guiding principles:
 
 A single transient error or stuck call should not kill a conversation.
 
-- [ ] **Retry with exponential backoff** -- On 429/5xx, retry up to 3 times with backoff. Parse `Retry-After` for 429s. Thread `context.Context` through the HTTP layer so retries are cancellable.
-- [ ] **Top-level timeout on Chat()** -- Wrap the chat loop in a 5-minute deadline. Prevents a stuck API call or infinite tool loop from hanging the bot.
-- [ ] **Cost-per-message logging** -- Extend `logger.Done()` to include estimated cost (e.g., `1.2s · 1,340 tokens · $0.002`). Already have `estimateCost()`, just needs wiring.
+- [x] **Retry with exponential backoff** -- On 429/5xx, retry up to 3 times with backoff. Parse `Retry-After` for 429s. Thread `context.Context` through the HTTP layer so retries are cancellable.
+- [x] **Top-level timeout on Chat()** -- Wrap the chat loop in a 5-minute deadline. Prevents a stuck API call or infinite tool loop from hanging the bot.
+- [x] **Cost-per-message logging** -- Extend `logger.Done()` to include estimated cost (e.g., `1.2s · 1,340 tokens · $0.002`). Already have `estimateCost()`, just needs wiring.
 
 ## P2: Streaming
 

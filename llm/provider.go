@@ -1,9 +1,12 @@
 package llm
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 type Provider interface {
-	Complete(req *Request) (*Response, error)
+	Complete(ctx context.Context, req *Request) (*Response, error)
 	FormatUserMessage(text string) json.RawMessage
 	FormatToolResults(results []ToolResult) []json.RawMessage
 	Model() string

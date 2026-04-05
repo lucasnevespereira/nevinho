@@ -31,11 +31,14 @@ func Tool(name, detail string) {
 func Err(err error)       { log.Printf("%sfail%s     %v", red, reset, err) }
 func Info(msg string)     { log.Printf("%s%s%s", dim, msg, reset) }
 
-func Done(start time.Time, tokensIn, tokensOut, cacheRead int, tools []string) {
+func Done(start time.Time, tokensIn, tokensOut, cacheRead int, tools []string, cost float64) {
 	secs := time.Since(start).Seconds()
 	msg := fmt.Sprintf("%.1fs · %d in / %d out", secs, tokensIn, tokensOut)
 	if cacheRead > 0 {
 		msg += fmt.Sprintf(" · %d cached", cacheRead)
+	}
+	if cost > 0 {
+		msg += fmt.Sprintf(" · $%.4f", cost)
 	}
 	if len(tools) > 0 {
 		msg += " · " + strings.Join(tools, ", ")
