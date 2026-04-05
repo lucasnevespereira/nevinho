@@ -30,7 +30,18 @@ func (r *Registry) webRead(input json.RawMessage) string {
 		return fmt.Sprintf("blocked: %v", err)
 	}
 
-	client := &http.Client{Timeout: httpTimeout}
+	client := &http.Client{
+		Timeout: httpTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := validateURL(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect blocked: %w", err)
+			}
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
 	resp, err := client.Get(in.URL)
 	if err != nil {
 		return fmt.Sprintf("failed to fetch: %v", err)

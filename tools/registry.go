@@ -19,7 +19,7 @@ func configDir() string {
 	if err != nil {
 		return ".nevinho"
 	}
-	return filepath.Join(home, ".config", "nevinho")
+	return filepath.Join(home, ".nevinho")
 }
 
 type Pending struct {
@@ -49,8 +49,8 @@ func NewRegistry(cfg *config.Config) *Registry {
 		pending:  make(map[string]*Pending),
 		permFile: filepath.Join(base, "approved_paths.json"),
 	}
-	if err := os.MkdirAll(filepath.Join(base, "workspace"), 0755); err != nil {
-		log.Printf("failed to create workspace: %v", err)
+	if err := os.MkdirAll(base, 0755); err != nil {
+		log.Printf("failed to create config dir: %v", err)
 	}
 	r.loadApproved()
 	return r
@@ -68,6 +68,10 @@ func (r *Registry) Execute(name string, input json.RawMessage, userID string) st
 		return r.fileRead(input, userID)
 	case "file_write":
 		return r.fileWrite(input, userID)
+	case "file_list":
+		return r.fileList(input, userID)
+	case "file_edit":
+		return r.fileEdit(input, userID)
 	default:
 		return fmt.Sprintf("unknown tool: %s", name)
 	}
@@ -77,28 +81,38 @@ func (r *Registry) Defs() []llm.ToolDef {
 	return []llm.ToolDef{
 		{
 			Name:        "web_read",
-			Description: "Fetch a web page and return its readable text content.",
-			Schema:      `{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"}},"required":["url"]}`,
+			Description: "Fetch a web page and return its readable text content. Strips scripts, styles, nav, and boilerplate. Prefer this over bash curl for reading web content.",
+			Schema:      `{"type":"object","properties":{"url":{"type":"string","description":"Full URL to fetch (must be http or https)"}},"required":["url"]}`,
 		},
 		{
 			Name:        "web_search",
-			Description: "Search the web. Returns titles, URLs, and snippets.",
-			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"The search query"}},"required":["query"]}`,
+			Description: "Search the web and return titles, URLs, and snippets for the top results. Use this to find relevant pages, then web_read to get their full content.",
+			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`,
 		},
 		{
 			Name:        "bash",
-			Description: "Run a bash command.",
-			Schema:      `{"type":"object","properties":{"command":{"type":"string","description":"The command to run"}},"required":["command"]}`,
+			Description: "Run a bash command and return its combined stdout/stderr. Times out after 2 minutes. Commands like rm, sudo, chmod, and curl with output flags require user approval. Non-interactive only — use flags like -y. Prefer file_read/file_write over cat/echo for file operations.",
+			Schema:      `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"}},"required":["command"]}`,
 		},
 		{
 			Name:        "file_read",
-			Description: "Read a file. Supports absolute paths (~/path, /path) or workspace-relative names.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"}},"required":["path"]}`,
+			Description: "Read a file's contents. Supports absolute paths (/path, ~/path). For large files use offset (1-indexed line number to start from) and limit (number of lines) to paginate. The response header shows which lines are returned and the total.",
+			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"offset":{"type":"integer","description":"Line number to start reading from, 1-indexed (optional)"},"limit":{"type":"integer","description":"Maximum number of lines to return (optional)"}},"required":["path"]}`,
 		},
 		{
 			Name:        "file_write",
-			Description: "Write to a file. Creates directories automatically. Absolute paths require user permission.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"content":{"type":"string","description":"Content to write"}},"required":["path","content"]}`,
+			Description: "Write content to a file, replacing it entirely. Creates the file and any parent directories if needed. For small changes prefer file_edit — it's safer and cheaper. Use absolute paths. Requires directory approval.",
+			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"content":{"type":"string","description":"Full content to write"}},"required":["path","content"]}`,
+		},
+		{
+			Name:        "file_list",
+			Description: "List files and directories at a path. Directories have a trailing slash; files show their size. Use absolute paths. Use this to explore project structure before reading files.",
+			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"Directory to list (optional, defaults to workspace root)"}},"required":[]}`,
+		},
+		{
+			Name:        "file_edit",
+			Description: "Make a targeted edit to an existing file by replacing an exact string. old_text must appear exactly once in the file — if it appears zero or multiple times the edit is rejected. Safer and cheaper than file_write for small changes.",
+			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"old_text":{"type":"string","description":"Exact text to find (must appear exactly once in the file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["path","old_text","new_text"]}`,
 		},
 	}
 }

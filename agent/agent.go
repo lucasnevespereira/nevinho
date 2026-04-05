@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	maxTokens  = 4096
-	maxLoops   = 10
+	maxTokens        = 4096
+	maxLoops         = 10
 	maxContextTokens = 30_000
-	maxToolResult = 4000
+	maxToolResult    = 4000
+	chatTimeout      = 5 * time.Minute
 
 	systemPrompt = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
@@ -27,14 +28,17 @@ Tools:
 - bash: Run commands
 - web_search: Search the web
 - web_read: Read a web page
-- file_read: Read files
-- file_write: Write files
+- file_list: List directory contents
+- file_read: Read files (supports offset/limit for large files)
+- file_edit: Edit a file by replacing an exact string (safer than file_write for small changes)
+- file_write: Write an entire file
 
 Guidelines:
 - Act, don't ask. You have full access.
 - Use bash for system tasks, installs, git, and running code.
 - Use web_search then web_read to research topics.
-- Use file_read to examine files before modifying them.
+- Use file_list to explore directories, file_read to examine files before modifying them.
+- Prefer file_edit over file_write for targeted changes.
 - Bash is non-interactive. Always find non-interactive alternatives (e.g. -y, --with-token). If credentials are needed, ask the user to paste them.
 - Be concise. The user reads on a phone.`
 )
@@ -83,7 +87,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), chatTimeout)
 	a.mu.Lock()
 	a.cancelFn[userID] = cancel
 	a.mu.Unlock()
@@ -121,7 +125,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		if ctx.Err() != nil {
 			return "Cancelled.", nil
 		}
-		resp, err := a.llm.Complete(&llm.Request{
+		resp, err := a.llm.Complete(ctx, &llm.Request{
 			SystemPrompt: systemPrompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
@@ -139,7 +143,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
 		}
@@ -166,7 +170,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 			logger.Nevinho(reply)
 			return reply, nil
 		}
@@ -174,7 +178,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
 	a.addTokens(usage.In, usage.Out)
-	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed)
+	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
 	return reply, nil
 }
@@ -355,7 +359,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	if flat == "" {
 		return
 	}
-	resp, err := a.llm.Complete(&llm.Request{
+	resp, err := a.llm.Complete(context.Background(), &llm.Request{
 		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
 		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
 		MaxTokens:    200,
@@ -465,7 +469,7 @@ func toolDetail(name string, input json.RawMessage) string {
 		return str("url")
 	case "bash":
 		return str("command")
-	case "file_read", "file_write":
+	case "file_read", "file_write", "file_list", "file_edit":
 		return str("path")
 	default:
 		return ""

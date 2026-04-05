@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -24,7 +25,7 @@ func NewAnthropic(apiKey, baseURL, model string) *Anthropic {
 
 func (a *Anthropic) Model() string { return a.model }
 
-func (a *Anthropic) Complete(req *Request) (*Response, error) {
+func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, error) {
 	tools := a.formatTools(req.Tools)
 	// Mark last tool with cache_control so the entire prefix (system + tools) is cached
 	if len(tools) > 0 {
@@ -45,7 +46,7 @@ func (a *Anthropic) Complete(req *Request) (*Response, error) {
 		"tools":    tools,
 	}
 
-	data, err := doHTTP(a.baseURL+"/v1/messages", body, map[string]string{
+	data, err := doHTTP(ctx, a.baseURL+"/v1/messages", body, map[string]string{
 		"x-api-key":         a.apiKey,
 		"anthropic-version": "2023-06-01",
 		"content-type":      "application/json",

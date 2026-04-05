@@ -11,7 +11,9 @@ import (
 const maxFileSize = 100 * 1024 // 100KB
 
 type fileReadInput struct {
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	Offset int    `json:"offset"` // 1-indexed line to start from
+	Limit  int    `json:"limit"`  // max lines to return
 }
 
 func (r *Registry) fileRead(input json.RawMessage, userID string) string {
@@ -34,8 +36,39 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	}
 
 	content := string(data)
+
+	// Paginated read: offset/limit work on lines.
+	if in.Offset > 0 || in.Limit > 0 {
+		lines := strings.Split(content, "\n")
+		total := len(lines)
+
+		start := 0
+		if in.Offset > 0 {
+			start = in.Offset - 1
+		}
+		if start >= total {
+			return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, total)
+		}
+
+		end := total
+		if in.Limit > 0 && start+in.Limit < total {
+			end = start + in.Limit
+		}
+
+		chunk := strings.Join(lines[start:end], "\n")
+		header := fmt.Sprintf("(lines %d–%d of %d)\n", start+1, end, total)
+		return header + chunk
+	}
+
+	// Full read with truncation.
 	if len(content) > maxResponseLen {
-		content = content[:maxResponseLen] + "\n...(truncated)"
+		truncated := content[:maxResponseLen]
+		if idx := strings.LastIndex(truncated, "\n"); idx != -1 {
+			truncated = truncated[:idx]
+		}
+		totalLines := strings.Count(content, "\n") + 1
+		shownLines := strings.Count(truncated, "\n") + 1
+		return truncated + fmt.Sprintf("\n...(truncated: showing %d of %d lines — use offset/limit to read more)", shownLines, totalLines)
 	}
 
 	return content
@@ -61,10 +94,8 @@ func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("invalid path: %v", err)
 	}
 
-	if !isWorkspacePath(resolved) {
-		if err := r.checkWritePermission(resolved, userID); err != nil {
-			return err.Error()
-		}
+	if err := r.checkWritePermission(resolved, userID); err != nil {
+		return err.Error()
 	}
 
 	dir := filepath.Dir(resolved)
@@ -79,30 +110,120 @@ func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
 	return fmt.Sprintf("saved to %s", in.Path)
 }
 
-func resolvePath(path, userID string) (string, error) {
-	if strings.HasPrefix(path, "~/") {
-		resolved, err := expandHome(path)
-		if err != nil {
-			return "", err
+type fileListInput struct {
+	Path string `json:"path"`
+}
+
+func (r *Registry) fileList(input json.RawMessage, userID string) string {
+	var in fileListInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Sprintf("invalid input: %v", err)
+	}
+
+	if in.Path == "" {
+		return "path is required — use an absolute path"
+	}
+
+	dirPath, err := resolvePath(in.Path, userID)
+	if err != nil {
+		return fmt.Sprintf("invalid path: %v", err)
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Sprintf("failed to list: %v", err)
+	}
+
+	if len(entries) == 0 {
+		return fmt.Sprintf("%s (empty)", shortenHome(dirPath))
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s\n", shortenHome(dirPath))
+	for _, e := range entries {
+		if e.IsDir() {
+			fmt.Fprintf(&sb, "  %s/\n", e.Name())
+		} else {
+			info, _ := e.Info()
+			if info != nil {
+				fmt.Fprintf(&sb, "  %s (%s)\n", e.Name(), formatSize(info.Size()))
+			} else {
+				fmt.Fprintf(&sb, "  %s\n", e.Name())
+			}
 		}
-		return resolved, nil
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func formatSize(b int64) string {
+	switch {
+	case b < 1024:
+		return fmt.Sprintf("%dB", b)
+	case b < 1024*1024:
+		return fmt.Sprintf("%.1fKB", float64(b)/1024)
+	default:
+		return fmt.Sprintf("%.1fMB", float64(b)/(1024*1024))
+	}
+}
+
+type fileEditInput struct {
+	Path    string `json:"path"`
+	OldText string `json:"old_text"`
+	NewText string `json:"new_text"`
+}
+
+func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
+	var in fileEditInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return fmt.Sprintf("invalid input: %v", err)
+	}
+
+	resolved, err := resolvePath(in.Path, userID)
+	if err != nil {
+		return fmt.Sprintf("invalid path: %v", err)
+	}
+
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Sprintf("file not found: %s", in.Path)
+		}
+		return fmt.Sprintf("failed to read: %v", err)
+	}
+
+	content := string(data)
+	count := strings.Count(content, in.OldText)
+	switch count {
+	case 0:
+		return "old_text not found in file"
+	case 1:
+		// good
+	default:
+		return fmt.Sprintf("old_text found %d times — make it more specific", count)
+	}
+
+	if err := r.checkWritePermission(resolved, userID); err != nil {
+		return err.Error()
+	}
+
+	newContent := strings.Replace(content, in.OldText, in.NewText, 1)
+	if err := os.WriteFile(resolved, []byte(newContent), 0644); err != nil {
+		return fmt.Sprintf("failed to write: %v", err)
+	}
+
+	return fmt.Sprintf("edited %s", in.Path)
+}
+
+func resolvePath(path, _ string) (string, error) {
+	if strings.HasPrefix(path, "~/") {
+		return expandHome(path)
 	}
 
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path), nil
 	}
 
-	// Relative paths go to per-user workspace
-	base := filepath.Join(configDir(), "workspace", userID)
-	full := filepath.Join(base, filepath.Clean(path))
-
-	absBase, _ := filepath.Abs(base)
-	absFull, _ := filepath.Abs(full)
-	if !strings.HasPrefix(absFull, absBase) {
-		return "", fmt.Errorf("path traversal blocked")
-	}
-
-	return full, nil
+	return "", fmt.Errorf("relative paths are not supported — use an absolute path")
 }
 
 func expandHome(path string) (string, error) {
@@ -114,12 +235,6 @@ func expandHome(path string) (string, error) {
 		return filepath.Join(home, path[2:]), nil
 	}
 	return filepath.Clean(path), nil
-}
-
-func isWorkspacePath(path string) bool {
-	abs, _ := filepath.Abs(path)
-	wsAbs, _ := filepath.Abs(filepath.Join(configDir(), "workspace"))
-	return strings.HasPrefix(abs, wsAbs)
 }
 
 func shortenHome(path string) string {

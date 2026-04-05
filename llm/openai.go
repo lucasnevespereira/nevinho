@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -23,7 +24,7 @@ func NewOpenAI(apiKey, baseURL, model string) *OpenAI {
 
 func (o *OpenAI) Model() string { return o.model }
 
-func (o *OpenAI) Complete(req *Request) (*Response, error) {
+func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) {
 	sysMsg, _ := json.Marshal(map[string]interface{}{
 		"role": "system", "content": req.SystemPrompt,
 	})
@@ -36,7 +37,7 @@ func (o *OpenAI) Complete(req *Request) (*Response, error) {
 		"tools":      o.formatTools(req.Tools),
 	}
 
-	data, err := doHTTP(o.baseURL+"/v1/chat/completions", body, map[string]string{
+	data, err := doHTTP(ctx, o.baseURL+"/v1/chat/completions", body, map[string]string{
 		"Authorization": "Bearer " + o.apiKey,
 		"Content-Type":  "application/json",
 	})
