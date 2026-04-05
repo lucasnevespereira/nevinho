@@ -113,7 +113,9 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	var cacheRead int
 	var toolsUsed []string
 
-	a.appendHistory(userID, a.llm.FormatUserMessage(text))
+	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
+		a.summarizeAndPrepend(userID, evicted)
+	}
 
 	for range maxLoops {
 		if ctx.Err() != nil {
@@ -296,11 +298,17 @@ func (a *Agent) getUserLock(userID string) *sync.Mutex {
 	return a.userLock[userID]
 }
 
-func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) {
+func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted []json.RawMessage) {
 	a.history[userID] = append(a.history[userID], msgs...)
-	if estimateTokens(a.history[userID]) > maxContextTokens {
-		a.history[userID] = trimHistoryByTokens(a.history[userID], maxContextTokens)
+	if estimateTokens(a.history[userID]) <= maxContextTokens {
+		return nil
 	}
+	trimmed := trimHistoryByTokens(a.history[userID], maxContextTokens)
+	evictedCount := len(a.history[userID]) - len(trimmed)
+	evicted = make([]json.RawMessage, evictedCount)
+	copy(evicted, a.history[userID][:evictedCount])
+	a.history[userID] = trimmed
+	return evicted
 }
 
 func (a *Agent) executeTool(name string, input json.RawMessage, userID string) (output string) {
@@ -338,6 +346,54 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm %ds", m, s)
 	}
 	return fmt.Sprintf("%ds", s)
+}
+
+// summarizeAndPrepend asks the LLM to summarize evicted messages and
+// inserts the summary as the first message in the user's history.
+func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
+	flat := flattenMessages(evicted)
+	if flat == "" {
+		return
+	}
+	resp, err := a.llm.Complete(&llm.Request{
+		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
+		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
+		MaxTokens:    200,
+	})
+	if err != nil {
+		logger.Err(fmt.Errorf("summary failed: %w", err))
+		return
+	}
+	if resp.Text == "" {
+		return
+	}
+	preamble := a.llm.FormatUserMessage("[Conversation so far: " + resp.Text + "]")
+	a.history[userID] = append([]json.RawMessage{preamble}, a.history[userID]...)
+}
+
+func flattenMessages(msgs []json.RawMessage) string {
+	var sb strings.Builder
+	for _, m := range msgs {
+		var peek struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(m, &peek); err != nil {
+			continue
+		}
+		// Try to extract string content
+		var text string
+		if err := json.Unmarshal(peek.Content, &text); err == nil {
+			runes := []rune(text)
+			if len(runes) > 200 {
+				text = string(runes[:200]) + "..."
+			}
+			fmt.Fprintf(&sb, "%s: %s\n", peek.Role, text)
+		} else {
+			fmt.Fprintf(&sb, "%s: [tool interaction]\n", peek.Role)
+		}
+	}
+	return sb.String()
 }
 
 func estimateTokens(msgs []json.RawMessage) int {
