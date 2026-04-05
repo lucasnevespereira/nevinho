@@ -17,7 +17,7 @@ import (
 
 const (
 	maxTokens        = 4096
-	maxLoops         = 10
+	maxLoops         = 25
 	maxContextTokens = 30_000
 	maxToolResult    = 4000
 	chatTimeout      = 5 * time.Minute
@@ -40,7 +40,8 @@ Guidelines:
 - Use file_list to explore directories, file_read to examine files before modifying them.
 - Prefer file_edit over file_write for targeted changes.
 - Bash is non-interactive. Always find non-interactive alternatives (e.g. -y, --with-token). If credentials are needed, ask the user to paste them.
-- Be concise. The user reads on a phone.`
+- Be concise. The user reads on a phone.
+- When asked to build a full project, write a plan.md first with structure, features, and steps. Check plan.md before each step and mark completed items. If you lose context, re-read plan.md.`
 )
 
 type Agent struct {
@@ -223,6 +224,7 @@ func (a *Agent) SwitchModel(name string) error {
 	a.history = make(map[string][]json.RawMessage)
 	a.mu.Unlock()
 
+	a.cfg.Set("MODEL", name)
 	logger.Info("switched to " + name)
 	return nil
 }

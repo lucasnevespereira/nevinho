@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -92,6 +93,28 @@ func run(configDir string) {
 
 func detectProvider(cfg *config.Config) llm.Provider {
 	pc := cfg.ProviderConfig()
+
+	// Use saved model preference if available
+	if cfg.Model != "" {
+		switch {
+		case strings.HasPrefix(cfg.Model, "claude-"):
+			if pc.AnthropicKey != "" {
+				logger.Info("provider: anthropic (" + cfg.Model + ")")
+				return llm.NewAnthropic(pc.AnthropicKey, "", cfg.Model)
+			}
+		case strings.HasPrefix(cfg.Model, "gpt-") || strings.HasPrefix(cfg.Model, "o1-") || strings.HasPrefix(cfg.Model, "o3-") || strings.HasPrefix(cfg.Model, "o4-"):
+			if pc.OpenAIKey != "" {
+				logger.Info("provider: openai (" + cfg.Model + ")")
+				return llm.NewOpenAI(pc.OpenAIKey, "", cfg.Model)
+			}
+		default:
+			if pc.OllamaURL != "" {
+				logger.Info("provider: ollama (" + cfg.Model + ")")
+				return llm.NewOpenAI("", pc.OllamaURL, cfg.Model)
+			}
+		}
+	}
+
 	switch {
 	case cfg.OllamaModel != "":
 		logger.Info("provider: ollama (" + cfg.OllamaModel + ")")

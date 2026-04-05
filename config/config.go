@@ -22,6 +22,7 @@ type Config struct {
 	OpenAIAPIKey    string `json:"openai_api_key"`
 	OllamaModel     string `json:"ollama_model"`
 	BraveAPIKey     string `json:"brave_api_key"`
+	Model           string `json:"model"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
@@ -33,6 +34,7 @@ func (c *Config) keymap() map[string]*string {
 		"OPENAI_API_KEY":    &c.OpenAIAPIKey,
 		"OLLAMA_MODEL":      &c.OllamaModel,
 		"BRAVE_API_KEY":     &c.BraveAPIKey,
+		"MODEL":             &c.Model,
 	}
 }
 
@@ -123,7 +125,7 @@ func (c *Config) Keys() []KeyStatus {
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
-		"BRAVE_API_KEY",
+		"BRAVE_API_KEY", "MODEL",
 	}
 
 	km := c.keymap()

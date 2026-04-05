@@ -141,10 +141,6 @@ func (b *Bot) removeCommands() {
 }
 
 func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
-		return
-	}
-
 	userID := ""
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -156,6 +152,14 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "Not authorized."},
 		})
+		return
+	}
+
+	if i.Type == discordgo.InteractionMessageComponent {
+		b.onComponent(s, i, userID)
+		return
+	}
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
@@ -187,7 +191,8 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 				reply = fmt.Sprintf("Switched to `%s`. History cleared.", name)
 			}
 		} else {
-			reply = b.modelStatus()
+			b.respondModelSelector(s, i)
+			return
 		}
 
 	case "status":
@@ -259,7 +264,15 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
 		return
 	case lower == "/model":
-		s.ChannelMessageSend(m.ChannelID, b.modelStatus())
+		content := fmt.Sprintf("Current: `%s`", b.agent.Model())
+		if components := b.modelComponents(); len(components) > 0 {
+			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+				Content:    content,
+				Components: components,
+			})
+		} else {
+			s.ChannelMessageSend(m.ChannelID, b.modelStatus())
+		}
 		return
 	case lower == "/status":
 		s.ChannelMessageSend(m.ChannelID, b.agent.Status())
@@ -515,6 +528,103 @@ func friendlyError(err error) string {
 	default:
 		return "Something went wrong: " + msg
 	}
+}
+
+func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+	data := i.MessageComponentData()
+	if data.CustomID != "model_select" || len(data.Values) == 0 {
+		return
+	}
+	name := data.Values[0]
+	if err := b.agent.SwitchModel(name); err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    fmt.Sprintf("Failed: %v", err),
+				Components: []discordgo.MessageComponent{},
+			},
+		})
+		return
+	}
+	b.agent.ClearHistory(userID)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Content:    fmt.Sprintf("Switched to `%s`. History cleared.", name),
+			Components: []discordgo.MessageComponent{},
+		},
+	})
+}
+
+func (b *Bot) respondModelSelector(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	content := fmt.Sprintf("Current: `%s`", b.agent.Model())
+	components := b.modelComponents()
+	if len(components) == 0 {
+		content = b.modelStatus()
+	}
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content:    content,
+			Components: components,
+		},
+	})
+}
+
+func (b *Bot) modelComponents() []discordgo.MessageComponent {
+	options := b.modelOptions()
+	if len(options) == 0 {
+		return nil
+	}
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.SelectMenu{
+					CustomID:    "model_select",
+					Placeholder: "Switch model",
+					Options:     options,
+				},
+			},
+		},
+	}
+}
+
+func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
+	current := b.agent.Model()
+	pc := b.cfg.ProviderConfig()
+	var options []discordgo.SelectMenuOption
+
+	if pc.AnthropicKey != "" {
+		for _, m := range [][2]string{
+			{"claude-haiku-4-5", "Fast, affordable"},
+			{"claude-sonnet-4-6", "Balanced"},
+			{"claude-opus-4-6", "Most capable"},
+		} {
+			options = append(options, discordgo.SelectMenuOption{
+				Label:       m[0],
+				Value:       m[0],
+				Description: m[1],
+				Default:     m[0] == current,
+			})
+		}
+	}
+
+	if pc.OpenAIKey != "" {
+		for _, m := range [][2]string{
+			{"gpt-4o-mini", "Fast, affordable"},
+			{"gpt-4o", "Balanced"},
+			{"o4-mini", "Reasoning"},
+		} {
+			options = append(options, discordgo.SelectMenuOption{
+				Label:       m[0],
+				Value:       m[0],
+				Description: m[1],
+				Default:     m[0] == current,
+			})
+		}
+	}
+
+	return options
 }
 
 func helpMessage() string {
