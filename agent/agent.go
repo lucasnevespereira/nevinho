@@ -18,7 +18,7 @@ import (
 const (
 	maxTokens  = 4096
 	maxLoops   = 10
-	maxHistory    = 20
+	maxContextTokens = 30_000
 	maxToolResult = 4000
 
 	systemPrompt = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
@@ -133,7 +133,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		usage.In += resp.Usage.In
 		usage.Out += resp.Usage.Out
 		cacheRead += resp.Usage.CacheRead
-		a.history[userID] = append(a.history[userID], resp.AssistantMessage)
+		a.appendHistory(userID, resp.AssistantMessage)
 
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In, usage.Out)
@@ -158,9 +158,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		}
 
 		// The API requires tool results after every assistant message with tool_use
-		for _, msg := range a.llm.FormatToolResults(results) {
-			a.history[userID] = append(a.history[userID], msg)
-		}
+		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
@@ -298,10 +296,10 @@ func (a *Agent) getUserLock(userID string) *sync.Mutex {
 	return a.userLock[userID]
 }
 
-func (a *Agent) appendHistory(userID string, msg json.RawMessage) {
-	a.history[userID] = append(a.history[userID], msg)
-	if len(a.history[userID]) > maxHistory {
-		a.history[userID] = trimHistory(a.history[userID], maxHistory)
+func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) {
+	a.history[userID] = append(a.history[userID], msgs...)
+	if estimateTokens(a.history[userID]) > maxContextTokens {
+		a.history[userID] = trimHistoryByTokens(a.history[userID], maxContextTokens)
 	}
 }
 
@@ -342,12 +340,24 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-func trimHistory(msgs []json.RawMessage, maxLen int) []json.RawMessage {
-	if len(msgs) <= maxLen {
+func estimateTokens(msgs []json.RawMessage) int {
+	total := 0
+	for _, m := range msgs {
+		total += len(m) / 4
+	}
+	return total
+}
+
+func trimHistoryByTokens(msgs []json.RawMessage, budget int) []json.RawMessage {
+	if estimateTokens(msgs) <= budget {
 		return msgs
 	}
-	start := len(msgs) - maxLen
-	// Walk forward to find a plain user message
+	// Find earliest index where remaining messages fit in budget
+	start := 0
+	for start < len(msgs) && estimateTokens(msgs[start:]) > budget {
+		start++
+	}
+	// Walk forward to find a clean boundary (plain user message)
 	for start < len(msgs) {
 		var peek struct {
 			Role    string          `json:"role"`
