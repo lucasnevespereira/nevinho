@@ -37,6 +37,8 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 
 	content := string(data)
 
+	lang := langFromExt(resolved)
+
 	// Paginated read: offset/limit work on lines.
 	if in.Offset > 0 || in.Limit > 0 {
 		lines := strings.Split(content, "\n")
@@ -56,8 +58,8 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 		}
 
 		chunk := strings.Join(lines[start:end], "\n")
-		header := fmt.Sprintf("(lines %d–%d of %d)\n", start+1, end, total)
-		return header + chunk
+		header := fmt.Sprintf("(lines %d-%d of %d)\n", start+1, end, total)
+		return header + wrapCodeFence(lang, chunk)
 	}
 
 	// Full read with truncation.
@@ -68,10 +70,10 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 		}
 		totalLines := strings.Count(content, "\n") + 1
 		shownLines := strings.Count(truncated, "\n") + 1
-		return truncated + fmt.Sprintf("\n...(truncated: showing %d of %d lines — use offset/limit to read more)", shownLines, totalLines)
+		return wrapCodeFence(lang, truncated) + fmt.Sprintf("\n(truncated: showing %d of %d lines)", shownLines, totalLines)
 	}
 
-	return content
+	return wrapCodeFence(lang, content)
 }
 
 type fileWriteInput struct {
@@ -212,6 +214,59 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	}
 
 	return fmt.Sprintf("edited %s", in.Path)
+}
+
+func wrapCodeFence(lang, content string) string {
+	return "```" + lang + "\n" + content + "\n```"
+}
+
+var extToLang = map[string]string{
+	".go":    "go",
+	".py":    "python",
+	".js":    "javascript",
+	".ts":    "typescript",
+	".tsx":   "tsx",
+	".jsx":   "jsx",
+	".rs":    "rust",
+	".rb":    "ruby",
+	".java":  "java",
+	".sh":    "bash",
+	".bash":  "bash",
+	".zsh":   "bash",
+	".yml":   "yaml",
+	".yaml":  "yaml",
+	".json":  "json",
+	".toml":  "toml",
+	".xml":   "xml",
+	".html":  "html",
+	".css":   "css",
+	".sql":   "sql",
+	".md":    "md",
+	".txt":   "text",
+	".env":   "text",
+	".mod":   "go",
+	".sum":   "text",
+	".lock":  "text",
+	".cfg":   "ini",
+	".ini":   "ini",
+	".conf":  "text",
+	".dockerfile": "dockerfile",
+	".tf":    "hcl",
+}
+
+func langFromExt(path string) string {
+	base := strings.ToLower(filepath.Base(path))
+	// Handle special filenames
+	switch base {
+	case "dockerfile":
+		return "dockerfile"
+	case "makefile":
+		return "makefile"
+	}
+	if lang, ok := extToLang[filepath.Ext(base)]; ok {
+		return lang
+	}
+	return ""
 }
 
 func resolvePath(path, _ string) (string, error) {
