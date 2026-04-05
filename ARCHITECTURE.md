@@ -66,10 +66,10 @@ User sends message
     |
     v
 appendHistory(user message)
-    |--- budget exceeded? --> trim oldest, summarize evicted
+    |--- maxHistoryTokens exceeded? --> trim oldest, summarize evicted
     |
     v
-+--[LOOP start, max 10 iterations]--+
++--[LOOP start, max 25 iterations]--+
 |                                     |
 |   Check ctx cancelled? --> return   |
 |           |                         |
@@ -137,7 +137,7 @@ This prevents a single `cat` or page fetch from bloating every future turn.
 
 ### 3. Token-Aware History Trimming
 
-History is bounded by a **token budget** (30k tokens), not a message count.
+History is bounded by `maxHistoryTokens` (30k tokens), not a message count.
 
 ```
 appendHistory(new message)
@@ -148,7 +148,7 @@ estimateTokens(history) > 30,000?
     no --> done
     |
     yes --> trimHistoryByTokens:
-              1. Find earliest index where remaining msgs fit budget
+              1. Find earliest index where remaining msgs fit maxHistoryTokens
               2. Walk forward to clean boundary:
                  - skip orphaned tool results
                  - skip orphaned assistant messages
@@ -159,10 +159,10 @@ estimateTokens(history) > 30,000?
 
 Token estimation: `len(json_bytes) / 4` per message. Rough but effective. Being off by 20% just means trimming slightly earlier or later.
 
-Why token budget over message count:
+Why a token limit over message count:
 - 20 short messages = ~2k tokens (wastes 90% of the window)
 - 20 messages with tool results = ~60k tokens (blows the window)
-- Token budget adapts to actual content size
+- A token limit adapts to actual content size
 
 ### 4. Summarize on Trim
 
@@ -210,7 +210,7 @@ On each LLM call, the context window contains:
 | ...                                               |
 | Latest user message        variable               |
 |--------------------------------------------------|
-| Total budget:              ~30,000 tokens          |
+| maxHistoryTokens:          ~30,000 tokens          |
 | Max output:                4,096 tokens            |
 +--------------------------------------------------+
 ```
@@ -267,9 +267,9 @@ Approved paths persist across sessions in `~/.config/nevinho/approved_paths.json
 
 | Name | Value | Purpose |
 |------|-------|---------|
-| `maxTokens` | 4,096 | Max output tokens per LLM call |
-| `maxLoops` | 10 | Max tool-call iterations per Chat() |
-| `maxContextTokens` | 30,000 | Token budget for conversation history |
+| `maxOutputTokens` | 4,096 | Max output tokens per LLM call |
+| `maxLoops` | 25 | Max tool-call iterations per Chat() |
+| `maxHistoryTokens` | 30,000 | Token budget for conversation history |
 | `maxToolResult` | 4,000 | Max bytes per tool result in history |
 | `maxResponseLen` | 8,000 | Max bytes per tool output (tool layer) |
 | `maxFileSize` | 100 KB | Max file size for file_read |

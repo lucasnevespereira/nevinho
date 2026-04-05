@@ -277,7 +277,7 @@ func TestAppendHistory_EvictsWhenOverBudget(t *testing.T) {
 		history: make(map[string][]json.RawMessage),
 	}
 
-	big := userMsg(strings.Repeat("x", maxContextTokens*4))
+	big := userMsg(strings.Repeat("x", maxHistoryTokens*4))
 	a.history["u1"] = []json.RawMessage{big}
 
 	evicted := a.appendHistory("u1", userMsg("new"))
@@ -286,7 +286,7 @@ func TestAppendHistory_EvictsWhenOverBudget(t *testing.T) {
 		t.Fatal("expected eviction but got none")
 	}
 
-	if estimateTokens(a.history["u1"]) > maxContextTokens {
+	if estimateTokens(a.history["u1"]) > maxHistoryTokens {
 		t.Errorf("history still over maxTokens after trim: %d tokens", estimateTokens(a.history["u1"]))
 	}
 }

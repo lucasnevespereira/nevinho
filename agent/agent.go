@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	maxTokens        = 4096
+	maxOutputTokens        = 4096
 	maxLoops         = 25
-	maxContextTokens = 30_000
+	maxHistoryTokens = 30_000
 	maxToolResult    = 4000
 	chatTimeout      = 5 * time.Minute
 
@@ -130,7 +130,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			SystemPrompt: systemPrompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
-			MaxTokens:    maxTokens,
+			MaxTokens:    maxOutputTokens,
 		})
 		if err != nil {
 			logger.Err(err)
@@ -290,10 +290,10 @@ func (a *Agent) getUserLock(userID string) *sync.Mutex {
 
 func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted []json.RawMessage) {
 	a.history[userID] = append(a.history[userID], msgs...)
-	if estimateTokens(a.history[userID]) <= maxContextTokens {
+	if estimateTokens(a.history[userID]) <= maxHistoryTokens {
 		return nil
 	}
-	trimmed := trimHistoryByTokens(a.history[userID], maxContextTokens)
+	trimmed := trimHistoryByTokens(a.history[userID], maxHistoryTokens)
 	evictedCount := len(a.history[userID]) - len(trimmed)
 	evicted = make([]json.RawMessage, evictedCount)
 	copy(evicted, a.history[userID][:evictedCount])
@@ -394,12 +394,12 @@ func estimateTokens(msgs []json.RawMessage) int {
 	return total
 }
 
-func trimHistoryByTokens(msgs []json.RawMessage, maxTokens int) []json.RawMessage {
-	if estimateTokens(msgs) <= maxTokens {
+func trimHistoryByTokens(msgs []json.RawMessage, maxOutputTokens int) []json.RawMessage {
+	if estimateTokens(msgs) <= maxOutputTokens {
 		return msgs
 	}
 	start := 0
-	for start < len(msgs) && estimateTokens(msgs[start:]) > maxTokens {
+	for start < len(msgs) && estimateTokens(msgs[start:]) > maxOutputTokens {
 		start++
 	}
 	// Walk forward to find a clean boundary (plain user message)
