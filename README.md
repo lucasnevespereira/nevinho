@@ -60,9 +60,9 @@ Works with multiple LLM backends:
 | OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
 | Ollama | `OLLAMA_MODEL=llama3` | any local model |
 
-Detection priority: Ollama > Anthropic > OpenAI.
+On startup, nevinho uses your last selected model (saved to config). If none is saved, auto-detection picks the first available: Ollama > Anthropic > OpenAI.
 
-Switch models at runtime with `/model claude-sonnet-4-6` or `/model gpt-4o`.
+Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 
 ## Tools
 
@@ -71,8 +71,10 @@ Switch models at runtime with `/model claude-sonnet-4-6` or `/model gpt-4o`.
 | `bash` | Run any bash command |
 | `web_search` | Search via Brave API or DuckDuckGo fallback |
 | `web_read` | Fetch a URL and extract readable text |
-| `file_read` | Read a file from workspace or absolute path |
-| `file_write` | Write a file (absolute paths need approval) |
+| `file_list` | List directory contents |
+| `file_read` | Read a file (supports pagination for large files) |
+| `file_edit` | Replace an exact string in a file (safer for small changes) |
+| `file_write` | Write an entire file (directory approval required) |
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
 
@@ -81,8 +83,8 @@ The agent chains tools automatically. Ask it to "find the latest Go release" and
 | Command | What it does |
 |---------|-------------|
 | `/new` | Start a fresh conversation |
-| `/model` | Show current model |
-| `/model <name>` | Switch model |
+| `/model` | Show current model with dropdown selector |
+| `/model <name>` | Switch to a specific model |
 | `/status` | Uptime, token usage, model info |
 | `/config` | View or update configuration |
 | `/config KEY VALUE` | Set a config value |
@@ -96,7 +98,7 @@ All commands also work as plain text messages in the DM.
 
 Dangerous operations require approval before execution.
 
-**Bash commands** are scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval. The agent shows a preview and waits for you to reply "yes".
+**Bash commands** are scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval. The agent shows a preview with **Approve** / **Deny** buttons.
 
 **File writes** outside the per-user workspace require one-time directory approval. Approved paths persist across restarts.
 
