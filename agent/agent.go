@@ -196,27 +196,9 @@ func (a *Agent) Model() string {
 }
 
 func (a *Agent) SwitchModel(name string) error {
-	pc := a.cfg.ProviderConfig()
-	var p llm.Provider
-	switch {
-	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
-		if pc.OpenAIKey == "" {
-			return fmt.Errorf("OPENAI_API_KEY not configured")
-		}
-		p = llm.NewOpenAI(pc.OpenAIKey, "", name)
-	case strings.HasPrefix(name, "claude-"):
-		if pc.AnthropicKey == "" {
-			return fmt.Errorf("ANTHROPIC_API_KEY not configured")
-		}
-		p = llm.NewAnthropic(pc.AnthropicKey, "", name)
-	default:
-		if pc.OllamaURL != "" {
-			p = llm.NewOpenAI("", pc.OllamaURL, name)
-		} else if pc.OpenAIKey != "" {
-			p = llm.NewOpenAI(pc.OpenAIKey, "", name)
-		} else {
-			return fmt.Errorf("unknown model: %s", name)
-		}
+	p, err := llm.Resolve(name, a.cfg.ProviderConfig())
+	if err != nil {
+		return err
 	}
 
 	a.mu.Lock()
@@ -224,7 +206,9 @@ func (a *Agent) SwitchModel(name string) error {
 	a.history = make(map[string][]json.RawMessage)
 	a.mu.Unlock()
 
-	a.cfg.Set("MODEL", name)
+	if err := a.cfg.Set("MODEL", name); err != nil {
+		logger.Err(fmt.Errorf("failed to persist model: %w", err))
+	}
 	logger.Info("switched to " + name)
 	return nil
 }
