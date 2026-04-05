@@ -322,8 +322,24 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelTyping(m.ChannelID)
 	stopTyping := keepTyping(s, m.ChannelID)
 
+	// Send a progress message and edit it as tools run
+	progressMsg, _ := s.ChannelMessageSend(m.ChannelID, "Thinking...")
+	b.agent.SetProgress(m.Author.ID, func(tool, detail string) {
+		if progressMsg == nil {
+			return
+		}
+		status := formatProgress(tool, detail)
+		s.ChannelMessageEdit(m.ChannelID, progressMsg.ID, status)
+	})
+
 	response, err := b.agent.Chat(m.Author.ID, text)
+	b.agent.SetProgress(m.Author.ID, nil)
 	stopTyping()
+
+	// Clean up progress message
+	if progressMsg != nil {
+		s.ChannelMessageDelete(m.ChannelID, progressMsg.ID)
+	}
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
 		s.ChannelMessageSend(m.ChannelID, friendlyError(err))
@@ -332,6 +348,30 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if response == "" {
 		response = "Done. (no text response)"
+	}
+
+	// If there's a pending approval, send with buttons instead of plain text
+	if b.agent.HasPendingApproval(m.Author.ID) {
+		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+			Content: collapseNewlines(response),
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Approve",
+							Style:    discordgo.SuccessButton,
+							CustomID: "approve",
+						},
+						discordgo.Button{
+							Label:    "Deny",
+							Style:    discordgo.DangerButton,
+							CustomID: "deny",
+						},
+					},
+				},
+			},
+		})
+		return
 	}
 
 	response = collapseNewlines(response)
@@ -385,11 +425,38 @@ func splitMessage(text string) []string {
 			cutAt = idx + 1
 		}
 
-		chunks = append(chunks, text[:cutAt])
+		chunk := text[:cutAt]
 		text = text[cutAt:]
+
+		// If we're inside an unclosed code fence, close it and reopen in the next chunk
+		if lang, open := unclosedFence(chunk); open {
+			chunk += "\n```"
+			text = "```" + lang + "\n" + text
+		}
+
+		chunks = append(chunks, chunk)
 	}
 
 	return chunks
+}
+
+// unclosedFence returns the language tag and true if the chunk has an unclosed code fence.
+func unclosedFence(text string) (string, bool) {
+	open := false
+	lang := ""
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if open {
+				open = false
+				lang = ""
+			} else {
+				open = true
+				lang = strings.TrimPrefix(trimmed, "```")
+			}
+		}
+	}
+	return lang, open
 }
 
 func (b *Bot) handleConfigSlash(s *discordgo.Session, i *discordgo.InteractionCreate, data discordgo.ApplicationCommandInteractionData) {
@@ -532,28 +599,76 @@ func friendlyError(err error) string {
 
 func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
 	data := i.MessageComponentData()
-	if data.CustomID != "model_select" || len(data.Values) == 0 {
-		return
-	}
-	name := data.Values[0]
-	if err := b.agent.SwitchModel(name); err != nil {
+
+	switch data.CustomID {
+	case "model_select":
+		if len(data.Values) == 0 {
+			return
+		}
+		name := data.Values[0]
+		if err := b.agent.SwitchModel(name); err != nil {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Content:    fmt.Sprintf("Failed: %v", err),
+					Components: []discordgo.MessageComponent{},
+				},
+			})
+			return
+		}
+		b.agent.ClearHistory(userID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
-				Content:    fmt.Sprintf("Failed: %v", err),
+				Content:    fmt.Sprintf("Switched to `%s`. History cleared.", name),
 				Components: []discordgo.MessageComponent{},
 			},
 		})
+
+	case "approve":
+		// Remove buttons, show "Approved"
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    i.Message.Content + "\n\n**Approved.**",
+				Components: []discordgo.MessageComponent{},
+			},
+		})
+		// Trigger the agent with approval
+		go b.runApproval(s, i.ChannelID, userID)
+
+	case "deny":
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    i.Message.Content + "\n\n**Denied.**",
+				Components: []discordgo.MessageComponent{},
+			},
+		})
+		b.agent.ClearPending(userID)
+	}
+}
+
+func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
+	s.ChannelTyping(channelID)
+	stopTyping := keepTyping(s, channelID)
+
+	response, err := b.agent.Chat(userID, "yes")
+	stopTyping()
+	if err != nil {
+		s.ChannelMessageSend(channelID, friendlyError(err))
 		return
 	}
-	b.agent.ClearHistory(userID)
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Content:    fmt.Sprintf("Switched to `%s`. History cleared.", name),
-			Components: []discordgo.MessageComponent{},
-		},
-	})
+	if response == "" {
+		response = "Done. (no text response)"
+	}
+	response = collapseNewlines(response)
+	for _, chunk := range splitMessage(response) {
+		s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+			Content: chunk,
+			Flags:   discordgo.MessageFlagsSuppressEmbeds,
+		})
+	}
 }
 
 func (b *Bot) respondModelSelector(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -625,6 +740,17 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 	}
 
 	return options
+}
+
+func formatProgress(tool, detail string) string {
+	if detail != "" {
+		// Truncate long details for Discord display
+		if len(detail) > 80 {
+			detail = detail[:80] + "..."
+		}
+		return fmt.Sprintf("**%s** `%s`", tool, detail)
+	}
+	return fmt.Sprintf("**%s**", tool)
 }
 
 func helpMessage() string {

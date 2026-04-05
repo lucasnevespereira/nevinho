@@ -128,6 +128,12 @@ func (r *Registry) PendingApproval(userID string) *Pending {
 	return r.pending[userID]
 }
 
+func (r *Registry) ClearPending(userID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.pending, userID)
+}
+
 func (r *Registry) ApprovePending(userID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
