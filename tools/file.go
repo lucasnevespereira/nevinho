@@ -220,53 +220,27 @@ func wrapCodeFence(lang, content string) string {
 	return "```" + lang + "\n" + content + "\n```"
 }
 
-var extToLang = map[string]string{
-	".go":    "go",
-	".py":    "python",
-	".js":    "javascript",
-	".ts":    "typescript",
-	".tsx":   "tsx",
-	".jsx":   "jsx",
-	".rs":    "rust",
-	".rb":    "ruby",
-	".java":  "java",
-	".sh":    "bash",
-	".bash":  "bash",
-	".zsh":   "bash",
-	".yml":   "yaml",
-	".yaml":  "yaml",
-	".json":  "json",
-	".toml":  "toml",
-	".xml":   "xml",
-	".html":  "html",
-	".css":   "css",
-	".sql":   "sql",
-	".md":    "md",
-	".txt":   "text",
-	".env":   "text",
-	".mod":   "go",
-	".sum":   "text",
-	".lock":  "text",
-	".cfg":   "ini",
-	".ini":   "ini",
-	".conf":  "text",
-	".dockerfile": "dockerfile",
-	".tf":    "hcl",
-}
-
 func langFromExt(path string) string {
 	base := strings.ToLower(filepath.Base(path))
-	// Handle special filenames
 	switch base {
 	case "dockerfile":
 		return "dockerfile"
 	case "makefile":
 		return "makefile"
 	}
-	if lang, ok := extToLang[filepath.Ext(base)]; ok {
-		return lang
+	ext := strings.TrimPrefix(filepath.Ext(base), ".")
+	switch ext {
+	case "sh", "zsh":
+		return "bash"
+	case "yml":
+		return "yaml"
+	case "mod":
+		return "go"
+	case "":
+		return ""
+	default:
+		return ext
 	}
-	return ""
 }
 
 func resolvePath(path, _ string) (string, error) {
