@@ -41,6 +41,7 @@ Guidelines:
 - Prefer file_edit over file_write for targeted changes.
 - Bash is non-interactive. Always find non-interactive alternatives (e.g. -y, --with-token). If credentials are needed, ask the user to paste them.
 - Be concise. The user reads on a phone.
+- You reply in Discord. Wrap code and file contents in fenced code blocks with the language tag. Never paste raw file contents without formatting.
 - When asked to build a full project, write a plan.md first with structure, features, and steps. Check plan.md before each step and mark completed items. If you lose context, re-read plan.md.`
 )
 
