@@ -19,7 +19,7 @@ func configDir() string {
 	if err != nil {
 		return ".nevinho"
 	}
-	return filepath.Join(home, ".config", "nevinho")
+	return filepath.Join(home, ".nevinho")
 }
 
 type Pending struct {
@@ -49,8 +49,8 @@ func NewRegistry(cfg *config.Config) *Registry {
 		pending:  make(map[string]*Pending),
 		permFile: filepath.Join(base, "approved_paths.json"),
 	}
-	if err := os.MkdirAll(filepath.Join(base, "workspace"), 0755); err != nil {
-		log.Printf("failed to create workspace: %v", err)
+	if err := os.MkdirAll(base, 0755); err != nil {
+		log.Printf("failed to create config dir: %v", err)
 	}
 	r.loadApproved()
 	return r
@@ -96,17 +96,17 @@ func (r *Registry) Defs() []llm.ToolDef {
 		},
 		{
 			Name:        "file_read",
-			Description: "Read a file's contents. Supports absolute paths (/path, ~/path) and workspace-relative names. For large files use offset (1-indexed line number to start from) and limit (number of lines) to paginate. The response header shows which lines are returned and the total.",
+			Description: "Read a file's contents. Supports absolute paths (/path, ~/path). For large files use offset (1-indexed line number to start from) and limit (number of lines) to paginate. The response header shows which lines are returned and the total.",
 			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"offset":{"type":"integer","description":"Line number to start reading from, 1-indexed (optional)"},"limit":{"type":"integer","description":"Maximum number of lines to return (optional)"}},"required":["path"]}`,
 		},
 		{
 			Name:        "file_write",
-			Description: "Write content to a file, replacing it entirely. Creates the file and any parent directories if needed. For small changes prefer file_edit — it's safer and cheaper. Paths outside the workspace require user approval.",
+			Description: "Write content to a file, replacing it entirely. Creates the file and any parent directories if needed. For small changes prefer file_edit — it's safer and cheaper. Use absolute paths. Requires directory approval.",
 			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"content":{"type":"string","description":"Full content to write"}},"required":["path","content"]}`,
 		},
 		{
 			Name:        "file_list",
-			Description: "List files and directories at a path. Directories have a trailing slash; files show their size. Defaults to the workspace root when no path is given. Use this to explore project structure before reading files.",
+			Description: "List files and directories at a path. Directories have a trailing slash; files show their size. Use absolute paths. Use this to explore project structure before reading files.",
 			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"Directory to list (optional, defaults to workspace root)"}},"required":[]}`,
 		},
 		{

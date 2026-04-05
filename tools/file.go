@@ -94,10 +94,8 @@ func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("invalid path: %v", err)
 	}
 
-	if !isWorkspacePath(resolved) {
-		if err := r.checkWritePermission(resolved, userID); err != nil {
-			return err.Error()
-		}
+	if err := r.checkWritePermission(resolved, userID); err != nil {
+		return err.Error()
 	}
 
 	dir := filepath.Dir(resolved)
@@ -122,15 +120,13 @@ func (r *Registry) fileList(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	var dirPath string
 	if in.Path == "" {
-		dirPath = filepath.Join(configDir(), "workspace", userID)
-	} else {
-		resolved, err := resolvePath(in.Path, userID)
-		if err != nil {
-			return fmt.Sprintf("invalid path: %v", err)
-		}
-		dirPath = resolved
+		return "path is required — use an absolute path"
+	}
+
+	dirPath, err := resolvePath(in.Path, userID)
+	if err != nil {
+		return fmt.Sprintf("invalid path: %v", err)
 	}
 
 	entries, err := os.ReadDir(dirPath)
@@ -206,10 +202,8 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("old_text found %d times — make it more specific", count)
 	}
 
-	if !isWorkspacePath(resolved) {
-		if err := r.checkWritePermission(resolved, userID); err != nil {
-			return err.Error()
-		}
+	if err := r.checkWritePermission(resolved, userID); err != nil {
+		return err.Error()
 	}
 
 	newContent := strings.Replace(content, in.OldText, in.NewText, 1)
@@ -220,30 +214,16 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	return fmt.Sprintf("edited %s", in.Path)
 }
 
-func resolvePath(path, userID string) (string, error) {
+func resolvePath(path, _ string) (string, error) {
 	if strings.HasPrefix(path, "~/") {
-		resolved, err := expandHome(path)
-		if err != nil {
-			return "", err
-		}
-		return resolved, nil
+		return expandHome(path)
 	}
 
 	if filepath.IsAbs(path) {
 		return filepath.Clean(path), nil
 	}
 
-	// Relative paths go to per-user workspace
-	base := filepath.Join(configDir(), "workspace", userID)
-	full := filepath.Join(base, filepath.Clean(path))
-
-	absBase, _ := filepath.Abs(base)
-	absFull, _ := filepath.Abs(full)
-	if !strings.HasPrefix(absFull, absBase) {
-		return "", fmt.Errorf("path traversal blocked")
-	}
-
-	return full, nil
+	return "", fmt.Errorf("relative paths are not supported — use an absolute path")
 }
 
 func expandHome(path string) (string, error) {
@@ -255,12 +235,6 @@ func expandHome(path string) (string, error) {
 		return filepath.Join(home, path[2:]), nil
 	}
 	return filepath.Clean(path), nil
-}
-
-func isWorkspacePath(path string) bool {
-	abs, _ := filepath.Abs(path)
-	wsAbs, _ := filepath.Abs(filepath.Join(configDir(), "workspace"))
-	return strings.HasPrefix(abs, wsAbs)
 }
 
 func shortenHome(path string) string {

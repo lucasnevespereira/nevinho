@@ -13,18 +13,17 @@ func TestResolvePath(t *testing.T) {
 	tests := []struct {
 		name    string
 		path    string
-		userID  string
 		wantErr string
 	}{
-		{"absolute path stays absolute", "/tmp/foo.txt", "u1", ""},
-		{"home expansion works", "~/test.txt", "u1", ""},
-		{"relative path goes to workspace", "notes.txt", "u1", ""},
-		{"path traversal is blocked", "../../etc/passwd", "u1", "traversal"},
+		{"absolute path stays absolute", "/tmp/foo.txt", ""},
+		{"home expansion works", "~/test.txt", ""},
+		{"relative path rejected", "notes.txt", "relative paths are not supported"},
+		{"dot-dot path rejected", "../../etc/passwd", "relative paths are not supported"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolved, err := resolvePath(tt.path, tt.userID)
+			resolved, err := resolvePath(tt.path, "u1")
 
 			if tt.wantErr != "" {
 				if err == nil {
@@ -43,25 +42,7 @@ func TestResolvePath(t *testing.T) {
 			if tt.path == "/tmp/foo.txt" && resolved != "/tmp/foo.txt" {
 				t.Errorf("absolute path changed: got %q", resolved)
 			}
-
-			if !filepath.IsAbs(tt.path) && tt.path != "../../etc/passwd" && !strings.HasPrefix(tt.path, "~/") {
-				wsDir := filepath.Join(configDir(), "workspace", tt.userID)
-				if !strings.HasPrefix(resolved, wsDir) {
-					t.Errorf("relative path %q resolved outside workspace: %q", tt.path, resolved)
-				}
-			}
 		})
-	}
-}
-
-func TestIsWorkspacePath(t *testing.T) {
-	ws := filepath.Join(configDir(), "workspace", "u1", "file.txt")
-	if !isWorkspacePath(ws) {
-		t.Errorf("expected %q to be a workspace path", ws)
-	}
-
-	if isWorkspacePath("/etc/passwd") {
-		t.Error("expected /etc/passwd to NOT be a workspace path")
 	}
 }
 
@@ -152,6 +133,15 @@ func TestFileList(t *testing.T) {
 	}
 	if !strings.Contains(got, "hello.txt") {
 		t.Errorf("expected file entry 'hello.txt'\ngot: %s", got)
+	}
+}
+
+func TestFileListRequiresPath(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	input := marshalInput(t, map[string]string{})
+	got := r.fileList(input, "u1")
+	if !strings.Contains(got, "path is required") {
+		t.Errorf("expected path required error, got: %s", got)
 	}
 }
 
