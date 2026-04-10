@@ -3,6 +3,7 @@ package discord
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -330,11 +331,21 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	// Send any file contents directly as code blocks
+	// Send file contents: inline code block for short content, attachment for long/complex
 	for _, f := range b.agent.DrainFileDisplays(m.Author.ID) {
 		block := "```" + f.Lang + "\n" + f.Content + "\n```"
-		for _, chunk := range splitMessage(block) {
-			s.ChannelMessageSend(m.ChannelID, chunk)
+		hasNestedFences := strings.Contains(f.Content, "```")
+		if !hasNestedFences && len(block) <= maxMessageLen {
+			s.ChannelMessageSend(m.ChannelID, block)
+		} else {
+			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+				Files: []*discordgo.File{
+					{
+						Name:   filepath.Base(f.Path),
+						Reader: strings.NewReader(f.Content),
+					},
+				},
+			})
 		}
 	}
 

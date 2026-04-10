@@ -175,6 +175,9 @@ func TestFileEdit(t *testing.T) {
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected success message, got: %s", got)
 		}
+		if !strings.Contains(got, "--- before") || !strings.Contains(got, "+++ after") {
+			t.Errorf("expected diff output, got: %s", got)
+		}
 		data, _ := os.ReadFile(path)
 		if !strings.Contains(string(data), "baz qux") {
 			t.Errorf("file content not updated: %s", string(data))

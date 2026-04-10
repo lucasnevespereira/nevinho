@@ -211,7 +211,17 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("failed to write: %v", err)
 	}
 
-	return fmt.Sprintf("edited %s", in.Path)
+	// Build a diff display for the user (Discord renders diff syntax with colors)
+	var diffBuf strings.Builder
+	for _, line := range strings.Split(in.OldText, "\n") {
+		fmt.Fprintf(&diffBuf, "- %s\n", line)
+	}
+	for _, line := range strings.Split(in.NewText, "\n") {
+		fmt.Fprintf(&diffBuf, "+ %s\n", line)
+	}
+	r.QueueFileDisplay(userID, in.Path, "diff", strings.TrimRight(diffBuf.String(), "\n"))
+
+	return fmt.Sprintf("edited %s\n\n--- before\n%s\n+++ after\n%s", in.Path, in.OldText, in.NewText)
 }
 
 func langFromExt(path string) string {
