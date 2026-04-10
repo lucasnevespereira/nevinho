@@ -116,10 +116,13 @@ func (r *Registry) executeBash(command string) string {
 
 	if len(result) > maxResponseLen {
 		total := len(result)
-		half := maxResponseLen / 2
-		head := result[:half]
-		tail := result[total-half:]
-		result = head + fmt.Sprintf("\n\n...(truncated %d of %d chars)...\n\n", total-maxResponseLen, total) + tail
+		// Keep the tail — end of output has errors, results, and summaries.
+		tail := result[total-maxResponseLen:]
+		// Start at a line boundary for clean output
+		if idx := strings.Index(tail, "\n"); idx != -1 && idx < 200 {
+			tail = tail[idx+1:]
+		}
+		result = fmt.Sprintf("...(showing last %d of %d chars)...\n\n", len(tail), total) + tail
 	}
 
 	if result == "" {
