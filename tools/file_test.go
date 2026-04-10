@@ -175,12 +175,20 @@ func TestFileEdit(t *testing.T) {
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected success message, got: %s", got)
 		}
-		if !strings.Contains(got, "--- before") || !strings.Contains(got, "+++ after") {
-			t.Errorf("expected diff output, got: %s", got)
+		if !strings.Contains(got, "1 block replaced") {
+			t.Errorf("expected block count, got: %s", got)
 		}
 		data, _ := os.ReadFile(path)
 		if !strings.Contains(string(data), "baz qux") {
 			t.Errorf("file content not updated: %s", string(data))
+		}
+		// Verify diff was queued
+		displays := r.DrainFileDisplays("u1")
+		if len(displays) == 0 {
+			t.Fatal("expected diff display to be queued")
+		}
+		if displays[0].Lang != "diff" {
+			t.Errorf("expected diff lang, got: %s", displays[0].Lang)
 		}
 	})
 
@@ -191,8 +199,8 @@ func TestFileEdit(t *testing.T) {
 			"new_text": "replacement",
 		})
 		got := r.fileEdit(input, "u1")
-		if !strings.Contains(got, "not found") {
-			t.Errorf("expected 'not found', got: %s", got)
+		if !strings.Contains(got, "Could not find") {
+			t.Errorf("expected 'Could not find', got: %s", got)
 		}
 	})
 
@@ -204,10 +212,158 @@ func TestFileEdit(t *testing.T) {
 			"new_text": "y",
 		})
 		got := r.fileEdit(input, "u1")
-		if !strings.Contains(got, "3 times") {
+		if !strings.Contains(got, "3 occurrences") {
 			t.Errorf("expected ambiguity error, got: %s", got)
 		}
 	})
+}
+
+func TestFileEditMultiEdit(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "multi.txt")
+
+	_ = os.WriteFile(path, []byte("aaa\nbbb\nccc\nddd\neee\n"), 0644)
+
+	t.Run("two edits", func(t *testing.T) {
+		input := marshalInput(t, map[string]any{
+			"path": path,
+			"edits": []map[string]string{
+				{"old_text": "bbb", "new_text": "BBB"},
+				{"old_text": "ddd", "new_text": "DDD"},
+			},
+		})
+		got := r.fileEdit(input, "u1")
+		if !strings.Contains(got, "2 blocks replaced") {
+			t.Errorf("expected 2 blocks, got: %s", got)
+		}
+		data, _ := os.ReadFile(path)
+		content := string(data)
+		if !strings.Contains(content, "BBB") || !strings.Contains(content, "DDD") {
+			t.Errorf("edits not applied: %s", content)
+		}
+		if !strings.Contains(content, "aaa") || !strings.Contains(content, "ccc") || !strings.Contains(content, "eee") {
+			t.Errorf("untouched lines changed: %s", content)
+		}
+	})
+
+	t.Run("overlap rejected", func(t *testing.T) {
+		_ = os.WriteFile(path, []byte("abc def ghi"), 0644)
+		input := marshalInput(t, map[string]any{
+			"path": path,
+			"edits": []map[string]string{
+				{"old_text": "abc def", "new_text": "X"},
+				{"old_text": "def ghi", "new_text": "Y"},
+			},
+		})
+		got := r.fileEdit(input, "u1")
+		if !strings.Contains(got, "overlap") {
+			t.Errorf("expected overlap error, got: %s", got)
+		}
+	})
+}
+
+func TestFileEditFuzzyMatch(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "fuzzy.txt")
+
+	t.Run("trailing whitespace", func(t *testing.T) {
+		// File has trailing spaces, model's old_text doesn't
+		_ = os.WriteFile(path, []byte("hello world   \nfoo bar  \n"), 0644)
+		input := marshalInput(t, map[string]string{
+			"path":     path,
+			"old_text": "hello world\nfoo bar",
+			"new_text": "goodbye\nfoo baz",
+		})
+		got := r.fileEdit(input, "u1")
+		if !strings.Contains(got, "edited") {
+			t.Errorf("expected fuzzy match success, got: %s", got)
+		}
+		data, _ := os.ReadFile(path)
+		if !strings.Contains(string(data), "goodbye") {
+			t.Errorf("fuzzy edit not applied: %s", string(data))
+		}
+	})
+
+	t.Run("smart quotes", func(t *testing.T) {
+		// File has smart quotes, model sends ASCII quotes
+		_ = os.WriteFile(path, []byte("say \u201Chello\u201D\n"), 0644)
+		input := marshalInput(t, map[string]string{
+			"path":     path,
+			"old_text": "say \"hello\"",
+			"new_text": "say \"world\"",
+		})
+		got := r.fileEdit(input, "u1")
+		if !strings.Contains(got, "edited") {
+			t.Errorf("expected fuzzy match on smart quotes, got: %s", got)
+		}
+	})
+
+	t.Run("unicode dashes", func(t *testing.T) {
+		// File has em dash, model sends ASCII hyphen
+		_ = os.WriteFile(path, []byte("value \u2014 100\n"), 0644)
+		input := marshalInput(t, map[string]string{
+			"path":     path,
+			"old_text": "value - 100",
+			"new_text": "value = 200",
+		})
+		got := r.fileEdit(input, "u1")
+		if !strings.Contains(got, "edited") {
+			t.Errorf("expected fuzzy match on dashes, got: %s", got)
+		}
+	})
+}
+
+func TestFileEditBOM(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "bom.txt")
+
+	// Write file with BOM
+	_ = os.WriteFile(path, []byte("\xef\xbb\xbfhello world\n"), 0644)
+
+	input := marshalInput(t, map[string]string{
+		"path":     path,
+		"old_text": "hello world",
+		"new_text": "goodbye world",
+	})
+	got := r.fileEdit(input, "u1")
+	if !strings.Contains(got, "edited") {
+		t.Errorf("expected success with BOM, got: %s", got)
+	}
+	data, _ := os.ReadFile(path)
+	// BOM should be preserved
+	if !strings.HasPrefix(string(data), "\xef\xbb\xbf") {
+		t.Error("BOM was not preserved")
+	}
+	if !strings.Contains(string(data), "goodbye world") {
+		t.Errorf("edit not applied: %s", string(data))
+	}
+}
+
+func TestFileEditCRLF(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "crlf.txt")
+
+	// Write file with CRLF line endings
+	_ = os.WriteFile(path, []byte("line one\r\nline two\r\nline three\r\n"), 0644)
+
+	input := marshalInput(t, map[string]string{
+		"path":     path,
+		"old_text": "line two",
+		"new_text": "LINE TWO",
+	})
+	got := r.fileEdit(input, "u1")
+	if !strings.Contains(got, "edited") {
+		t.Errorf("expected success with CRLF, got: %s", got)
+	}
+	data, _ := os.ReadFile(path)
+	content := string(data)
+	// CRLF should be preserved
+	if !strings.Contains(content, "\r\n") {
+		t.Error("CRLF line endings not preserved")
+	}
+	if !strings.Contains(content, "LINE TWO") {
+		t.Errorf("edit not applied: %s", content)
+	}
 }
 
 func TestFormatSize(t *testing.T) {

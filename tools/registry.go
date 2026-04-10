@@ -69,6 +69,10 @@ func (r *Registry) Execute(name string, input json.RawMessage, userID string) st
 		return r.fileList(input, userID)
 	case "file_edit":
 		return r.fileEdit(input, userID)
+	case "grep":
+		return r.grepSearch(input, userID)
+	case "find":
+		return r.findFiles(input, userID)
 	default:
 		return fmt.Sprintf("unknown tool: %s", name)
 	}
@@ -108,8 +112,18 @@ func (r *Registry) Defs() []llm.ToolDef {
 		},
 		{
 			Name:        "file_edit",
-			Description: "Make a targeted edit to an existing file by replacing an exact string. old_text must appear exactly once in the file — if it appears zero or multiple times the edit is rejected. Safer and cheaper than file_write for small changes.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"old_text":{"type":"string","description":"Exact text to find (must appear exactly once in the file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["path","old_text","new_text"]}`,
+			Description: "Replace exact text in a file. Supports multiple edits in one call via the edits array. Always file_read the file first, then copy old_text exactly from the output. Each old_text must appear exactly once. Keep old_text as small as possible while still being unique. When changing multiple locations in one file, use one call with multiple edits[] entries.",
+			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"old_text":{"type":"string","description":"Exact text to find (legacy, prefer edits[])"},"new_text":{"type":"string","description":"Replacement text (legacy, prefer edits[])"},"edits":{"type":"array","description":"One or more replacements. Each matched against the original file, not incrementally.","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
+		},
+		{
+			Name:        "grep",
+			Description: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Faster and more precise than bash grep for code search.",
+			Schema:      `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern","path"]}`,
+		},
+		{
+			Name:        "find",
+			Description: "Find files by name pattern. Returns relative paths. Use to locate files before reading them.",
+			Schema:      `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\""},"path":{"type":"string","description":"Directory to search in"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern","path"]}`,
 		},
 	}
 }
