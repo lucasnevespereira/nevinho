@@ -128,7 +128,7 @@ Guidelines:
 Guidelines:
 - Use this to explore project structure before reading or editing files.
 - When the user mentions a project without a path, use file_list to find it.`,
-			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Directory to list (defaults to workspace root)"}},"required":[]}`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute directory path to list"}},"required":[]}`,
 		},
 		{
 			Name: "file_edit",
