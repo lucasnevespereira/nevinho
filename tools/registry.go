@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -53,14 +54,14 @@ func NewRegistry(cfg *config.Config) *Registry {
 	return r
 }
 
-func (r *Registry) Execute(name string, input json.RawMessage, userID string) string {
+func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) string {
 	switch name {
 	case "web_read":
 		return r.webRead(input)
 	case "web_search":
 		return r.webSearch(input)
 	case "bash":
-		return r.runBash(input, userID)
+		return r.runBash(ctx, input, userID)
 	case "file_read":
 		return r.fileRead(input, userID)
 	case "file_write":
@@ -70,9 +71,9 @@ func (r *Registry) Execute(name string, input json.RawMessage, userID string) st
 	case "file_edit":
 		return r.fileEdit(input, userID)
 	case "grep":
-		return r.grepSearch(input, userID)
+		return r.grepSearch(ctx, input, userID)
 	case "find":
-		return r.findFiles(input, userID)
+		return r.findFiles(ctx, input, userID)
 	default:
 		return fmt.Sprintf("unknown tool: %s", name)
 	}
@@ -81,49 +82,83 @@ func (r *Registry) Execute(name string, input json.RawMessage, userID string) st
 func (r *Registry) Defs() []llm.ToolDef {
 	return []llm.ToolDef{
 		{
-			Name:        "web_read",
-			Description: "Fetch a web page and return its readable text content. Strips scripts, styles, nav, and boilerplate. Prefer this over bash curl for reading web content.",
-			Schema:      `{"type":"object","properties":{"url":{"type":"string","description":"Full URL to fetch (must be http or https)"}},"required":["url"]}`,
+			Name: "web_read",
+			Description: `Fetch a web page and return its readable text content. Strips scripts, styles, nav, and boilerplate.
+Use this instead of bash curl/wget for reading web content.`,
+			Schema: `{"type":"object","properties":{"url":{"type":"string","description":"Full URL to fetch (must be http or https)"}},"required":["url"]}`,
 		},
 		{
-			Name:        "web_search",
-			Description: "Search the web and return titles, URLs, and snippets for the top results. Use this to find relevant pages, then web_read to get their full content.",
-			Schema:      `{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`,
+			Name: "web_search",
+			Description: `Search the web and return titles, URLs, and snippets for the top results.
+Use this to find relevant pages, then use web_read to get full content.`,
+			Schema: `{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`,
 		},
 		{
-			Name:        "bash",
-			Description: "Run a bash command and return its combined stdout/stderr. Times out after 2 minutes. Commands like rm, sudo, chmod, and curl with output flags require user approval. Non-interactive only — use flags like -y. Prefer file_read/file_write over cat/echo for file operations.",
-			Schema:      `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"}},"required":["command"]}`,
+			Name: "bash",
+			Description: `Run a bash command and return combined stdout/stderr. Times out after 2 minutes. Non-interactive only.
+Guidelines:
+- Use -y or --yes flags for package managers. Never use interactive prompts.
+- Prefer file_read/file_write/file_edit over cat/echo/sed for file operations.
+- Prefer grep/find tools over bash grep/find for code search.
+- When cloning repos, clone into ~/apps unless told otherwise. Never clone into / or ~.
+- Always report the full path of created/cloned directories in your response.
+- Commands like rm, sudo, chmod, and curl with output flags require user approval.`,
+			Schema: `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"}},"required":["command"]}`,
 		},
 		{
-			Name:        "file_read",
-			Description: "Read a file's contents. Supports absolute paths (/path, ~/path). For large files use offset (1-indexed line number to start from) and limit (number of lines) to paginate. The response header shows which lines are returned and the total.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"offset":{"type":"integer","description":"Line number to start reading from, 1-indexed (optional)"},"limit":{"type":"integer","description":"Maximum number of lines to return (optional)"}},"required":["path"]}`,
+			Name: "file_read",
+			Description: `Read a file's contents with line numbers. For large files use offset and limit to paginate.
+Guidelines:
+- Always read a file before editing it. Copy old_text exactly from the read output.
+- Use offset (1-indexed) and limit to read specific sections of large files.
+- The response header shows which lines are returned and the total line count.`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"offset":{"type":"integer","description":"Line number to start from (1-indexed)"},"limit":{"type":"integer","description":"Max lines to return"}},"required":["path"]}`,
 		},
 		{
-			Name:        "file_write",
-			Description: "Write content to a file, replacing it entirely. Creates the file and any parent directories if needed. For small changes prefer file_edit — it's safer and cheaper. Use absolute paths. Requires directory approval.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"content":{"type":"string","description":"Full content to write"}},"required":["path","content"]}`,
+			Name: "file_write",
+			Description: `Write content to a file, replacing it entirely. Creates parent directories if needed. Requires directory approval.
+Guidelines:
+- For small changes, prefer file_edit over file_write. It is safer and cheaper.
+- Always tell the user the full path of the file you wrote.`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"content":{"type":"string","description":"Full file content"}},"required":["path","content"]}`,
 		},
 		{
-			Name:        "file_list",
-			Description: "List files and directories at a path. Directories have a trailing slash; files show their size. Use absolute paths. Use this to explore project structure before reading files.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"Directory to list (optional, defaults to workspace root)"}},"required":[]}`,
+			Name: "file_list",
+			Description: `List files and directories at a path. Directories have a trailing /; files show size.
+Guidelines:
+- Use this to explore project structure before reading or editing files.
+- When the user mentions a project without a path, use file_list to find it.`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Directory to list (defaults to workspace root)"}},"required":[]}`,
 		},
 		{
-			Name:        "file_edit",
-			Description: "Replace exact text in a file. Supports multiple edits in one call via the edits array. Always file_read the file first, then copy old_text exactly from the output. Each old_text must appear exactly once. Keep old_text as small as possible while still being unique. When changing multiple locations in one file, use one call with multiple edits[] entries.",
-			Schema:      `{"type":"object","properties":{"path":{"type":"string","description":"File path"},"old_text":{"type":"string","description":"Exact text to find (legacy, prefer edits[])"},"new_text":{"type":"string","description":"Replacement text (legacy, prefer edits[])"},"edits":{"type":"array","description":"One or more replacements. Each matched against the original file, not incrementally.","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
+			Name: "file_edit",
+			Description: `Replace exact text in a file. Supports multiple edits in one call via the edits array.
+Guidelines:
+- Always file_read the file first, then copy old_text exactly from the output.
+- Each old_text must appear exactly once in the file. Include enough context to be unique.
+- Keep old_text as small as possible while still being unique.
+- When changing multiple locations in one file, use one call with multiple edits[] entries.
+- All edits are matched against the original file content, not incrementally.
+- If a match fails, read the file again to get the exact current content.`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"old_text":{"type":"string","description":"Exact text to find (legacy, prefer edits[])"},"new_text":{"type":"string","description":"Replacement text (legacy, prefer edits[])"},"edits":{"type":"array","description":"One or more replacements","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
 		},
 		{
-			Name:        "grep",
-			Description: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Faster and more precise than bash grep for code search.",
-			Schema:      `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern","path"]}`,
+			Name: "grep",
+			Description: `Search file contents for a regex pattern. Returns matching lines with file paths and line numbers.
+Guidelines:
+- Use this instead of bash grep for all code search. It is faster and returns structured output.
+- When the user asks about a symbol, function, or string, use grep to find it before asking for a path.
+- Long lines are truncated to 500 chars. Default limit is 100 matches.`,
+			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern","path"]}`,
 		},
 		{
-			Name:        "find",
-			Description: "Find files by name pattern. Returns relative paths. Use to locate files before reading them.",
-			Schema:      `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\""},"path":{"type":"string","description":"Directory to search in"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern","path"]}`,
+			Name: "find",
+			Description: `Find files by glob pattern. Returns relative paths. Excludes .git, node_modules, __pycache__, .venv.
+Guidelines:
+- Use this to locate files before reading or editing them. Don't guess paths.
+- When the user mentions a file without a full path, use find to locate it first.
+- Default limit is 500 results.`,
+			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\""},"path":{"type":"string","description":"Directory to search in"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern","path"]}`,
 		},
 	}
 }

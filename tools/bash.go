@@ -83,7 +83,7 @@ type bashInput struct {
 	Command string `json:"command"`
 }
 
-func (r *Registry) runBash(input json.RawMessage, userID string) string {
+func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID string) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
@@ -95,12 +95,12 @@ func (r *Registry) runBash(input json.RawMessage, userID string) string {
 		}
 	}
 
-	return r.executeBash(in.Command)
+	return r.executeBashCtx(ctx, in.Command)
 }
 
-// executeBash runs a command without permission checks (called after approval or when safe).
-func (r *Registry) executeBash(command string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), bashTimeout)
+// executeBashCtx runs a command with the caller's context for cancellation, plus a timeout.
+func (r *Registry) executeBashCtx(parent context.Context, command string) string {
+	ctx, cancel := context.WithTimeout(parent, bashTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
@@ -108,6 +108,9 @@ func (r *Registry) executeBash(command string) string {
 	result := string(output)
 
 	if err != nil {
+		if parent.Err() != nil {
+			return result + "\n(cancelled)"
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			return result + "\n(timed out after 2m)"
 		}
@@ -132,13 +135,13 @@ func (r *Registry) executeBash(command string) string {
 	return result
 }
 
-// ExecutePendingCode runs a previously approved bash command.
+// executePendingBash runs a previously approved bash command.
 func (r *Registry) executePendingBash(input json.RawMessage) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
-	return r.executeBash(in.Command)
+	return r.executeBashCtx(context.Background(), in.Command)
 }
 
 // isDangerous checks if a command matches dangerous patterns or touches sensitive paths.

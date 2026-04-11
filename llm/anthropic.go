@@ -115,9 +115,13 @@ func (a *Anthropic) FormatUserMessage(text string) json.RawMessage {
 func (a *Anthropic) FormatToolResults(results []ToolResult) []json.RawMessage {
 	var content []interface{}
 	for _, r := range results {
-		content = append(content, map[string]interface{}{
+		entry := map[string]interface{}{
 			"type": "tool_result", "tool_use_id": r.ID, "content": r.Output,
-		})
+		}
+		if r.IsError {
+			entry["is_error"] = true
+		}
+		content = append(content, entry)
 	}
 	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": content})
 	return []json.RawMessage{msg}

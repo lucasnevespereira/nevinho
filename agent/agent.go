@@ -153,11 +153,12 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		for _, tc := range resp.ToolCalls {
 			toolsUsed = append(toolsUsed, tc.Name)
 			logger.Tool(tc.Name, toolDetail(tc.Name, tc.Input))
-			output := a.executeTool(tc.Name, tc.Input, userID)
+			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
 			}
-			results = append(results, llm.ToolResult{ID: tc.ID, Output: output})
+			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: isToolError(output)}
+			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
 			}
@@ -312,14 +313,39 @@ func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted [
 	return evicted
 }
 
-func (a *Agent) executeTool(name string, input json.RawMessage, userID string) (output string) {
+func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (output string) {
 	defer func() {
 		if r := recover(); r != nil {
 			output = fmt.Sprintf("tool crashed: %v", r)
 			logger.Err(fmt.Errorf("panic in %s: %v", name, r))
 		}
 	}()
-	return a.tools.Execute(name, input, userID)
+	return a.tools.Execute(ctx, name, input, userID)
+}
+
+// isToolError checks if tool output indicates an error the model should know about.
+// NEEDS_APPROVAL is NOT an error -- it's our approval flow, handled separately.
+func isToolError(output string) bool {
+	if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
+		return false
+	}
+	errorIndicators := []string{
+		"invalid input:",
+		"invalid path:",
+		"tool crashed:",
+		"Could not find",
+		"failed:",
+		"grep failed:",
+		"find failed:",
+		"(timed out",
+		"(cancelled)",
+	}
+	for _, indicator := range errorIndicators {
+		if strings.Contains(output, indicator) {
+			return true
+		}
+	}
+	return false
 }
 
 func approvalMessage(p *tools.Pending) string {

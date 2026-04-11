@@ -37,8 +37,9 @@ type ToolCall struct {
 }
 
 type ToolResult struct {
-	ID     string
-	Output string
+	ID      string
+	Output  string
+	IsError bool
 }
 
 type Usage struct {

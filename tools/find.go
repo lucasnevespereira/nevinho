@@ -18,7 +18,7 @@ type findInput struct {
 	Limit   int    `json:"limit"`
 }
 
-func (r *Registry) findFiles(input json.RawMessage, userID string) string {
+func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID string) string {
 	var in findInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
@@ -46,15 +46,15 @@ func (r *Registry) findFiles(input json.RawMessage, userID string) string {
 		"-not", "-path", "*/.venv/*",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "find", args...)
+	cmd := exec.CommandContext(tctx, "find", args...)
 	output, err := cmd.CombinedOutput()
 	result := strings.TrimRight(string(output), "\n")
 
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+		if tctx.Err() == context.DeadlineExceeded {
 			return "find timed out after 30s — try a more specific path"
 		}
 		// find may print partial results + errors; return what we have
