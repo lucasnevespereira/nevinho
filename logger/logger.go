@@ -28,6 +28,15 @@ func Tool(name, detail string) {
 		log.Printf("         %s· %s%s", dim, name, reset)
 	}
 }
+
+func ToolResult(name, result string, isError bool) {
+	first := firstLine(result)
+	if isError {
+		log.Printf("         %s✗ %s: %s%s", red, name, truncate(first, 100), reset)
+	} else {
+		log.Printf("         %s✓ %s: %s%s", dim, name, truncate(first, 80), reset)
+	}
+}
 func Err(err error)       { log.Printf("%sfail%s     %v", red, reset, err) }
 func Info(msg string)     { log.Printf("%s%s%s", dim, msg, reset) }
 
@@ -53,4 +62,11 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(runes[:max]) + "…"
+}
+
+func firstLine(s string) string {
+	if idx := strings.IndexByte(s, '\n'); idx != -1 {
+		return s[:idx]
+	}
+	return s
 }
