@@ -60,7 +60,7 @@ func showLogs() {
 		fmt.Println("Logs are available on Linux with systemd.")
 		return
 	}
-	cmd := exec.Command("journalctl", "-u", "nevinho", "-f", "--no-pager")
+	cmd := exec.Command("journalctl", "-u", "nevinho", "-f", "--no-pager", "-o", "cat")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Run()
