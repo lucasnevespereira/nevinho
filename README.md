@@ -6,7 +6,7 @@
 
 A minimal personal AI harness that runs in your Discord DMs.
 Supports Anthropic, OpenAI, and Ollama.
-Comes with tools for bash, web search, and file management.
+Comes with tools for bash, code search, web search, and file management.
 
 ## Install
 
@@ -69,11 +69,13 @@ Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 | Tool | What it does |
 |------|-------------|
 | `bash` | Run any bash command |
+| `grep` | Search file contents by pattern |
+| `find` | Find files by name |
 | `web_search` | Search via Brave API or DuckDuckGo fallback |
 | `web_read` | Fetch a URL and extract readable text |
 | `file_list` | List directory contents |
-| `file_read` | Read a file (supports pagination for large files) |
-| `file_edit` | Replace an exact string in a file (safer for small changes) |
+| `file_read` | Read a file (supports pagination) |
+| `file_edit` | Replace exact text in a file with fuzzy matching |
 | `file_write` | Write an entire file (directory approval required) |
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
@@ -127,7 +129,7 @@ agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
 llm/         provider interface (Anthropic, OpenAI, Ollama)
-tools/       bash, web search, file I/O
+tools/       bash, grep, find, web search, file I/O
 discord/     bot, slash commands, message handling
 logger/      colored terminal output
 ```
