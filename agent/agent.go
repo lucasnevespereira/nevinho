@@ -157,7 +157,9 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
 			}
-			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: isToolError(output)}
+			errored := isToolError(output)
+			logger.ToolResult(tc.Name, output, errored)
+			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
 			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
