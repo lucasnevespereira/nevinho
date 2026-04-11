@@ -1,9 +1,7 @@
 .PHONY: build run clean lint test
 
 lint:
-	@echo "Running go vet..."
-	@go vet ./...
-	@echo "Lint passed."
+	@golangci-lint run ./...
 
 build:
 	@go build -ldflags "-X main.version=$$(git describe --tags --always)" -o bin/nevinho

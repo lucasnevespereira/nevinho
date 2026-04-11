@@ -1,0 +1,17 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosimple
+
+issues:
+  exclude-rules:
+    # Discord API calls are fire-and-forget
+    - path: discord/
+      linters: [errcheck]
+      text: "ChannelMessage|InteractionRespond|ChannelTyping"
