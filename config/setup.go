@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/lucasnevespereira/nevinho/voice"
 )
 
 func RunSetup(configDir string) error {
@@ -45,6 +48,17 @@ func RunSetup(configDir string) error {
 	brave := prompt("Brave Search API key (optional, press Enter to skip)")
 	if brave != "" {
 		cfg.BraveAPIKey = brave
+	}
+
+	// Voice messages
+	fmt.Println()
+	enableVoice := prompt("Enable voice messages? [Y/n]")
+	if enableVoice == "" || strings.ToLower(enableVoice) == "y" || strings.ToLower(enableVoice) == "yes" {
+		whisperDir := filepath.Join(configDir, "whisper")
+		if err := voice.Setup(whisperDir); err != nil {
+			fmt.Printf("Voice setup failed: %v\n", err)
+			fmt.Println("You can retry later with 'nevinho setup'.")
+		}
 	}
 
 	if err := cfg.Save(); err != nil {

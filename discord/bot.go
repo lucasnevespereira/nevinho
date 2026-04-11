@@ -2,7 +2,9 @@ package discord
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -10,6 +12,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/logger"
+	"github.com/lucasnevespereira/nevinho/voice"
 )
 
 const maxMessageLen = 2000
@@ -244,6 +248,20 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	text := strings.TrimSpace(m.Content)
+
+	// Handle voice messages: transcribe audio attachments
+	if text == "" && len(m.Attachments) > 0 {
+		for _, att := range m.Attachments {
+			if isAudioAttachment(att) {
+				transcribed := b.transcribeAttachment(s, m.ChannelID, att)
+				if transcribed != "" {
+					text = transcribed
+				}
+				break
+			}
+		}
+	}
+
 	if text == "" {
 		return
 	}
@@ -743,6 +761,52 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 	}
 
 	return options
+}
+
+var audioExtensions = map[string]bool{
+	".ogg": true, ".mp3": true, ".wav": true, ".m4a": true, ".webm": true,
+}
+
+func isAudioAttachment(att *discordgo.MessageAttachment) bool {
+	if strings.HasPrefix(att.ContentType, "audio/") {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(att.Filename))
+	return audioExtensions[ext]
+}
+
+func (b *Bot) transcribeAttachment(s *discordgo.Session, channelID string, att *discordgo.MessageAttachment) string {
+	whisperDir := filepath.Join(b.cfg.Dir(), "whisper")
+	if !voice.IsAvailable(whisperDir) {
+		s.ChannelMessageSend(channelID, "Voice messages not enabled. Run `nevinho setup` to enable.")
+		return ""
+	}
+
+	resp, err := http.Get(att.URL)
+	if err != nil {
+		logger.Err(fmt.Errorf("download voice: %w", err))
+		s.ChannelMessageSend(channelID, "Failed to download voice message.")
+		return ""
+	}
+	defer resp.Body.Close()
+
+	audio, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Err(fmt.Errorf("read voice: %w", err))
+		s.ChannelMessageSend(channelID, "Failed to read voice message.")
+		return ""
+	}
+
+	logger.Info("transcribing voice message...")
+	text, err := voice.Transcribe(whisperDir, audio, att.Filename)
+	if err != nil {
+		logger.Err(fmt.Errorf("transcribe: %w", err))
+		s.ChannelMessageSend(channelID, fmt.Sprintf("Transcription failed: %v", err))
+		return ""
+	}
+
+	logger.Info(fmt.Sprintf("transcribed: %s", text))
+	return text
 }
 
 func helpMessage() string {
