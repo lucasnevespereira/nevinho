@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 )
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
 const bashTimeout = 120 * time.Second
 
-// Patterns that require user approval before execution.
 var dangerousPatterns = []*regexp.Regexp{
 	// Destructive
 	regexp.MustCompile(`\brm\b`),
@@ -53,7 +59,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\beval\b.*\$\(`),
 }
 
-// Paths that require approval when referenced in commands.
+// Paths that trigger approval prompts.
 var sensitivePaths = []string{
 	"/.ssh",
 	"/.gnupg",
@@ -83,7 +89,7 @@ type bashInput struct {
 	Command string `json:"command"`
 }
 
-func (r *Registry) runBash(input json.RawMessage, userID string) string {
+func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID string) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
@@ -95,19 +101,24 @@ func (r *Registry) runBash(input json.RawMessage, userID string) string {
 		}
 	}
 
-	return r.executeBash(in.Command)
+	return r.executeBashCtx(ctx, in.Command)
 }
 
-// executeBash runs a command without permission checks (called after approval or when safe).
-func (r *Registry) executeBash(command string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), bashTimeout)
+// executeBashCtx runs a command with cancellation and timeout.
+func (r *Registry) executeBashCtx(parent context.Context, command string) string {
+	ctx, cancel := context.WithTimeout(parent, bashTimeout)
 	defer cancel()
 
+	// Force no-color output to avoid wasting tokens on ANSI codes
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
 	output, err := cmd.CombinedOutput()
-	result := string(output)
+	result := stripANSI(string(output))
 
 	if err != nil {
+		if parent.Err() != nil {
+			return result + "\n(cancelled)"
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			return result + "\n(timed out after 2m)"
 		}
@@ -132,16 +143,16 @@ func (r *Registry) executeBash(command string) string {
 	return result
 }
 
-// ExecutePendingCode runs a previously approved bash command.
+// executePendingBash runs a command after user approval.
 func (r *Registry) executePendingBash(input json.RawMessage) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
-	return r.executeBash(in.Command)
+	return r.executeBashCtx(context.Background(), in.Command)
 }
 
-// isDangerous checks if a command matches dangerous patterns or touches sensitive paths.
+// isDangerous returns a reason string if the command needs approval, empty otherwise.
 func isDangerous(command string) string {
 	lower := strings.ToLower(command)
 

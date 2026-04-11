@@ -25,7 +25,7 @@ type grepInput struct {
 	Limit        int    `json:"limit"`
 }
 
-func (r *Registry) grepSearch(input json.RawMessage, userID string) string {
+func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID string) string {
 	var in grepInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
@@ -55,15 +55,15 @@ func (r *Registry) grepSearch(input json.RawMessage, userID string) string {
 	}
 	args = append(args, "--", in.Pattern, resolved)
 
-	ctx, cancel := context.WithTimeout(context.Background(), grepTimeout)
+	tctx, cancel := context.WithTimeout(ctx, grepTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "grep", args...)
+	cmd := exec.CommandContext(tctx, "grep", args...)
 	output, err := cmd.CombinedOutput()
 	result := strings.TrimRight(string(output), "\n")
 
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+		if tctx.Err() == context.DeadlineExceeded {
 			return "grep timed out after 30s — try a more specific pattern or path"
 		}
 		// grep exits 1 when no matches found
@@ -80,10 +80,8 @@ func (r *Registry) grepSearch(input json.RawMessage, userID string) string {
 		return "no matches found"
 	}
 
-	// Make paths relative to the search directory
 	result = makePathsRelative(result, resolved)
 
-	// Truncate long lines
 	lines := strings.Split(result, "\n")
 	truncatedLines := false
 	for i, line := range lines {
@@ -93,7 +91,6 @@ func (r *Registry) grepSearch(input json.RawMessage, userID string) string {
 		}
 	}
 
-	// Apply match limit
 	limit := in.Limit
 	if limit <= 0 {
 		limit = grepDefaultLimit
@@ -113,7 +110,6 @@ func (r *Registry) grepSearch(input json.RawMessage, userID string) string {
 }
 
 func makePathsRelative(output, basePath string) string {
-	// Ensure basePath ends with separator for clean prefix removal
 	if !strings.HasSuffix(basePath, string(filepath.Separator)) {
 		basePath += string(filepath.Separator)
 	}

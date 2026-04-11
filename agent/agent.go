@@ -153,17 +153,17 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		for _, tc := range resp.ToolCalls {
 			toolsUsed = append(toolsUsed, tc.Name)
 			logger.Tool(tc.Name, toolDetail(tc.Name, tc.Input))
-			output := a.executeTool(tc.Name, tc.Input, userID)
+			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
 			}
-			results = append(results, llm.ToolResult{ID: tc.ID, Output: output})
+			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: isToolError(output)}
+			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
 			}
 		}
 
-		// The API requires tool results after every assistant message with tool_use
 		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
 
 		if needsApproval {
@@ -239,7 +239,6 @@ func (a *Agent) Status() string {
 	return sb.String()
 }
 
-// estimateCost returns estimated USD cost based on model pricing per 1M tokens.
 func estimateCost(model string, tokensIn, tokensOut int) float64 {
 	var inPer1M, outPer1M float64
 	switch {
@@ -312,14 +311,31 @@ func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted [
 	return evicted
 }
 
-func (a *Agent) executeTool(name string, input json.RawMessage, userID string) (output string) {
+func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (output string) {
 	defer func() {
 		if r := recover(); r != nil {
 			output = fmt.Sprintf("tool crashed: %v", r)
 			logger.Err(fmt.Errorf("panic in %s: %v", name, r))
 		}
 	}()
-	return a.tools.Execute(name, input, userID)
+	return a.tools.Execute(ctx, name, input, userID)
+}
+
+func isToolError(output string) bool {
+	for _, s := range []string{
+		"invalid input:",
+		"invalid path:",
+		"tool crashed:",
+		"Could not find",
+		"failed:",
+		"(timed out",
+		"(cancelled)",
+	} {
+		if strings.Contains(output, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func approvalMessage(p *tools.Pending) string {
@@ -349,8 +365,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// summarizeAndPrepend asks the LLM to summarize evicted messages and
-// inserts the summary as the first message in the user's history.
+// summarizeAndPrepend summarizes evicted messages and prepends them to history.
 func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	flat := flattenMessages(evicted)
 	if flat == "" {

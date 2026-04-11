@@ -748,7 +748,7 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 func helpMessage() string {
 	return `**nevinho**
 
-**Tools:** bash · web search · web read · file read · file write
+**Tools:** bash · grep · find · file read · file edit · file write · web search · web read
 
 **Commands:**
 ` + "`/cancel`" + ` cancel current operation
