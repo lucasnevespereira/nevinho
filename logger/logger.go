@@ -19,8 +19,8 @@ func Init() {
 	log.SetFlags(log.Ltime)
 }
 
-func User(text string)    { log.Printf("%suser%s     %s", cyan, reset, truncate(text, 100)) }
-func Nevinho(text string) { log.Printf("%snevinho%s  %s", green, reset, truncate(text, 100)) }
+func User(text string)    { log.Printf("%suser%s     %s", cyan, reset, oneline(text)) }
+func Nevinho(text string) { log.Printf("%snevinho%s  %s", green, reset, oneline(text)) }
 func Tool(name, detail string) {
 	if detail != "" {
 		log.Printf("         %s· %s %s%s", dim, name, truncate(detail, 80), reset)
@@ -55,8 +55,12 @@ func Done(start time.Time, tokensIn, tokensOut, cacheRead int, tools []string, c
 	log.Printf("%sdone%s     %s", dim, reset, msg)
 }
 
+func oneline(s string) string {
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
 func truncate(s string, max int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
+	s = oneline(s)
 	runes := []rune(s)
 	if len(runes) <= max {
 		return s

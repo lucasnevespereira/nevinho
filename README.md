@@ -28,12 +28,13 @@ You can also reconfigure later from Discord with `/config`.
 ## CLI
 
 ```
-nevinho setup    configure Discord token and LLM keys
-nevinho start    start the bot
-nevinho stop     stop the bot
-nevinho logs     show live logs
-nevinho upgrade  update to latest version
-nevinho version  show version
+nevinho setup       configure Discord token and LLM keys
+nevinho start       start the bot
+nevinho stop        stop the bot
+nevinho logs        show live logs (--full, --last N)
+nevinho status      check if bot is running
+nevinho upgrade     update to latest version
+nevinho version     show version
 ```
 
 ## Manual setup
@@ -113,7 +114,6 @@ Configuration is encrypted and stored in `~/.nevinho/`:
 ```
 config.enc          encrypted configuration (AES-256-GCM)
 secret.key          auto-generated encryption key
-workspace/          per-user sandboxed file storage
 approved_paths.json persisted write permissions
 ```
 

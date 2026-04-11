@@ -55,12 +55,39 @@ func stopService() {
 	fmt.Println("nevinho stopped.")
 }
 
-func showLogs() {
+func showLogs(args []string) {
 	if runtime.GOOS != "linux" {
 		fmt.Println("Logs are available on Linux with systemd.")
 		return
 	}
-	cmd := exec.Command("journalctl", "-u", "nevinho", "-f", "--no-pager", "-o", "cat")
+
+	jArgs := []string{"-u", "nevinho", "--no-pager", "-o", "cat"}
+
+	full := false
+	last := ""
+	for i, a := range args {
+		switch a {
+		case "--full":
+			full = true
+		case "--last":
+			if i+1 < len(args) {
+				last = args[i+1]
+			}
+		}
+	}
+
+	if last != "" {
+		jArgs = append(jArgs, "-n", last)
+	} else {
+		jArgs = append(jArgs, "-f")
+	}
+
+	if full {
+		// Show full output without journalctl line wrapping
+		jArgs = append(jArgs, "--no-hostname")
+	}
+
+	cmd := exec.Command("journalctl", jArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Run()
