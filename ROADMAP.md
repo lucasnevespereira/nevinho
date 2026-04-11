@@ -23,15 +23,17 @@ A single transient error or stuck call should not kill a conversation.
 - [x] **Top-level timeout on Chat()** -- Wrap the chat loop in a 5-minute deadline. Prevents a stuck API call or infinite tool loop from hanging the bot.
 - [x] **Cost-per-message logging** -- Extend `logger.Done()` to include estimated cost (e.g., `1.2s · 1,340 tokens · $0.002`). Already have `estimateCost()`, just needs wiring.
 
-## P2: Harness-Level Memory
+## P2: Harness-Level Memory (done)
 
-The agent should learn from corrections and preferences without polluting the system prompt with memory instructions.
+- [x] **Auto-inject memory into system prompt** -- On `Chat()`, read `~/.nevinho/memory.md` and append its content to the system prompt as a `[Memory]` block. File missing or empty = no-op.
+- [x] **Harness-driven memory writes** -- After each user message, the harness scans for correction patterns (e.g. "remember X", "always X", "never X", "I prefer X") and appends one-line entries to `memory.md`. The LLM never sees write instructions.
+- [x] **Memory cap** -- Hard limit of 20 entries. Oldest entries rotate out. Deduplication prevents repeated entries.
 
-- [ ] **Auto-inject memory into system prompt** -- On `Chat()`, read `~/.nevinho/memory.md` and append its content to the system prompt as a `[Memory]` block. File missing or empty = no-op. Content gets prompt-cached with the rest of the system prefix.
-- [ ] **Harness-driven memory writes** -- After each assistant reply, the harness scans for correction patterns (e.g. "use X instead of Y", "I prefer X", "don't do X") and appends one-line entries to `memory.md`. The LLM never sees write instructions -- the harness owns the file.
-- [ ] **Memory cap** -- Hard limit of ~500 tokens (~20 entries). Oldest entries rotate out. Keeps the cache-key stable and the prompt lean.
+## P3: Voice Messages (done)
 
-## P3: Streaming
+- [x] **Voice transcription** -- Discord voice messages are downloaded and sent to OpenAI Whisper API. The transcribed text is fed to the agent as a normal message. Supports ogg, mp3, wav, m4a, webm formats. Requires `OPENAI_API_KEY`.
+
+## P4: Streaming
 
 Waiting 20-40s with only a typing indicator provides no feedback. Streaming fixes this.
 
