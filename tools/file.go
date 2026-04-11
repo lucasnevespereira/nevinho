@@ -37,9 +37,9 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	}
 
 	content := string(data)
-	lang := langFromExt(resolved)
 	totalLines := strings.Count(content, "\n") + 1
 
+	// Paginated read
 	if in.Offset > 0 || in.Limit > 0 {
 		lines := strings.Split(content, "\n")
 
@@ -57,11 +57,10 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 		}
 
 		chunk := strings.Join(lines[start:end], "\n")
-		r.QueueFileDisplay(userID, in.Path, lang, chunk)
-		return fmt.Sprintf("lines %d-%d of %d shown to user", start+1, end, totalLines)
+		return fmt.Sprintf("[lines %d-%d of %d]\n%s", start+1, end, totalLines, chunk)
 	}
 
-	// Full read with truncation.
+	// Full read with truncation
 	display := content
 	if len(display) > maxResponseLen {
 		display = display[:maxResponseLen]
@@ -70,8 +69,7 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 		}
 	}
 
-	r.QueueFileDisplay(userID, in.Path, lang, display)
-	return fmt.Sprintf("%s (%d lines) shown to user", in.Path, totalLines)
+	return fmt.Sprintf("[%s, %d lines]\n%s", in.Path, totalLines, display)
 }
 
 type fileWriteInput struct {
@@ -463,29 +461,6 @@ func lineIndexAt(content string, byteOffset int) int {
 		byteOffset = len(content)
 	}
 	return strings.Count(content[:byteOffset], "\n")
-}
-
-func langFromExt(path string) string {
-	base := strings.ToLower(filepath.Base(path))
-	switch base {
-	case "dockerfile":
-		return "dockerfile"
-	case "makefile":
-		return "makefile"
-	}
-	ext := strings.TrimPrefix(filepath.Ext(base), ".")
-	switch ext {
-	case "sh", "zsh":
-		return "bash"
-	case "yml":
-		return "yaml"
-	case "mod":
-		return "go"
-	case "":
-		return ""
-	default:
-		return ext
-	}
 }
 
 func resolvePath(path, _ string) (string, error) {

@@ -84,18 +84,17 @@ func TestFileReadPagination(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		offset          int
-		limit           int
-		summaryContains string
-		displayContains string
-		displayExcludes string
+		name     string
+		offset   int
+		limit    int
+		contains string
+		excludes string
 	}{
-		{"full read", 0, 0, "shown to user", "line 1", ""},
-		{"offset only", 5, 0, "lines 5-10", "line 5", "line 4"},
-		{"limit only", 0, 3, "lines 1-3", "line 1", "line 4"},
-		{"offset and limit", 3, 2, "lines 3-4", "line 3", "line 1"},
-		{"offset beyond end", 99, 0, "offset 99 exceeds", "", ""},
+		{"full read", 0, 0, "line 1", ""},
+		{"offset only", 5, 0, "line 5", "line 4"},
+		{"limit only", 0, 3, "line 1", "line 4"},
+		{"offset and limit", 3, 2, "line 3", "line 1"},
+		{"offset beyond end", 99, 0, "offset 99 exceeds", ""},
 	}
 
 	for _, tt := range tests {
@@ -106,20 +105,11 @@ func TestFileReadPagination(t *testing.T) {
 				"limit":  tt.limit,
 			})
 			got := r.fileRead(input, "u1")
-			if !strings.Contains(got, tt.summaryContains) {
-				t.Errorf("summary missing %q\ngot: %s", tt.summaryContains, got)
+			if !strings.Contains(got, tt.contains) {
+				t.Errorf("expected %q in result\ngot: %s", tt.contains, got)
 			}
-			displays := r.DrainFileDisplays("u1")
-			if tt.displayContains != "" {
-				if len(displays) == 0 {
-					t.Fatal("expected file display but got none")
-				}
-				if !strings.Contains(displays[0].Content, tt.displayContains) {
-					t.Errorf("display missing %q", tt.displayContains)
-				}
-				if tt.displayExcludes != "" && strings.Contains(displays[0].Content, tt.displayExcludes) {
-					t.Errorf("display should not contain %q", tt.displayExcludes)
-				}
+			if tt.excludes != "" && strings.Contains(got, tt.excludes) {
+				t.Errorf("should not contain %q\ngot: %s", tt.excludes, got)
 			}
 		})
 	}
