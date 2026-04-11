@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ const findDefaultLimit = 500
 type findInput struct {
 	Pattern string `json:"pattern"`
 	Path    string `json:"path"`
+	Type    string `json:"type"`
 	Limit   int    `json:"limit"`
 }
 
@@ -28,7 +30,11 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		return "pattern is required — e.g. \"*.go\", \"Makefile\""
 	}
 	if in.Path == "" {
-		return "path is required — use an absolute path"
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "path is required — use an absolute path"
+		}
+		in.Path = cwd
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
@@ -36,9 +42,14 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		return fmt.Sprintf("invalid path: %v", err)
 	}
 
+	findType := "f"
+	if in.Type == "d" {
+		findType = "d"
+	}
+
 	args := []string{
 		resolved,
-		"-type", "f",
+		"-type", findType,
 		"-name", in.Pattern,
 		"-not", "-path", "*/.git/*",
 		"-not", "-path", "*/node_modules/*",

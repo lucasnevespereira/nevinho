@@ -137,12 +137,16 @@ func TestFileList(t *testing.T) {
 	}
 }
 
-func TestFileListRequiresPath(t *testing.T) {
+func TestFileListDefaultsToCurrentDir(t *testing.T) {
 	r, _ := newTestRegistry(t)
 	input := marshalInput(t, map[string]string{})
 	got := r.fileList(input, "u1")
-	if !strings.Contains(got, "path is required") {
-		t.Errorf("expected path required error, got: %s", got)
+	// Should list current directory instead of returning an error
+	if strings.Contains(got, "path is required") {
+		t.Errorf("should default to current directory, got error: %s", got)
+	}
+	if got == "" {
+		t.Error("expected directory listing, got empty string")
 	}
 }
 

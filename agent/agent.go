@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
+	"github.com/lucasnevespereira/nevinho/memory"
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
@@ -37,6 +39,7 @@ Tools:
 Guidelines:
 - Act, don't ask. You have full access.
 - Prefer grep/find over bash for file search and discovery.
+- When the user mentions a project by name, use find with type "d" to locate it first. Search from ~ if no directory is specified.
 - Before answering questions about a codebase, explore it. Use file_list to see the structure, then read key files. Base your answer on what you read, not assumptions.
 - When the user asks to see a diff, run bash with "git diff". Don't dump the whole file.
 - Bash is non-interactive. Use -y flags. If credentials are needed, ask the user.
@@ -118,6 +121,27 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	var cacheRead int
 	var toolsUsed []string
 
+	// Detect user corrections/preferences and persist them
+	if entry := memory.DetectCorrection(text); entry != "" {
+		if err := memory.Add(a.cfg.Dir(), entry); err != nil {
+			logger.Err(fmt.Errorf("memory save failed: %w", err))
+		} else {
+			logger.Info("memory: saved preference")
+		}
+	}
+
+	// Build system prompt with cwd and memory context
+	prompt := systemPrompt
+	if cwd, err := os.Getwd(); err == nil {
+		prompt += "\n\nCurrent working directory: " + cwd
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		prompt += "\nHome directory: " + home
+	}
+	if mem := memory.Load(a.cfg.Dir()); mem != "" {
+		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
+	}
+
 	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
@@ -127,7 +151,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			return "Cancelled.", nil
 		}
 		resp, err := a.llm.Complete(ctx, &llm.Request{
-			SystemPrompt: systemPrompt,
+			SystemPrompt: prompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
 			MaxTokens:    maxOutputTokens,

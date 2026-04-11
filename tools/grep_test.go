@@ -97,13 +97,14 @@ func TestGrepSearch(t *testing.T) {
 		}
 	})
 
-	t.Run("missing path", func(t *testing.T) {
+	t.Run("missing path defaults to cwd", func(t *testing.T) {
 		input := marshalInput(t, map[string]any{
 			"pattern": "test",
 		})
 		got := r.grepSearch(context.Background(), input, "u1")
-		if !strings.Contains(got, "path is required") {
-			t.Errorf("expected validation error, got: %s", got)
+		// Should search current directory instead of returning an error
+		if strings.Contains(got, "path is required") {
+			t.Errorf("should default to current directory, got error: %s", got)
 		}
 	})
 }

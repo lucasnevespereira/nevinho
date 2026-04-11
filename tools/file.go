@@ -128,7 +128,11 @@ func (r *Registry) fileList(input json.RawMessage, userID string) string {
 	}
 
 	if in.Path == "" {
-		return "path is required — use an absolute path"
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "path is required — use an absolute path"
+		}
+		in.Path = cwd
 	}
 
 	dirPath, err := resolvePath(in.Path, userID)
