@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 )
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
 
 const bashTimeout = 120 * time.Second
 
@@ -102,9 +109,11 @@ func (r *Registry) executeBashCtx(parent context.Context, command string) string
 	ctx, cancel := context.WithTimeout(parent, bashTimeout)
 	defer cancel()
 
+	// Force no-color output to avoid wasting tokens on ANSI codes
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
 	output, err := cmd.CombinedOutput()
-	result := string(output)
+	result := stripANSI(string(output))
 
 	if err != nil {
 		if parent.Err() != nil {
