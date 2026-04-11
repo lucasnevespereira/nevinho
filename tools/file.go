@@ -40,7 +40,6 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	lang := langFromExt(resolved)
 	totalLines := strings.Count(content, "\n") + 1
 
-	// Paginated read: offset/limit work on lines.
 	if in.Offset > 0 || in.Limit > 0 {
 		lines := strings.Split(content, "\n")
 
@@ -174,9 +173,9 @@ type editPair struct {
 
 type fileEditInput struct {
 	Path    string     `json:"path"`
-	OldText string     `json:"old_text"` // legacy single-edit
-	NewText string     `json:"new_text"` // legacy single-edit
-	Edits   []editPair `json:"edits"`    // multi-edit
+	OldText string     `json:"old_text"`
+	NewText string     `json:"new_text"`
+	Edits   []editPair `json:"edits"`
 }
 
 type matchedEdit struct {
@@ -192,7 +191,7 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	// Normalize: support both legacy flat fields and edits[] array
+	// Support both flat old_text/new_text and edits[] array
 	edits := in.Edits
 	if len(edits) == 0 && in.OldText != "" {
 		edits = []editPair{{OldText: in.OldText, NewText: in.NewText}}
@@ -201,7 +200,6 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		return "at least one edit is required (use edits[] or old_text/new_text)"
 	}
 
-	// Validate edits
 	for i, e := range edits {
 		if e.OldText == "" {
 			return fmt.Sprintf("edits[%d]: old_text must not be empty", i)
@@ -225,17 +223,11 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	}
 
 	raw := string(data)
-
-	// Strip BOM before matching
 	content, hasBOM := stripBOM(raw)
-
-	// Normalize line endings for matching
 	content, hasCRLF := normalizeLineEndings(content)
 
-	// Find all edit positions in the original content
 	var matched []matchedEdit
 	for i, e := range edits {
-		// Normalize edit text line endings too
 		oldText, _ := normalizeLineEndings(e.OldText)
 		newText, _ := normalizeLineEndings(e.NewText)
 
@@ -282,12 +274,9 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		newContent = newContent[:m.start] + m.newText + newContent[m.end:]
 	}
 
-	// Restore line endings
 	if hasCRLF {
 		newContent = restoreCRLF(newContent)
 	}
-
-	// Restore BOM
 	if hasBOM {
 		newContent = utf8BOM + newContent
 	}
@@ -306,8 +295,6 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	return fmt.Sprintf("edited %s (%d blocks replaced)", in.Path, len(matched))
 }
 
-// --- BOM handling ---
-
 const utf8BOM = "\xef\xbb\xbf"
 
 func stripBOM(s string) (string, bool) {
@@ -316,8 +303,6 @@ func stripBOM(s string) (string, bool) {
 	}
 	return s, false
 }
-
-// --- Line ending normalization ---
 
 func normalizeLineEndings(s string) (string, bool) {
 	if strings.Contains(s, "\r\n") {
@@ -330,36 +315,30 @@ func restoreCRLF(s string) string {
 	return strings.ReplaceAll(s, "\n", "\r\n")
 }
 
-// --- Fuzzy matching ---
-
-// normalizeForFuzzyMatch normalizes text for matching when exact match fails.
-// Strips trailing whitespace, normalizes smart quotes/dashes/spaces to ASCII.
+// normalizeForFuzzyMatch strips trailing whitespace and converts unicode
+// quotes, dashes, and spaces to their ASCII equivalents for matching.
 func normalizeForFuzzyMatch(s string) string {
-	// Strip trailing whitespace from each line
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " \t\r")
 	}
 	s = strings.Join(lines, "\n")
 
-	// Smart quotes to ASCII
 	for _, pair := range [][2]string{
-		{"\u2018", "'"}, {"\u2019", "'"}, // single quotes
+		{"\u2018", "'"}, {"\u2019", "'"},
 		{"\u201A", "'"}, {"\u201B", "'"},
-		{"\u201C", "\""}, {"\u201D", "\""}, // double quotes
+		{"\u201C", "\""}, {"\u201D", "\""},
 		{"\u201E", "\""}, {"\u201F", "\""},
 	} {
 		s = strings.ReplaceAll(s, pair[0], pair[1])
 	}
 
-	// Unicode dashes to ASCII hyphen
 	for _, dash := range []string{
 		"\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212",
 	} {
 		s = strings.ReplaceAll(s, dash, "-")
 	}
 
-	// Special spaces to regular space
 	for _, sp := range []string{
 		"\u00A0", "\u2002", "\u2003", "\u2004", "\u2005",
 		"\u2006", "\u2007", "\u2008", "\u2009", "\u200A",
@@ -376,10 +355,8 @@ func normalizeForFuzzyMatch(s string) string {
 	return s
 }
 
-// findEditMatch tries exact match first, then fuzzy match.
-// Returns (byteIndex, occurrenceCount, actualMatchedText).
+// findEditMatch tries exact match first, falls back to fuzzy.
 func findEditMatch(content, oldText string) (int, int, string) {
-	// Phase 1: exact match
 	count := strings.Count(content, oldText)
 	if count == 1 {
 		return strings.Index(content, oldText), 1, oldText
@@ -387,13 +364,10 @@ func findEditMatch(content, oldText string) (int, int, string) {
 	if count > 1 {
 		return -1, count, ""
 	}
-
-	// Phase 2: fuzzy match (line-by-line comparison)
 	return fuzzyFind(content, oldText)
 }
 
-// fuzzyFind does line-by-line fuzzy matching.
-// Returns (byteIndex, count, originalMatchedText).
+// fuzzyFind compares normalized lines to handle whitespace/unicode differences.
 func fuzzyFind(content, oldText string) (int, int, string) {
 	contentLines := strings.Split(content, "\n")
 	oldLines := strings.Split(oldText, "\n")
@@ -432,7 +406,6 @@ func fuzzyFind(content, oldText string) (int, int, string) {
 	matchLineIdx := matches[0]
 	origText := strings.Join(contentLines[matchLineIdx:matchLineIdx+len(oldLines)], "\n")
 
-	// Calculate byte offset
 	byteOffset := 0
 	for i := 0; i < matchLineIdx; i++ {
 		byteOffset += len(contentLines[i]) + 1 // +1 for \n
@@ -441,9 +414,6 @@ func fuzzyFind(content, oldText string) (int, int, string) {
 	return byteOffset, 1, origText
 }
 
-// --- Diff generation ---
-
-// buildEditDiff builds a unified diff string with context lines for Discord display.
 func buildEditDiff(content string, edits []matchedEdit, contextN int) string {
 	fileLines := strings.Split(content, "\n")
 	var sb strings.Builder
@@ -458,7 +428,6 @@ func buildEditDiff(content string, edits []matchedEdit, contextN int) string {
 		newLines := strings.Split(edit.newText, "\n")
 		endLine := startLine + len(oldLines)
 
-		// Context before
 		ctxStart := startLine - contextN
 		if ctxStart < 0 {
 			ctxStart = 0
@@ -469,17 +438,14 @@ func buildEditDiff(content string, edits []matchedEdit, contextN int) string {
 			}
 		}
 
-		// Removed lines
 		for j, line := range oldLines {
 			fmt.Fprintf(&sb, "-%4d  %s\n", startLine+j+1, line)
 		}
 
-		// Added lines
 		for _, line := range newLines {
 			fmt.Fprintf(&sb, "+      %s\n", line)
 		}
 
-		// Context after
 		ctxEnd := endLine + contextN
 		if ctxEnd > len(fileLines) {
 			ctxEnd = len(fileLines)
@@ -492,7 +458,6 @@ func buildEditDiff(content string, edits []matchedEdit, contextN int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// lineIndexAt returns the 0-indexed line number at the given byte offset.
 func lineIndexAt(content string, byteOffset int) int {
 	if byteOffset > len(content) {
 		byteOffset = len(content)

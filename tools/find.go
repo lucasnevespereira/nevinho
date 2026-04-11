@@ -57,7 +57,7 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		if tctx.Err() == context.DeadlineExceeded {
 			return "find timed out after 30s — try a more specific path"
 		}
-		// find may print partial results + errors; return what we have
+		// find may return partial results with errors
 		if result == "" {
 			return fmt.Sprintf("find failed: %v", err)
 		}
@@ -67,7 +67,6 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		return "no files found matching pattern"
 	}
 
-	// Convert to relative paths
 	lines := strings.Split(result, "\n")
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
@@ -78,7 +77,6 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		}
 	}
 
-	// Remove empty lines
 	filtered := lines[:0]
 	for _, line := range lines {
 		if line != "" {
@@ -87,7 +85,6 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 	}
 	lines = filtered
 
-	// Apply limit
 	limit := in.Limit
 	if limit <= 0 {
 		limit = findDefaultLimit

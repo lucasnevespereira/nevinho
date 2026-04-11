@@ -12,7 +12,6 @@ import (
 
 const bashTimeout = 120 * time.Second
 
-// Patterns that require user approval before execution.
 var dangerousPatterns = []*regexp.Regexp{
 	// Destructive
 	regexp.MustCompile(`\brm\b`),
@@ -53,7 +52,7 @@ var dangerousPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\beval\b.*\$\(`),
 }
 
-// Paths that require approval when referenced in commands.
+// Paths that trigger approval prompts.
 var sensitivePaths = []string{
 	"/.ssh",
 	"/.gnupg",
@@ -98,7 +97,7 @@ func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID st
 	return r.executeBashCtx(ctx, in.Command)
 }
 
-// executeBashCtx runs a command with the caller's context for cancellation, plus a timeout.
+// executeBashCtx runs a command with cancellation and timeout.
 func (r *Registry) executeBashCtx(parent context.Context, command string) string {
 	ctx, cancel := context.WithTimeout(parent, bashTimeout)
 	defer cancel()
@@ -135,7 +134,7 @@ func (r *Registry) executeBashCtx(parent context.Context, command string) string
 	return result
 }
 
-// executePendingBash runs a previously approved bash command.
+// executePendingBash runs a command after user approval.
 func (r *Registry) executePendingBash(input json.RawMessage) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
@@ -144,7 +143,7 @@ func (r *Registry) executePendingBash(input json.RawMessage) string {
 	return r.executeBashCtx(context.Background(), in.Command)
 }
 
-// isDangerous checks if a command matches dangerous patterns or touches sensitive paths.
+// isDangerous returns a reason string if the command needs approval, empty otherwise.
 func isDangerous(command string) string {
 	lower := strings.ToLower(command)
 

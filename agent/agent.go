@@ -164,7 +164,6 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			}
 		}
 
-		// The API requires tool results after every assistant message with tool_use
 		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
 
 		if needsApproval {
@@ -240,7 +239,6 @@ func (a *Agent) Status() string {
 	return sb.String()
 }
 
-// estimateCost returns estimated USD cost based on model pricing per 1M tokens.
 func estimateCost(model string, tokensIn, tokensOut int) float64 {
 	var inPer1M, outPer1M float64
 	switch {
@@ -323,25 +321,17 @@ func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMess
 	return a.tools.Execute(ctx, name, input, userID)
 }
 
-// isToolError checks if tool output indicates an error the model should know about.
-// NEEDS_APPROVAL is NOT an error -- it's our approval flow, handled separately.
 func isToolError(output string) bool {
-	if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
-		return false
-	}
-	errorIndicators := []string{
+	for _, s := range []string{
 		"invalid input:",
 		"invalid path:",
 		"tool crashed:",
 		"Could not find",
 		"failed:",
-		"grep failed:",
-		"find failed:",
 		"(timed out",
 		"(cancelled)",
-	}
-	for _, indicator := range errorIndicators {
-		if strings.Contains(output, indicator) {
+	} {
+		if strings.Contains(output, s) {
 			return true
 		}
 	}
@@ -375,8 +365,7 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// summarizeAndPrepend asks the LLM to summarize evicted messages and
-// inserts the summary as the first message in the user's history.
+// summarizeAndPrepend summarizes evicted messages and prepends them to history.
 func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	flat := flattenMessages(evicted)
 	if flat == "" {

@@ -21,7 +21,7 @@ type Pending struct {
 	Code   *pendingCode
 }
 
-// FileDisplay holds file content to be sent directly to Discord.
+// FileDisplay holds file content to be sent to Discord.
 type FileDisplay struct {
 	Path    string
 	Lang    string
@@ -140,7 +140,7 @@ Guidelines:
 - When changing multiple locations in one file, use one call with multiple edits[] entries.
 - All edits are matched against the original file content, not incrementally.
 - If a match fails, read the file again to get the exact current content.`,
-			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"old_text":{"type":"string","description":"Exact text to find (legacy, prefer edits[])"},"new_text":{"type":"string","description":"Replacement text (legacy, prefer edits[])"},"edits":{"type":"array","description":"One or more replacements","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"old_text":{"type":"string","description":"Exact text to find"},"new_text":{"type":"string","description":"Replacement text"},"edits":{"type":"array","description":"One or more replacements","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
 		},
 		{
 			Name: "grep",

@@ -80,10 +80,8 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 		return "no matches found"
 	}
 
-	// Make paths relative to the search directory
 	result = makePathsRelative(result, resolved)
 
-	// Truncate long lines
 	lines := strings.Split(result, "\n")
 	truncatedLines := false
 	for i, line := range lines {
@@ -93,7 +91,6 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 		}
 	}
 
-	// Apply match limit
 	limit := in.Limit
 	if limit <= 0 {
 		limit = grepDefaultLimit
@@ -113,7 +110,6 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 }
 
 func makePathsRelative(output, basePath string) string {
-	// Ensure basePath ends with separator for clean prefix removal
 	if !strings.HasSuffix(basePath, string(filepath.Separator)) {
 		basePath += string(filepath.Separator)
 	}
