@@ -12,6 +12,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
+	"github.com/lucasnevespereira/nevinho/memory"
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
@@ -118,6 +119,21 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 	var cacheRead int
 	var toolsUsed []string
 
+	// Detect user corrections/preferences and persist them
+	if entry := memory.DetectCorrection(text); entry != "" {
+		if err := memory.Add(a.cfg.Dir(), entry); err != nil {
+			logger.Err(fmt.Errorf("memory save failed: %w", err))
+		} else {
+			logger.Info("memory: saved preference")
+		}
+	}
+
+	// Build system prompt with memory context
+	prompt := systemPrompt
+	if mem := memory.Load(a.cfg.Dir()); mem != "" {
+		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
+	}
+
 	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
@@ -127,7 +143,7 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 			return "Cancelled.", nil
 		}
 		resp, err := a.llm.Complete(ctx, &llm.Request{
-			SystemPrompt: systemPrompt,
+			SystemPrompt: prompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
 			MaxTokens:    maxOutputTokens,
