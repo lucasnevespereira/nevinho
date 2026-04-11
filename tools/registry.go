@@ -107,12 +107,12 @@ Guidelines:
 		},
 		{
 			Name: "file_read",
-			Description: `Read a file's contents with line numbers. For large files use offset and limit to paginate.
+			Description: `Read a file's contents. Output is truncated to 200 lines. Use offset to continue reading large files.
 Guidelines:
 - Always read a file before editing it. Copy old_text exactly from the read output.
-- Use offset (1-indexed) and limit to read specific sections of large files.
-- The response header shows which lines are returned and the total line count.`,
-			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"offset":{"type":"integer","description":"Line number to start from (1-indexed)"},"limit":{"type":"integer","description":"Max lines to return"}},"required":["path"]}`,
+- If the output says "truncated, use offset=N to continue", call file_read again with that offset.
+- The header shows [path, lines X-Y of Z] so you know where you are in the file.`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"offset":{"type":"integer","description":"Line number to start from (1-indexed)"},"limit":{"type":"integer","description":"Max lines to return (default 200)"}},"required":["path"]}`,
 		},
 		{
 			Name: "file_write",

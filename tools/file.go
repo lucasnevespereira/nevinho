@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-const maxFileSize = 100 * 1024 // 100KB
+const (
+	maxFileSize  = 100 * 1024 // 100KB
+	maxReadLines = 200        // max lines returned in one read
+)
 
 type fileReadInput struct {
 	Path   string `json:"path"`
@@ -37,41 +40,45 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	}
 
 	content := string(data)
-	lang := langFromExt(resolved)
 	totalLines := strings.Count(content, "\n") + 1
 
-	if in.Offset > 0 || in.Limit > 0 {
-		lines := strings.Split(content, "\n")
+	lines := strings.Split(content, "\n")
 
-		start := 0
-		if in.Offset > 0 {
-			start = in.Offset - 1
-		}
-		if start >= totalLines {
-			return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
-		}
-
-		end := totalLines
-		if in.Limit > 0 && start+in.Limit < totalLines {
-			end = start + in.Limit
-		}
-
-		chunk := strings.Join(lines[start:end], "\n")
-		r.QueueFileDisplay(userID, in.Path, lang, chunk)
-		return fmt.Sprintf("lines %d-%d of %d shown to user", start+1, end, totalLines)
+	start := 0
+	if in.Offset > 0 {
+		start = in.Offset - 1
+	}
+	if start >= totalLines {
+		return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
 	}
 
-	// Full read with truncation.
-	display := content
-	if len(display) > maxResponseLen {
-		display = display[:maxResponseLen]
-		if idx := strings.LastIndex(display, "\n"); idx != -1 {
-			display = display[:idx]
-		}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = maxReadLines
 	}
 
-	r.QueueFileDisplay(userID, in.Path, lang, display)
-	return fmt.Sprintf("%s (%d lines) shown to user", in.Path, totalLines)
+	end := start + limit
+	if end > totalLines {
+		end = totalLines
+	}
+
+	chunk := strings.Join(lines[start:end], "\n")
+
+	// Truncate by bytes if still too large
+	if len(chunk) > maxResponseLen {
+		chunk = chunk[:maxResponseLen]
+		if idx := strings.LastIndex(chunk, "\n"); idx != -1 {
+			chunk = chunk[:idx]
+		}
+		end = start + strings.Count(chunk, "\n") + 1
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[%s, lines %d-%d of %d]\n%s", in.Path, start+1, end, totalLines, chunk)
+	if end < totalLines {
+		fmt.Fprintf(&sb, "\n[truncated, use offset=%d to continue]", end+1)
+	}
+	return sb.String()
 }
 
 type fileWriteInput struct {
@@ -463,29 +470,6 @@ func lineIndexAt(content string, byteOffset int) int {
 		byteOffset = len(content)
 	}
 	return strings.Count(content[:byteOffset], "\n")
-}
-
-func langFromExt(path string) string {
-	base := strings.ToLower(filepath.Base(path))
-	switch base {
-	case "dockerfile":
-		return "dockerfile"
-	case "makefile":
-		return "makefile"
-	}
-	ext := strings.TrimPrefix(filepath.Ext(base), ".")
-	switch ext {
-	case "sh", "zsh":
-		return "bash"
-	case "yml":
-		return "yaml"
-	case "mod":
-		return "go"
-	case "":
-		return ""
-	default:
-		return ext
-	}
 }
 
 func resolvePath(path, _ string) (string, error) {
