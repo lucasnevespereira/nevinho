@@ -155,7 +155,7 @@ Guidelines:
 			Name: "find",
 			Description: `Find files by glob pattern. Returns relative paths. Excludes .git, node_modules, __pycache__, .venv.
 Guidelines:
-- Use this to locate files before reading or editing them. Don't guess paths.
+- To explore a project structure, use file_list instead. Use find to locate specific files.
 - When the user mentions a file without a full path, use find to locate it first.
 - Default limit is 500 results.`,
 			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\""},"path":{"type":"string","description":"Directory to search in"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern","path"]}`,
