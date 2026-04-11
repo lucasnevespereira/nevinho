@@ -128,7 +128,7 @@ Guidelines:
 Guidelines:
 - Use this to explore project structure before reading or editing files.
 - When the user mentions a project without a path, use file_list to find it.`,
-			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute directory path to list"}},"required":[]}`,
+			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Directory path to list (defaults to current directory)"}},"required":[]}`,
 		},
 		{
 			Name: "file_edit",
@@ -149,16 +149,18 @@ Guidelines:
 - Use this instead of bash grep for all code search. It is faster and returns structured output.
 - When the user asks about a symbol, function, or string, use grep to find it before asking for a path.
 - Long lines are truncated to 500 chars. Default limit is 100 matches.`,
-			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern","path"]}`,
+			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search (defaults to current directory)"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern"]}`,
 		},
 		{
 			Name: "find",
-			Description: `Find files by glob pattern. Returns relative paths. Excludes .git, node_modules, __pycache__, .venv.
+			Description: `Find files or directories by glob pattern. Returns relative paths. Excludes .git, node_modules, __pycache__, .venv.
 Guidelines:
 - To explore a project structure, use file_list instead. Use find to locate specific files.
 - When the user mentions a file without a full path, use find to locate it first.
+- When looking for a project or directory by name, set type to "d".
+- If the user says "in apps/" or similar, resolve the full path (e.g. ~/apps). If no directory is given, search from ~.
 - Default limit is 500 results.`,
-			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\""},"path":{"type":"string","description":"Directory to search in"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern","path"]}`,
+			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\", \"myproject\""},"path":{"type":"string","description":"Directory to search in (defaults to current directory)"},"type":{"type":"string","description":"Type: \"f\" for files (default), \"d\" for directories"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern"]}`,
 		},
 	}
 }

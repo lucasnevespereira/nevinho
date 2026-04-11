@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,11 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 		return "pattern is required"
 	}
 	if in.Path == "" {
-		return "path is required — use an absolute path"
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "path is required — use an absolute path"
+		}
+		in.Path = cwd
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
