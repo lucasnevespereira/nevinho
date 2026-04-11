@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-const maxFileSize = 100 * 1024 // 100KB
+const (
+	maxFileSize  = 100 * 1024 // 100KB
+	maxReadLines = 200        // max lines returned in one read
+)
 
 type fileReadInput struct {
 	Path   string `json:"path"`
@@ -39,37 +42,43 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	content := string(data)
 	totalLines := strings.Count(content, "\n") + 1
 
-	// Paginated read
-	if in.Offset > 0 || in.Limit > 0 {
-		lines := strings.Split(content, "\n")
+	lines := strings.Split(content, "\n")
 
-		start := 0
-		if in.Offset > 0 {
-			start = in.Offset - 1
-		}
-		if start >= totalLines {
-			return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
-		}
-
-		end := totalLines
-		if in.Limit > 0 && start+in.Limit < totalLines {
-			end = start + in.Limit
-		}
-
-		chunk := strings.Join(lines[start:end], "\n")
-		return fmt.Sprintf("[lines %d-%d of %d]\n%s", start+1, end, totalLines, chunk)
+	start := 0
+	if in.Offset > 0 {
+		start = in.Offset - 1
+	}
+	if start >= totalLines {
+		return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
 	}
 
-	// Full read with truncation
-	display := content
-	if len(display) > maxResponseLen {
-		display = display[:maxResponseLen]
-		if idx := strings.LastIndex(display, "\n"); idx != -1 {
-			display = display[:idx]
-		}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = maxReadLines
 	}
 
-	return fmt.Sprintf("[%s, %d lines]\n%s", in.Path, totalLines, display)
+	end := start + limit
+	if end > totalLines {
+		end = totalLines
+	}
+
+	chunk := strings.Join(lines[start:end], "\n")
+
+	// Truncate by bytes if still too large
+	if len(chunk) > maxResponseLen {
+		chunk = chunk[:maxResponseLen]
+		if idx := strings.LastIndex(chunk, "\n"); idx != -1 {
+			chunk = chunk[:idx]
+		}
+		end = start + strings.Count(chunk, "\n") + 1
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[%s, lines %d-%d of %d]\n%s", in.Path, start+1, end, totalLines, chunk)
+	if end < totalLines {
+		fmt.Fprintf(&sb, "\n[truncated, use offset=%d to continue]", end+1)
+	}
+	return sb.String()
 }
 
 type fileWriteInput struct {
