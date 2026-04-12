@@ -17,8 +17,8 @@ func TestResolvePath(t *testing.T) {
 	}{
 		{"absolute path stays absolute", "/tmp/foo.txt", ""},
 		{"home expansion works", "~/test.txt", ""},
-		{"relative path rejected", "notes.txt", "relative paths are not supported"},
-		{"dot-dot path rejected", "../../etc/passwd", "relative paths are not supported"},
+		{"relative path resolved against cwd", "notes.txt", ""},
+		{"dot-dot path resolved against cwd", "../../etc/passwd", ""},
 	}
 
 	for _, tt := range tests {

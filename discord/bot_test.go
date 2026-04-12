@@ -76,7 +76,7 @@ func TestSplitMessage_PrefersNewlineBoundary(t *testing.T) {
 	}
 }
 
-func TestCollapseNewlines(t *testing.T) {
+func TestCleanForDiscord(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -98,15 +98,35 @@ func TestCollapseNewlines(t *testing.T) {
 			want:  "a\n\nb",
 		},
 		{
-			name:  "single newline unchanged",
-			input: "a\nb",
-			want:  "a\nb",
+			name:  "strips HTML tags",
+			input: `<p align="center">hello</p>`,
+			want:  "hello",
+		},
+		{
+			name:  "strips img tags",
+			input: `<img src="logo.png" width="200" />`,
+			want:  "",
+		},
+		{
+			name:  "strips image badge markdown",
+			input: `![badge](https://img.shields.io/badge/go-1.21-blue)`,
+			want:  "",
+		},
+		{
+			name:  "strips linked badge",
+			input: `[![Go](https://img.shields.io/badge/go-1.21-blue)](https://go.dev)`,
+			want:  "",
+		},
+		{
+			name:  "keeps regular markdown",
+			input: "**bold** and `code` and [link](https://example.com)",
+			want:  "**bold** and `code` and [link](https://example.com)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := collapseNewlines(tt.input)
+			got := cleanForDiscord(tt.input)
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}

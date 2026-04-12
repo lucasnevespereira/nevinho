@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -374,7 +375,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// If there's a pending approval, send with buttons instead of plain text
 	if b.agent.HasPendingApproval(m.Author.ID) {
 		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-			Content: collapseNewlines(response),
+			Content: cleanForDiscord(response),
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{
 					Components: []discordgo.MessageComponent{
@@ -395,7 +396,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	response = collapseNewlines(response)
+	response = cleanForDiscord(response)
 	for _, chunk := range splitMessage(response) {
 		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 			Content: chunk,
@@ -421,12 +422,18 @@ func keepTyping(s *discordgo.Session, channelID string) func() {
 	return func() { close(stop) }
 }
 
-// collapseNewlines replaces 3+ consecutive newlines with 2, reducing big gaps in Discord.
-func collapseNewlines(s string) string {
-	for strings.Contains(s, "\n\n\n") {
-		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
-	}
-	return s
+var (
+	htmlTagRe    = regexp.MustCompile(`<[^>]+>`)
+	imgBadgeRe   = regexp.MustCompile(`\[?!\[[^\]]*\]\([^)]+\)\]?(\([^)]+\))?`)
+	emptyLinesRe = regexp.MustCompile(`\n{3,}`)
+)
+
+// cleanForDiscord strips HTML tags and image/badge markdown that Discord can't render.
+func cleanForDiscord(s string) string {
+	s = htmlTagRe.ReplaceAllString(s, "")
+	s = imgBadgeRe.ReplaceAllString(s, "")
+	s = emptyLinesRe.ReplaceAllString(s, "\n\n")
+	return strings.TrimSpace(s)
 }
 
 func splitMessage(text string) []string {
@@ -683,7 +690,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	if response == "" {
 		response = "Done. (no text response)"
 	}
-	response = collapseNewlines(response)
+	response = cleanForDiscord(response)
 	for _, chunk := range splitMessage(response) {
 		s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 			Content: chunk,
