@@ -15,10 +15,30 @@ func RunSetup(configDir string) error {
 	fmt.Println()
 
 	scanner := bufio.NewScanner(os.Stdin)
-	prompt := func(label string) string {
-		fmt.Printf("%s: ", label)
+
+	// Enter keeps current value, "-" clears it
+	prompt := func(label, current string) string {
+		if current != "" {
+			fmt.Printf("  %s [%s] (- to clear): ", label, maskSecret(current))
+		} else {
+			fmt.Printf("  %s: ", label)
+		}
 		scanner.Scan()
-		return strings.TrimSpace(scanner.Text())
+		val := strings.TrimSpace(scanner.Text())
+		if val == "-" {
+			return ""
+		}
+		if val == "" {
+			return current
+		}
+		return val
+	}
+
+	confirm := func(label string) bool {
+		fmt.Printf("%s [Y/n]: ", label)
+		scanner.Scan()
+		val := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		return val == "" || val == "y" || val == "yes"
 	}
 
 	cfg, err := Load(configDir)
@@ -26,35 +46,35 @@ func RunSetup(configDir string) error {
 		return fmt.Errorf("failed to init config: %w", err)
 	}
 
-	cfg.DiscordBotToken = prompt("Discord bot token")
-	cfg.DiscordOwnerID = prompt("Discord owner ID")
+	// Discord
+	fmt.Println("Discord")
+	cfg.DiscordBotToken = prompt("Bot token", cfg.DiscordBotToken)
+	cfg.DiscordOwnerID = prompt("Owner ID", cfg.DiscordOwnerID)
 
+	// LLM providers
 	fmt.Println()
-	fmt.Println("LLM provider:")
-	fmt.Println("  1) Anthropic (Claude)")
-	fmt.Println("  2) OpenAI (GPT)")
-	fmt.Println("  3) Ollama (local)")
-	choice := prompt("Choice [1/2/3]")
+	fmt.Println("LLM providers (Enter to skip, - to clear)")
+	cfg.AnthropicAPIKey = prompt("Anthropic API key", cfg.AnthropicAPIKey)
+	cfg.OpenAIAPIKey = prompt("OpenAI API key", cfg.OpenAIAPIKey)
+	cfg.OllamaModel = prompt("Ollama model (e.g. llama3)", cfg.OllamaModel)
 
-	switch choice {
-	case "1":
-		cfg.AnthropicAPIKey = prompt("Anthropic API key")
-	case "2":
-		cfg.OpenAIAPIKey = prompt("OpenAI API key")
-	case "3":
-		cfg.OllamaModel = prompt("Ollama model name (e.g. llama3)")
+	// Warn if no provider
+	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OllamaModel == "" {
+		fmt.Println()
+		fmt.Println("  Warning: no LLM provider configured. nevinho needs at least one.")
 	}
 
-	brave := prompt("Brave Search API key (optional, press Enter to skip)")
-	if brave != "" {
-		cfg.BraveAPIKey = brave
-	}
+	// Optional
+	fmt.Println()
+	fmt.Println("Optional")
+	cfg.BraveAPIKey = prompt("Brave Search API key", cfg.BraveAPIKey)
 
 	// Voice messages
 	fmt.Println()
-	enableVoice := prompt("Enable voice messages? [Y/n]")
-	if enableVoice == "" || strings.ToLower(enableVoice) == "y" || strings.ToLower(enableVoice) == "yes" {
-		whisperDir := filepath.Join(configDir, "whisper")
+	whisperDir := filepath.Join(configDir, "whisper")
+	if voice.IsAvailable(whisperDir) {
+		fmt.Println("Voice messages: enabled")
+	} else if confirm("Enable voice messages?") {
 		if err := voice.Setup(whisperDir); err != nil {
 			fmt.Printf("Voice setup failed: %v\n", err)
 			fmt.Println("You can retry later with 'nevinho setup'.")
@@ -65,8 +85,33 @@ func RunSetup(configDir string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
+	// Summary
 	fmt.Println()
-	fmt.Printf("Config saved to %s\n", configDir)
+	fmt.Println("Configuration")
+	printStatus("  Discord", cfg.DiscordBotToken != "" && cfg.DiscordOwnerID != "")
+	printStatus("  Anthropic", cfg.AnthropicAPIKey != "")
+	printStatus("  OpenAI", cfg.OpenAIAPIKey != "")
+	printStatus("  Ollama", cfg.OllamaModel != "")
+	printStatus("  Brave Search", cfg.BraveAPIKey != "")
+	printStatus("  Voice", voice.IsAvailable(whisperDir))
+
+	fmt.Println()
+	fmt.Printf("Saved to %s\n", configDir)
 	fmt.Println("Run 'nevinho start' to start.")
 	return nil
+}
+
+func maskSecret(s string) string {
+	if len(s) <= 8 {
+		return "****"
+	}
+	return s[:4] + "..." + s[len(s)-4:]
+}
+
+func printStatus(label string, ok bool) {
+	if ok {
+		fmt.Printf("%s: yes\n", label)
+	} else {
+		fmt.Printf("%s: no\n", label)
+	}
 }

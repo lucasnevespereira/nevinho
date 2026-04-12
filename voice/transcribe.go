@@ -84,11 +84,3 @@ func cleanWhisperOutput(output string) string {
 	return strings.Join(lines, " ")
 }
 
-// IsAvailable checks if whisper is set up.
-func IsAvailable(whisperDir string) bool {
-	binary := filepath.Join(whisperDir, "whisper-cli")
-	model := filepath.Join(whisperDir, "ggml-tiny.bin")
-	_, errBin := os.Stat(binary)
-	_, errModel := os.Stat(model)
-	return errBin == nil && errModel == nil
-}
