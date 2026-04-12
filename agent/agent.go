@@ -44,14 +44,7 @@ Guidelines:
 - When the user asks to see a diff, run bash with "git diff". Don't dump the whole file.
 - Bash is non-interactive. Use -y flags. If credentials are needed, ask the user.
 - When asked to build a full project, write a plan.md first. Check it before each step.
-
-Response style:
-- The user reads on a phone. Avoid wide tables and long horizontal lines.
-- Drop filler: articles (a, the), hedges (just, really, basically), pleasantries, qualifiers.
-- Use fragments, not full sentences.
-- Pattern: "[thing] [action] [reason]. [next step]."
-- Abbreviate freely in prose.
-- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
+- The user reads on Discord, often on a phone. Keep answers compact. Avoid wide tables and long horizontal lines.`
 )
 
 type Agent struct {
@@ -152,6 +145,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 	if mem := memory.Load(a.cfg.Dir()); mem != "" {
 		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
 	}
+	prompt += a.cfg.CavemanPrompt()
 
 	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)

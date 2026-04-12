@@ -46,14 +46,20 @@ func RunSetup(configDir string) error {
 		return fmt.Errorf("failed to init config: %w", err)
 	}
 
+	// Show hint only on re-run (when some values already exist)
+	if cfg.DiscordBotToken != "" || cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" {
+		fmt.Println("Press Enter to keep current value, - to clear.")
+		fmt.Println()
+	}
+
 	// Discord
 	fmt.Println("Discord")
 	cfg.DiscordBotToken = prompt("Bot token", cfg.DiscordBotToken)
-	cfg.DiscordOwnerID = prompt("Owner ID", cfg.DiscordOwnerID)
+	cfg.DiscordOwnerID = prompt("Your Discord user ID", cfg.DiscordOwnerID)
 
 	// LLM providers
 	fmt.Println()
-	fmt.Println("LLM providers (Enter to skip, - to clear)")
+	fmt.Println("LLM providers")
 	cfg.AnthropicAPIKey = prompt("Anthropic API key", cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = prompt("OpenAI API key", cfg.OpenAIAPIKey)
 	cfg.OllamaModel = prompt("Ollama model (e.g. llama3)", cfg.OllamaModel)
@@ -71,10 +77,11 @@ func RunSetup(configDir string) error {
 
 	// Voice messages
 	fmt.Println()
+	fmt.Println("Voice messages")
 	whisperDir := filepath.Join(configDir, "whisper")
 	if voice.IsAvailable(whisperDir) {
-		fmt.Println("Voice messages: enabled")
-	} else if confirm("Enable voice messages?") {
+		fmt.Println("  Enabled.")
+	} else if confirm("  Enable voice messages?") {
 		if err := voice.Setup(whisperDir); err != nil {
 			fmt.Printf("Voice setup failed: %v\n", err)
 			fmt.Println("You can retry later with 'nevinho setup'.")
