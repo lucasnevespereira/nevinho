@@ -74,7 +74,7 @@ Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 | `bash` | Run any bash command |
 | `grep` | Search file contents by pattern |
 | `find` | Find files by name |
-| `web_search` | Search via Brave API or DuckDuckGo fallback |
+| `web_search` | Search via Tavily API or DuckDuckGo fallback |
 | `web_read` | Fetch a URL and extract readable text |
 | `file_list` | List directory contents |
 | `file_read` | Read a file (supports pagination) |
@@ -128,6 +128,8 @@ whisper/            local Whisper model and binary (if voice enabled)
 ```
 
 You can also use a `.env` file in the project directory for development. Env vars take priority over encrypted config.
+
+Set `CAVEMAN` to `lite`, `full`, or `ultra` via `/config` for a token-saving response style. Off by default.
 
 ## Project structure
 

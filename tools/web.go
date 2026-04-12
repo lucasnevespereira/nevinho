@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,103 @@ import (
 )
 
 const httpTimeout = 15 * time.Second
+
+const userAgent = "Nevinho/1.0 (+https://github.com/lucasnevespereira/nevinho)"
+
+// fetchWithRetry performs an HTTP request with up to 3 attempts, retrying on
+// 429/5xx and transient transport errors. Respects Retry-After on 429.
+// Returns the response body (capped at maxBody), status code, and any error.
+func fetchWithRetry(client *http.Client, makeReq func() (*http.Request, error), maxBody int64) ([]byte, int, error) {
+	const attempts = 3
+	var lastErr error
+	for attempt := range attempts {
+		req, err := makeReq()
+		if err != nil {
+			return nil, 0, err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt < attempts-1 {
+				time.Sleep(backoffWeb(attempt))
+				continue
+			}
+			return nil, 0, err
+		}
+
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+		resp.Body.Close()
+		if rerr != nil {
+			return nil, resp.StatusCode, rerr
+		}
+
+		if !isRetryableStatus(resp.StatusCode) {
+			return body, resp.StatusCode, nil
+		}
+
+		if attempt == attempts-1 {
+			return body, resp.StatusCode, nil
+		}
+
+		delay := backoffWeb(attempt)
+		if resp.StatusCode == 429 {
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				if secs, perr := strconv.Atoi(ra); perr == nil && secs > 0 && secs <= 60 {
+					delay = time.Duration(secs) * time.Second
+				}
+			}
+		}
+		time.Sleep(delay)
+	}
+	return nil, 0, lastErr
+}
+
+func isRetryableStatus(code int) bool {
+	return code == 429 || code >= 500
+}
+
+func backoffWeb(attempt int) time.Duration {
+	return time.Duration(1<<attempt) * time.Second
+}
+
+// describeFetchErr converts a transport error into a short actionable label.
+// The model uses this to decide whether to retry, reformulate, or abandon.
+func describeFetchErr(err error) string {
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "context deadline exceeded"), strings.Contains(s, "Client.Timeout"):
+		return "timed out"
+	case strings.Contains(s, "no such host"):
+		return "DNS lookup failed (host does not exist)"
+	case strings.Contains(s, "connection refused"):
+		return "connection refused"
+	case strings.Contains(s, "connection reset"):
+		return "connection reset"
+	case strings.Contains(s, "TLS"), strings.Contains(s, "certificate"):
+		return "TLS/certificate error"
+	}
+	return s
+}
+
+// describeHTTPStatus returns a short hint about what an HTTP status means for the agent.
+func describeHTTPStatus(code int) string {
+	switch code {
+	case 401:
+		return "HTTP 401 unauthorized (auth required)"
+	case 403:
+		return "HTTP 403 forbidden (site blocked the request, try another source)"
+	case 404:
+		return "HTTP 404 not found (URL is wrong or page was removed)"
+	case 408:
+		return "HTTP 408 request timeout"
+	case 429:
+		return "HTTP 429 rate limited (back off before retrying)"
+	case 500, 502, 503, 504:
+		return fmt.Sprintf("HTTP %d server error (transient, safe to retry)", code)
+	}
+	return fmt.Sprintf("HTTP %d", code)
+}
 
 type webReadInput struct {
 	URL string `json:"url"`
@@ -30,6 +128,46 @@ func (r *Registry) webRead(input json.RawMessage) string {
 		return fmt.Sprintf("blocked: %v", err)
 	}
 
+	if r.cfg.TavilyAPIKey != "" {
+		if out := extractTavily(in.URL, r.cfg.TavilyAPIKey); !isFetchFailure(out) {
+			return truncateText(out)
+		}
+	}
+
+	if out := fetchJinaReader(in.URL); !isFetchFailure(out) {
+		return truncateText(out)
+	}
+
+	return fetchDirect(in.URL)
+}
+
+func fetchJinaReader(target string) string {
+	client := &http.Client{Timeout: httpTimeout}
+
+	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", "https://r.jina.ai/"+target, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", "text/plain")
+		return req, nil
+	}, 1024*1024)
+	if err != nil {
+		return fmt.Sprintf("failed to fetch: %s", describeFetchErr(err))
+	}
+	if status != 200 {
+		return describeHTTPStatus(status)
+	}
+
+	out := strings.TrimSpace(string(body))
+	if out == "" {
+		return "no content extracted"
+	}
+	return out
+}
+
+func fetchDirect(target string) string {
 	client := &http.Client{
 		Timeout: httpTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -42,27 +180,98 @@ func (r *Registry) webRead(input json.RawMessage) string {
 			return nil
 		},
 	}
-	resp, err := client.Get(in.URL)
+
+	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", target, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		return req, nil
+	}, 500*1024)
 	if err != nil {
-		return fmt.Sprintf("failed to fetch: %v", err)
+		return fmt.Sprintf("failed to fetch: %s", describeFetchErr(err))
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Sprintf("HTTP %d", resp.StatusCode)
+	if status != 200 {
+		return describeHTTPStatus(status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 500*1024))
+	return truncateText(extractText(string(body)))
+}
+
+func extractTavily(target, apiKey string) string {
+	client := &http.Client{Timeout: httpTimeout}
+
+	reqBody, err := json.Marshal(map[string]any{
+		"api_key":        apiKey,
+		"urls":           []string{target},
+		"extract_depth":  "basic",
+		"include_images": false,
+	})
 	if err != nil {
-		return fmt.Sprintf("failed to read body: %v", err)
+		return fmt.Sprintf("failed to build request: %v", err)
 	}
 
-	text := extractText(string(body))
-	if len(text) > maxResponseLen {
-		text = text[:maxResponseLen] + "\n...(truncated)"
+	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest("POST", "https://api.tavily.com/extract", strings.NewReader(string(reqBody)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	}, 1024*1024)
+	if err != nil {
+		return fmt.Sprintf("failed to fetch: %s", describeFetchErr(err))
+	}
+	if status != 200 {
+		return describeHTTPStatus(status)
 	}
 
-	return text
+	var result struct {
+		Results []struct {
+			URL        string `json:"url"`
+			RawContent string `json:"raw_content"`
+		} `json:"results"`
+		FailedResults []struct {
+			URL   string `json:"url"`
+			Error string `json:"error"`
+		} `json:"failed_results"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Sprintf("failed to parse response: %v", err)
+	}
+
+	if len(result.Results) == 0 {
+		if len(result.FailedResults) > 0 {
+			return fmt.Sprintf("failed to fetch: %s", result.FailedResults[0].Error)
+		}
+		return "no content extracted"
+	}
+
+	return result.Results[0].RawContent
+}
+
+// isFetchFailure returns true when a fetch provider returned an error,
+// so the caller can fall through to the next provider.
+func isFetchFailure(out string) bool {
+	if out == "" {
+		return true
+	}
+	lower := strings.ToLower(out)
+	return strings.HasPrefix(lower, "failed to") ||
+		strings.HasPrefix(lower, "http ") ||
+		strings.HasPrefix(lower, "no content") ||
+		strings.HasPrefix(lower, "blocked:")
+}
+
+func truncateText(s string) string {
+	if len(s) > maxResponseLen {
+		return s[:maxResponseLen] + "\n...(truncated)"
+	}
+	return s
 }
 
 type webSearchInput struct {
@@ -75,70 +284,102 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	if r.cfg.BraveAPIKey != "" {
-		return searchBrave(in.Query, r.cfg.BraveAPIKey)
+	if r.cfg.TavilyAPIKey != "" {
+		if out := searchTavily(in.Query, r.cfg.TavilyAPIKey); !isSearchFailure(out) {
+			return out
+		}
 	}
 	return searchDuckDuckGo(in.Query)
 }
 
-func searchBrave(query, apiKey string) string {
+// isSearchFailure returns true when a provider returned an error or empty result,
+// so the caller can fall through to the next provider.
+func isSearchFailure(out string) bool {
+	if out == "" {
+		return true
+	}
+	lower := strings.ToLower(out)
+	return strings.HasPrefix(lower, "search failed") ||
+		strings.HasPrefix(lower, "no results") ||
+		strings.HasPrefix(lower, "failed to")
+}
+
+func searchTavily(query, apiKey string) string {
 	client := &http.Client{Timeout: httpTimeout}
-	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=5", url.QueryEscape(query))
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	reqBody, err := json.Marshal(map[string]any{
+		"api_key":        apiKey,
+		"query":          query,
+		"max_results":    5,
+		"search_depth":   "advanced",
+		"include_answer": true,
+	})
 	if err != nil {
-		return fmt.Sprintf("failed to create request: %v", err)
+		return fmt.Sprintf("failed to build request: %v", err)
 	}
-	req.Header.Set("X-Subscription-Token", apiKey)
-	req.Header.Set("Accept", "application/json")
 
-	resp, err := client.Do(req)
+	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest("POST", "https://api.tavily.com/search", strings.NewReader(string(reqBody)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	}, 1024*1024)
 	if err != nil {
-		return fmt.Sprintf("search failed: %v", err)
+		return fmt.Sprintf("search failed: %s", describeFetchErr(err))
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Sprintf("failed to read search response: %v", err)
+	if status != 200 {
+		return fmt.Sprintf("search failed: %s", describeHTTPStatus(status))
 	}
 
 	var result struct {
-		Web struct {
-			Results []struct {
-				Title       string `json:"title"`
-				URL         string `json:"url"`
-				Description string `json:"description"`
-			} `json:"results"`
-		} `json:"web"`
+		Answer  string `json:"answer"`
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
 		return fmt.Sprintf("failed to parse results: %v", err)
 	}
 
-	return formatSearchResults(result.Web.Results)
+	if len(result.Results) == 0 && result.Answer == "" {
+		return "no results found"
+	}
+
+	var sb strings.Builder
+	if result.Answer != "" {
+		sb.WriteString("**Answer:** ")
+		sb.WriteString(result.Answer)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString("**Sources:**\n")
+	for i, r := range result.Results {
+		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Content)
+	}
+	return sb.String()
 }
 
 func searchDuckDuckGo(query string) string {
 	client := &http.Client{Timeout: httpTimeout}
 	reqURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		return req, nil
+	}, 500*1024)
 	if err != nil {
-		return fmt.Sprintf("failed to create request: %v", err)
+		return fmt.Sprintf("search failed: %s", describeFetchErr(err))
 	}
-	req.Header.Set("User-Agent", "Nevinho/1.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Sprintf("search failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 500*1024))
-	if err != nil {
-		return fmt.Sprintf("failed to read response: %v", err)
+	if status != 200 {
+		return fmt.Sprintf("search failed: %s", describeHTTPStatus(status))
 	}
 
 	return parseDuckDuckGoHTML(string(body))
@@ -189,21 +430,6 @@ func parseDuckDuckGoHTML(htmlContent string) string {
 		results = results[:5]
 	}
 
-	var sb strings.Builder
-	for i, r := range results {
-		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description)
-	}
-	return sb.String()
-}
-
-func formatSearchResults(results []struct {
-	Title       string `json:"title"`
-	URL         string `json:"url"`
-	Description string `json:"description"`
-}) string {
-	if len(results) == 0 {
-		return "no results found"
-	}
 	var sb strings.Builder
 	for i, r := range results {
 		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description)

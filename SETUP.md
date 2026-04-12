@@ -43,9 +43,11 @@ You need at least one LLM provider. You can configure multiple and switch betwee
 1. Install from https://ollama.com
 2. Pull a model: `ollama pull llama3`
 
-**Brave Search (optional, for web search):**
-1. Go to https://brave.com/search/api
-2. Get a free API key (2000 queries/month)
+**Tavily Search (optional, for web search):**
+1. Go to https://tavily.com
+2. Sign up and get a free API key (1000 queries/month, no credit card required)
+
+Without a key, nevinho falls back to DuckDuckGo HTML scraping.
 
 ## 5. Configure the project
 
@@ -66,7 +68,7 @@ OPENAI_API_KEY=paste_your_openai_key
 OLLAMA_MODEL=llama3
 
 # Optional
-BRAVE_API_KEY=paste_your_brave_key
+TAVILY_API_KEY=paste_your_tavily_key
 ```
 
 ## 6. Run it locally
