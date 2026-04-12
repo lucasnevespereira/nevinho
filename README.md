@@ -129,6 +129,8 @@ whisper/            local Whisper model and binary (if voice enabled)
 
 You can also use a `.env` file in the project directory for development. Env vars take priority over encrypted config.
 
+Set `CAVEMAN` to `lite`, `full`, or `ultra` via `/config` for a token-saving response style. Off by default.
+
 ## Project structure
 
 ```

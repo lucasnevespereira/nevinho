@@ -567,15 +567,28 @@ func (b *Bot) configStatus() string {
 	var sb strings.Builder
 	sb.WriteString("**Configuration**\n")
 	for _, k := range keys {
-		if k.Set {
-			fmt.Fprintf(&sb, "• `%s`: set (%s)\n", k.Name, k.Source)
-		} else {
+		if !k.Set {
 			fmt.Fprintf(&sb, "• `%s`: not set\n", k.Name)
+			continue
 		}
+		if isSecretKey(k.Name) {
+			fmt.Fprintf(&sb, "• `%s`: set (%s)\n", k.Name, k.Source)
+			continue
+		}
+		val, _ := b.cfg.Get(k.Name)
+		fmt.Fprintf(&sb, "• `%s`: %s (%s)\n", k.Name, val, k.Source)
 	}
 	sb.WriteString("\nUpdate: `/config key:KEY value:VALUE`")
 	sb.WriteString("\nClear: `/config key:KEY`")
 	return sb.String()
+}
+
+func isSecretKey(key string) bool {
+	switch key {
+	case "DISCORD_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "BRAVE_API_KEY":
+		return true
+	}
+	return false
 }
 
 func (b *Bot) configSet(key, value string) string {
