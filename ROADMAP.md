@@ -33,19 +33,38 @@ A single transient error or stuck call should not kill a conversation.
 
 - [x] **Voice transcription** -- Discord voice messages are downloaded and sent to OpenAI Whisper API. The transcribed text is fed to the agent as a normal message. Supports ogg, mp3, wav, m4a, webm formats. Requires `OPENAI_API_KEY`.
 
-## P4: Streaming
+## P4: Web Tooling
+
+Accurate, citeable answers depend on search and fetch quality. Current implementation is minimal hand-rolled HTML parsing that breaks on JS-rendered sites.
+
+**Minimal (reliability baseline):**
+
+- [ ] **Tavily deep search** -- Set `search_depth: "advanced"` and `include_answer: true` on Tavily calls. Surface the answer + citations instead of raw results.
+- [ ] **Tavily extract for webRead** -- When `TAVILY_API_KEY` is set, use `https://api.tavily.com/extract`. Handles JS-rendered pages, returns markdown.
+- [ ] **Readability fallback for no-key path** -- Use `go-shiori/go-readability` or proxy through Jina Reader (`r.jina.ai/<url>`) so webRead works on modern docs sites without a key.
+- [ ] **User-Agent + polite headers** -- Add `User-Agent: Nevinho/<version>` and `Accept: text/html,application/xhtml+xml` to outbound fetches. Avoids random 403s from Cloudflare-fronted sites.
+- [ ] **Clear error signaling to the model** -- Return explicit messages like "no results", "HTTP 403 forbidden", "timed out" so the model can decide to reformulate or retry instead of treating them as empty content.
+- [ ] **Retry on 429/5xx for web calls** -- Match the LLM retry layer: up to 3 attempts with backoff, parse `Retry-After`. Prevents transient blips from killing a search mid-conversation.
+
+**Polish (nice to have, ship when the pain shows up):**
+
+- [ ] **URL cache** -- In-memory LRU, 5 min TTL, keyed on URL. Agent re-reading the same page in one session pays once.
+- [ ] **PDF support** -- Detect `application/pdf`, extract text via `pdfcpu` or `ledongthuc/pdf`. Many specs live as PDFs.
+- [ ] **Search result dedup** -- Hash URLs/hostnames before returning. Avoid 3 copies of the same Stack Overflow answer.
+
+## P5: Streaming
 
 Waiting 20-40s with only a typing indicator provides no feedback. Streaming fixes this.
 
 - [ ] **Streaming responses** -- Use the streaming API endpoint. Edit the Discord message as tokens arrive instead of waiting for the full response.
 
-## P4: Persist Across Restarts
+## P6: Persist Across Restarts
 
 Conversations should survive process restarts and upgrades.
 
 - [ ] **Conversation summaries to disk** -- On trim or shutdown, write a summary to `~/.nevinho/summaries/{userID}.md`. On next message from that user, load the summary as context preamble.
 
-## P5: Scheduled Tasks
+## P7: Scheduled Tasks
 
 Nevinho runs 24/7 on a VPS. It should be able to run prompts on a schedule and report back to Discord.
 
@@ -59,7 +78,7 @@ Nevinho runs 24/7 on a VPS. It should be able to run prompts on a schedule and r
 
 Limits: max 10 active schedules, minimum interval 5 minutes, 5-minute execution timeout per run.
 
-## P6: Richer Interactions
+## P8: Richer Interactions
 
 Only after the foundation is solid.
 
