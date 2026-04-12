@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	modelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
-	// whisper.cpp release binary base URL
-	whisperVersion = "v1.7.5"
+	modelURL       = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
+	whisperRepoURL = "https://github.com/ggerganov/whisper.cpp.git"
 )
 
 // Setup downloads the whisper binary and model to the given directory.
@@ -32,14 +31,14 @@ func Setup(whisperDir string) error {
 		fmt.Println("ffmpeg installed.")
 	}
 
-	// Download whisper binary
+	// Build whisper binary from source
 	binaryPath := filepath.Join(whisperDir, "whisper-cli")
 	if _, err := os.Stat(binaryPath); err != nil {
-		fmt.Println("Downloading whisper binary...")
-		if err := downloadWhisperBinary(binaryPath); err != nil {
-			return fmt.Errorf("download whisper: %w", err)
+		fmt.Println("Building whisper from source...")
+		if err := buildWhisper(whisperDir, binaryPath); err != nil {
+			return fmt.Errorf("build whisper: %w", err)
 		}
-		fmt.Println("Binary downloaded.")
+		fmt.Println("Whisper built.")
 	} else {
 		fmt.Println("Whisper binary already installed.")
 	}
@@ -60,32 +59,106 @@ func Setup(whisperDir string) error {
 	return nil
 }
 
-func downloadWhisperBinary(dest string) error {
-	goos := runtime.GOOS
-	goarch := runtime.GOARCH
+func buildWhisper(whisperDir, dest string) error {
+	// Check for git and a C compiler
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git is required to build whisper")
+	}
+	if _, err := exec.LookPath("gcc"); err != nil {
+		if _, err := exec.LookPath("cc"); err != nil {
+			return fmt.Errorf("a C compiler (gcc/cc) is required. Install with: sudo apt install build-essential")
+		}
+	}
+	if _, err := exec.LookPath("cmake"); err != nil {
+		fmt.Println("Installing cmake...")
+		if err := installCmake(); err != nil {
+			return fmt.Errorf("cmake is required: %w", err)
+		}
+	}
 
-	// Map Go arch names to whisper.cpp release names
-	var platform string
-	switch {
-	case goos == "linux" && goarch == "amd64":
-		platform = "linux-x86_64"
-	case goos == "linux" && goarch == "arm64":
-		platform = "linux-aarch64"
-	case goos == "darwin" && goarch == "amd64":
-		platform = "darwin-x86_64"
-	case goos == "darwin" && goarch == "arm64":
-		platform = "darwin-arm64"
+	srcDir := filepath.Join(whisperDir, "whisper.cpp")
+
+	// Clone if not already there
+	if _, err := os.Stat(srcDir); err != nil {
+		fmt.Println("  Cloning whisper.cpp...")
+		cmd := exec.Command("git", "clone", "--depth", "1", whisperRepoURL, srcDir)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git clone failed: %w", err)
+		}
+	}
+
+	// Build with cmake
+	buildDir := filepath.Join(srcDir, "build")
+	os.MkdirAll(buildDir, 0755)
+
+	fmt.Println("  Configuring...")
+	cmake := exec.Command("cmake", "..", "-DCMAKE_BUILD_TYPE=Release")
+	cmake.Dir = buildDir
+	cmake.Stdout = os.Stdout
+	cmake.Stderr = os.Stderr
+	if err := cmake.Run(); err != nil {
+		return fmt.Errorf("cmake configure failed: %w", err)
+	}
+
+	fmt.Println("  Compiling...")
+	make := exec.Command("cmake", "--build", ".", "--config", "Release", "-j")
+	make.Dir = buildDir
+	make.Stdout = os.Stdout
+	make.Stderr = os.Stderr
+	if err := make.Run(); err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	// Find and copy the binary
+	builtBinary := filepath.Join(buildDir, "bin", "whisper-cli")
+	if _, err := os.Stat(builtBinary); err != nil {
+		return fmt.Errorf("binary not found at %s after build", builtBinary)
+	}
+
+	data, err := os.ReadFile(builtBinary)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dest, data, 0755); err != nil {
+		return err
+	}
+
+	// Clean up source to save disk space
+	os.RemoveAll(srcDir)
+	return nil
+}
+
+func installCmake() error {
+	switch runtime.GOOS {
+	case "linux":
+		for _, cmd := range [][]string{
+			{"apt-get", "install", "-y", "cmake"},
+			{"dnf", "install", "-y", "cmake"},
+			{"apk", "add", "cmake"},
+		} {
+			if _, err := exec.LookPath(cmd[0]); err == nil {
+				c := exec.Command("sudo", cmd...)
+				c.Stdout = os.Stdout
+				c.Stderr = os.Stderr
+				if err := c.Run(); err == nil {
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf("install cmake manually: sudo apt install cmake")
+	case "darwin":
+		if _, err := exec.LookPath("brew"); err == nil {
+			cmd := exec.Command("brew", "install", "cmake")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+		return fmt.Errorf("install cmake via Homebrew: brew install cmake")
 	default:
-		return fmt.Errorf("unsupported platform: %s/%s. Build whisper.cpp manually and place binary at %s", goos, goarch, dest)
+		return fmt.Errorf("install cmake manually for your platform")
 	}
-
-	// Try downloading from whisper.cpp releases
-	url := fmt.Sprintf("https://github.com/ggerganov/whisper.cpp/releases/download/%s/whisper-cli-%s", whisperVersion, platform)
-	if err := downloadFile(url, dest); err != nil {
-		// Fallback: try building from source
-		return fmt.Errorf("could not download binary from %s: %w\nYou can build manually: git clone https://github.com/ggerganov/whisper.cpp && cd whisper.cpp && make && cp build/bin/whisper-cli %s", url, err, dest)
-	}
-	return os.Chmod(dest, 0755)
 }
 
 func downloadFile(url, dest string) error {
