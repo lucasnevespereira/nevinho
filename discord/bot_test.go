@@ -127,6 +127,16 @@ func TestCleanForDiscord(t *testing.T) {
 			input: "before\n\n---\n\nafter",
 			want:  "before\n\nafter",
 		},
+		{
+			name:  "relative link becomes plain text",
+			input: "[MIT](LICENSE)",
+			want:  "MIT",
+		},
+		{
+			name:  "absolute http link preserved",
+			input: "[docs](https://example.com)",
+			want:  "[docs](https://example.com)",
+		},
 	}
 
 	for _, tt := range tests {

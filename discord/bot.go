@@ -428,14 +428,24 @@ var (
 	htmlTagRe    = regexp.MustCompile(`<[^>]+>`)
 	imgBadgeRe   = regexp.MustCompile(`\[?!\[[^\]]*\]\([^)]+\)\]?(\([^)]+\))?`)
 	hrRuleRe     = regexp.MustCompile(`(?m)^\s*(---+|\*\*\*+|___+)\s*$`)
+	mdLinkRe     = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	emptyLinesRe = regexp.MustCompile(`\n{3,}`)
 )
 
-// cleanForDiscord strips markdown that Discord can't render (HTML, image badges, horizontal rules).
+// cleanForDiscord strips markdown Discord can't render (HTML, badges, horizontal rules)
+// and converts relative links to plain text.
 func cleanForDiscord(s string) string {
 	s = htmlTagRe.ReplaceAllString(s, "")
 	s = imgBadgeRe.ReplaceAllString(s, "")
 	s = hrRuleRe.ReplaceAllString(s, "")
+	s = mdLinkRe.ReplaceAllStringFunc(s, func(m string) string {
+		parts := mdLinkRe.FindStringSubmatch(m)
+		text, url := parts[1], parts[2]
+		if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+			return m
+		}
+		return text
+	})
 	s = emptyLinesRe.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
 }

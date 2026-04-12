@@ -111,7 +111,9 @@ Guidelines:
 Guidelines:
 - Always read a file before editing it. Copy old_text exactly from the read output.
 - If the output says "truncated, use offset=N to continue", call file_read again with that offset.
-- The header shows [path, lines X-Y of Z] so you know where you are in the file.`,
+- The header shows [path, lines X-Y of Z] so you know where you are in the file.
+- When the user asks about a file (e.g. "what does this README say?", "what's in this config?"), read it then answer in your own words. Do not paste the raw file content back unless the user explicitly asks to see the file (e.g. "show me the full file", "paste the README").
+- For source code, quote only the relevant snippet, not the whole file.`,
 			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"offset":{"type":"integer","description":"Line number to start from (1-indexed)"},"limit":{"type":"integer","description":"Max lines to return (default 200)"}},"required":["path"]}`,
 		},
 		{
