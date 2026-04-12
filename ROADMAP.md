@@ -39,12 +39,12 @@ Accurate, citeable answers depend on search and fetch quality. Current implement
 
 **Minimal (reliability baseline):**
 
-- [ ] **Tavily deep search** -- Set `search_depth: "advanced"` and `include_answer: true` on Tavily calls. Surface the answer + citations instead of raw results.
-- [ ] **Tavily extract for webRead** -- When `TAVILY_API_KEY` is set, use `https://api.tavily.com/extract`. Handles JS-rendered pages, returns markdown.
-- [ ] **Readability fallback for no-key path** -- Use `go-shiori/go-readability` or proxy through Jina Reader (`r.jina.ai/<url>`) so webRead works on modern docs sites without a key.
-- [ ] **User-Agent + polite headers** -- Add `User-Agent: Nevinho/<version>` and `Accept: text/html,application/xhtml+xml` to outbound fetches. Avoids random 403s from Cloudflare-fronted sites.
-- [ ] **Clear error signaling to the model** -- Return explicit messages like "no results", "HTTP 403 forbidden", "timed out" so the model can decide to reformulate or retry instead of treating them as empty content.
-- [ ] **Retry on 429/5xx for web calls** -- Match the LLM retry layer: up to 3 attempts with backoff, parse `Retry-After`. Prevents transient blips from killing a search mid-conversation.
+- [x] **Tavily deep search** -- Set `search_depth: "advanced"` and `include_answer: true` on Tavily calls. Surface the answer + citations instead of raw results.
+- [x] **Tavily extract for webRead** -- When `TAVILY_API_KEY` is set, use `https://api.tavily.com/extract`. Handles JS-rendered pages, returns markdown.
+- [x] **Jina Reader fallback for no-key path** -- Proxy through Jina Reader (`r.jina.ai/<url>`) so webRead works on modern JS-rendered docs sites without a key. Free tier is 20 RPM anonymous.
+- [x] **User-Agent + polite headers** -- `User-Agent: Nevinho/<version>`, `Accept`, and `Accept-Language` on outbound fetches. Avoids random 403s from Cloudflare-fronted sites.
+- [x] **Clear error signaling to the model** -- Explicit messages like "HTTP 403 forbidden (try another source)", "HTTP 429 rate limited (back off)", "timed out", "DNS lookup failed" so the model can decide to reformulate or retry instead of treating them as empty content.
+- [x] **Retry on 429/5xx for web calls** -- Matches the LLM retry layer: up to 3 attempts with exponential backoff, parses `Retry-After`. Prevents transient blips from killing a search mid-conversation.
 
 **Polish (nice to have, ship when the pain shows up):**
 
