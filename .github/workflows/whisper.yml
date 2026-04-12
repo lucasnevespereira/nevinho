@@ -1,0 +1,55 @@
+name: whisper-cli
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Build whisper-cli
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
+          cd whisper.cpp
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+          cmake --build . --config Release -j
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-cli-${{ matrix.platform }}
+          path: whisper.cpp/build/bin/whisper-cli
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Rename binaries
+        run: |
+          mv whisper-cli-linux-amd64/whisper-cli whisper-cli-linux-amd64.bin
+          mv whisper-cli-linux-arm64/whisper-cli whisper-cli-linux-arm64.bin
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: whisper-bin
+          name: whisper-cli binaries
+          body: Pre-built whisper-cli binaries. Re-run the whisper-cli workflow to update.
+          make_latest: false
+          files: |
+            whisper-cli-linux-amd64.bin
+            whisper-cli-linux-arm64.bin

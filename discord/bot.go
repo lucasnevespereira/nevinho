@@ -249,6 +249,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	text := strings.TrimSpace(m.Content)
+	isVoice := false
 
 	// Handle voice messages: transcribe audio attachments
 	if text == "" && len(m.Attachments) > 0 {
@@ -257,6 +258,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 				transcribed := b.transcribeAttachment(s, m.ChannelID, att)
 				if transcribed != "" {
 					text = transcribed
+					isVoice = true
 				}
 				break
 			}
@@ -342,7 +344,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelTyping(m.ChannelID)
 	stopTyping := keepTyping(s, m.ChannelID)
 
-	response, err := b.agent.Chat(m.Author.ID, text)
+	response, err := b.agent.Chat(m.Author.ID, text, isVoice)
 	stopTyping()
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
@@ -425,13 +427,15 @@ func keepTyping(s *discordgo.Session, channelID string) func() {
 var (
 	htmlTagRe    = regexp.MustCompile(`<[^>]+>`)
 	imgBadgeRe   = regexp.MustCompile(`\[?!\[[^\]]*\]\([^)]+\)\]?(\([^)]+\))?`)
+	hrRuleRe     = regexp.MustCompile(`(?m)^\s*(---+|\*\*\*+|___+)\s*$`)
 	emptyLinesRe = regexp.MustCompile(`\n{3,}`)
 )
 
-// cleanForDiscord strips HTML tags and image/badge markdown that Discord can't render.
+// cleanForDiscord strips markdown that Discord can't render (HTML, image badges, horizontal rules).
 func cleanForDiscord(s string) string {
 	s = htmlTagRe.ReplaceAllString(s, "")
 	s = imgBadgeRe.ReplaceAllString(s, "")
+	s = hrRuleRe.ReplaceAllString(s, "")
 	s = emptyLinesRe.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
 }
@@ -681,7 +685,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	s.ChannelTyping(channelID)
 	stopTyping := keepTyping(s, channelID)
 
-	response, err := b.agent.Chat(userID, "yes")
+	response, err := b.agent.Chat(userID, "yes", false)
 	stopTyping()
 	if err != nil {
 		s.ChannelMessageSend(channelID, friendlyError(err))
@@ -812,7 +816,6 @@ func (b *Bot) transcribeAttachment(s *discordgo.Session, channelID string, att *
 		return ""
 	}
 
-	logger.Voice(text)
 	return text
 }
 

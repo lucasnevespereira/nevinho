@@ -27,15 +27,6 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o nevinho-darwin-amd64
           GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o nevinho-darwin-arm64
 
-      - name: Build whisper-cli
-        run: |
-          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
-          cd whisper.cpp
-          mkdir build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-          cmake --build . --config Release -j
-          cp bin/whisper-cli ../../whisper-cli-linux-amd64
-
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -44,5 +35,4 @@ jobs:
             nevinho-linux-arm64
             nevinho-darwin-amd64
             nevinho-darwin-arm64
-            whisper-cli-linux-amd64
           generate_release_notes: true

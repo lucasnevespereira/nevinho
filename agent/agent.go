@@ -86,7 +86,7 @@ func (a *Agent) Cancel(userID string) bool {
 	return false
 }
 
-func (a *Agent) Chat(userID, text string) (string, error) {
+func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -115,7 +115,11 @@ func (a *Agent) Chat(userID, text string) (string, error) {
 		}
 	}
 
-	logger.User(text)
+	if isVoice {
+		logger.Voice(text)
+	} else {
+		logger.User(text)
+	}
 	start := time.Now()
 	var usage llm.Usage
 	var cacheRead int

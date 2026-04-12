@@ -74,7 +74,7 @@ func installWhisper(whisperDir, dest string) error {
 
 func downloadWhisperBinary(dest string) error {
 	platform := runtime.GOOS + "-" + runtime.GOARCH
-	url := fmt.Sprintf("https://github.com/lucasnevespereira/nevinho/releases/latest/download/whisper-cli-%s", platform)
+	url := fmt.Sprintf("https://github.com/lucasnevespereira/nevinho/releases/download/whisper-bin/whisper-cli-%s.bin", platform)
 	if err := downloadFile(url, dest); err != nil {
 		return err
 	}

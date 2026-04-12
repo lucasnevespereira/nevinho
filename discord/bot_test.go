@@ -122,6 +122,11 @@ func TestCleanForDiscord(t *testing.T) {
 			input: "**bold** and `code` and [link](https://example.com)",
 			want:  "**bold** and `code` and [link](https://example.com)",
 		},
+		{
+			name:  "strips horizontal rule",
+			input: "before\n\n---\n\nafter",
+			want:  "before\n\nafter",
+		},
 	}
 
 	for _, tt := range tests {
