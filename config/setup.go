@@ -73,7 +73,7 @@ func RunSetup(configDir string) error {
 	// Optional
 	fmt.Println()
 	fmt.Println("Optional")
-	cfg.BraveAPIKey = prompt("Brave Search API key", cfg.BraveAPIKey)
+	cfg.TavilyAPIKey = prompt("Tavily Search API key", cfg.TavilyAPIKey)
 
 	// Voice messages
 	fmt.Println()
@@ -99,7 +99,7 @@ func RunSetup(configDir string) error {
 	printStatus("  Anthropic", cfg.AnthropicAPIKey != "")
 	printStatus("  OpenAI", cfg.OpenAIAPIKey != "")
 	printStatus("  Ollama", cfg.OllamaModel != "")
-	printStatus("  Brave Search", cfg.BraveAPIKey != "")
+	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))
 
 	fmt.Println()

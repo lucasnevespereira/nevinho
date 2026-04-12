@@ -585,7 +585,7 @@ func (b *Bot) configStatus() string {
 
 func isSecretKey(key string) bool {
 	switch key {
-	case "DISCORD_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "BRAVE_API_KEY":
+	case "DISCORD_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY":
 		return true
 	}
 	return false

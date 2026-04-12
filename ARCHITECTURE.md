@@ -294,7 +294,7 @@ nevinho/
     registry.go        Tool dispatch, approval flow, path permissions
     bash.go            Shell execution, danger detection
     file.go            File read/write with sandboxing
-    web.go             Web search (Brave/DDG) and page fetch
+    web.go             Web search (Tavily/DDG) and page fetch
   discord/
     bot.go             Discord session, message handling, slash commands
   config/

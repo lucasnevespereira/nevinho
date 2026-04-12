@@ -21,7 +21,7 @@ type Config struct {
 	AnthropicAPIKey string `json:"anthropic_api_key"`
 	OpenAIAPIKey    string `json:"openai_api_key"`
 	OllamaModel     string `json:"ollama_model"`
-	BraveAPIKey     string `json:"brave_api_key"`
+	TavilyAPIKey    string `json:"tavily_api_key"`
 	Model           string `json:"model"`
 	Caveman         string `json:"caveman"`
 }
@@ -34,7 +34,7 @@ func (c *Config) keymap() map[string]*string {
 		"ANTHROPIC_API_KEY": &c.AnthropicAPIKey,
 		"OPENAI_API_KEY":    &c.OpenAIAPIKey,
 		"OLLAMA_MODEL":      &c.OllamaModel,
-		"BRAVE_API_KEY":     &c.BraveAPIKey,
+		"TAVILY_API_KEY":    &c.TavilyAPIKey,
 		"MODEL":             &c.Model,
 		"CAVEMAN":           &c.Caveman,
 	}
@@ -137,7 +137,7 @@ func (c *Config) Keys() []KeyStatus {
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
-		"BRAVE_API_KEY", "MODEL", "CAVEMAN",
+		"TAVILY_API_KEY", "MODEL", "CAVEMAN",
 	}
 
 	km := c.keymap()

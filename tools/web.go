@@ -75,22 +75,29 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	if r.cfg.BraveAPIKey != "" {
-		return searchBrave(in.Query, r.cfg.BraveAPIKey)
+	if r.cfg.TavilyAPIKey != "" {
+		return searchTavily(in.Query, r.cfg.TavilyAPIKey)
 	}
 	return searchDuckDuckGo(in.Query)
 }
 
-func searchBrave(query, apiKey string) string {
+func searchTavily(query, apiKey string) string {
 	client := &http.Client{Timeout: httpTimeout}
-	reqURL := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=5", url.QueryEscape(query))
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	reqBody, err := json.Marshal(map[string]any{
+		"api_key":     apiKey,
+		"query":       query,
+		"max_results": 5,
+	})
+	if err != nil {
+		return fmt.Sprintf("failed to build request: %v", err)
+	}
+
+	req, err := http.NewRequest("POST", "https://api.tavily.com/search", strings.NewReader(string(reqBody)))
 	if err != nil {
 		return fmt.Sprintf("failed to create request: %v", err)
 	}
-	req.Header.Set("X-Subscription-Token", apiKey)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -103,21 +110,34 @@ func searchBrave(query, apiKey string) string {
 		return fmt.Sprintf("failed to read search response: %v", err)
 	}
 
+	if resp.StatusCode != 200 {
+		return fmt.Sprintf("search failed: HTTP %d", resp.StatusCode)
+	}
+
 	var result struct {
-		Web struct {
-			Results []struct {
-				Title       string `json:"title"`
-				URL         string `json:"url"`
-				Description string `json:"description"`
-			} `json:"results"`
-		} `json:"web"`
+		Answer  string `json:"answer"`
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
 		return fmt.Sprintf("failed to parse results: %v", err)
 	}
 
-	return formatSearchResults(result.Web.Results)
+	out := make([]struct {
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		Description string `json:"description"`
+	}, len(result.Results))
+	for i, r := range result.Results {
+		out[i].Title = r.Title
+		out[i].URL = r.URL
+		out[i].Description = r.Content
+	}
+	return formatSearchResults(out)
 }
 
 func searchDuckDuckGo(query string) string {
