@@ -114,7 +114,7 @@ func buildWhisper(whisperDir, dest string) error {
 	os.MkdirAll(buildDir, 0755)
 
 	stop := spinner("Compiling whisper (this may take a minute)")
-	if err := runQuietIn(buildDir, "cmake", "..", "-DCMAKE_BUILD_TYPE=Release"); err != nil {
+	if err := runQuietIn(buildDir, "cmake", "..", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF"); err != nil {
 		stop()
 		return fmt.Errorf("cmake configure failed: %w", err)
 	}
