@@ -21,6 +21,8 @@ nevinho setup
 nevinho start
 ```
 
+Setup walks you through Discord credentials, LLM keys, and optional voice message support. Press Enter to keep existing values on re-run.
+
 On Linux, `start` runs as a background service (systemd). On macOS, it runs in the foreground.
 
 You can also reconfigure later from Discord with `/config`.
@@ -53,7 +55,7 @@ See [setup.md](setup.md) for Discord bot creation steps.
 
 ## Providers
 
-Works with multiple LLM backends:
+Configure one or more LLM backends during setup:
 
 | Provider | Env var | Default model |
 |----------|---------|---------------|
@@ -61,7 +63,7 @@ Works with multiple LLM backends:
 | OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
 | Ollama | `OLLAMA_MODEL=llama3` | any local model |
 
-On startup, nevinho uses your last selected model (saved to config). If none is saved, auto-detection picks the first available: Ollama > Anthropic > OpenAI.
+On startup, nevinho uses your last selected model. If none is saved, it picks the first available: Ollama > Anthropic > OpenAI.
 
 Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 
@@ -80,6 +82,12 @@ Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 | `file_write` | Write an entire file (directory approval required) |
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
+
+## Voice Messages
+
+Send voice messages in Discord and nevinho transcribes them using a local Whisper model. No extra API keys, no cost.
+
+Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installed if missing). The Whisper model (~75MB) is stored in `~/.nevinho/whisper/`.
 
 ## Commands
 
@@ -115,6 +123,8 @@ Configuration is encrypted and stored in `~/.nevinho/`:
 config.enc          encrypted configuration (AES-256-GCM)
 secret.key          auto-generated encryption key
 approved_paths.json persisted write permissions
+memory.md           learned user preferences
+whisper/            local Whisper model and binary (if voice enabled)
 ```
 
 You can also use a `.env` file in the project directory for development. Env vars take priority over encrypted config.
@@ -129,7 +139,9 @@ agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
 llm/         provider interface (Anthropic, OpenAI, Ollama)
+memory/      harness-level preference learning
 tools/       bash, grep, find, web search, file I/O
+voice/       local Whisper transcription for voice messages
 discord/     bot, slash commands, message handling
 logger/      colored terminal output
 ```
