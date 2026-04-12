@@ -23,6 +23,7 @@ type Config struct {
 	OllamaModel     string `json:"ollama_model"`
 	BraveAPIKey     string `json:"brave_api_key"`
 	Model           string `json:"model"`
+	Caveman         string `json:"caveman"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
@@ -35,6 +36,7 @@ func (c *Config) keymap() map[string]*string {
 		"OLLAMA_MODEL":      &c.OllamaModel,
 		"BRAVE_API_KEY":     &c.BraveAPIKey,
 		"MODEL":             &c.Model,
+		"CAVEMAN":           &c.Caveman,
 	}
 }
 
@@ -103,6 +105,16 @@ func (c *Config) Get(key string) (string, error) {
 }
 
 func (c *Config) Set(key, value string) error {
+	if key == "CAVEMAN" {
+		switch value {
+		case "", "off", "lite", "full", "ultra":
+		default:
+			return fmt.Errorf("CAVEMAN must be one of: off, lite, full, ultra")
+		}
+		if value == "off" {
+			value = ""
+		}
+	}
 	c.mu.Lock()
 	field, ok := c.keymap()[key]
 	if !ok {
@@ -125,7 +137,7 @@ func (c *Config) Keys() []KeyStatus {
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
-		"BRAVE_API_KEY", "MODEL",
+		"BRAVE_API_KEY", "MODEL", "CAVEMAN",
 	}
 
 	km := c.keymap()
@@ -144,6 +156,40 @@ func (c *Config) Keys() []KeyStatus {
 }
 
 func (c *Config) Dir() string { return c.dir }
+
+// CavemanPrompt returns the caveman prompt block to append to the system prompt,
+// based on the current CAVEMAN config value. Returns "" when disabled.
+func (c *Config) CavemanPrompt() string {
+	c.mu.RLock()
+	mode := c.Caveman
+	c.mu.RUnlock()
+
+	switch mode {
+	case "lite":
+		return `
+Response style:
+- No filler, no hedging, no pleasantries.
+- Keep articles and full sentences. Professional but tight.
+- Preserve code, URLs, commands, paths, and file contents exactly.`
+	case "full":
+		return `
+Response style:
+- Drop filler: articles (a, the), hedges (just, really, basically), pleasantries, qualifiers.
+- Use fragments, not full sentences.
+- Pattern: "[thing] [action] [reason]. [next step]."
+- Abbreviate freely in prose.
+- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
+	case "ultra":
+		return `
+Response style:
+- Drop articles, conjunctions, hedges, pleasantries.
+- Abbreviate: DB, auth, config, req, res, fn, impl, repo, env, var.
+- Use arrows for causality: "inline obj -> new ref -> re-render -> wrap useMemo".
+- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
+	default:
+		return ""
+	}
+}
 
 type ProviderConfig struct {
 	AnthropicKey string

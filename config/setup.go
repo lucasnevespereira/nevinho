@@ -71,10 +71,11 @@ func RunSetup(configDir string) error {
 
 	// Voice messages
 	fmt.Println()
+	fmt.Println("Voice messages")
 	whisperDir := filepath.Join(configDir, "whisper")
 	if voice.IsAvailable(whisperDir) {
-		fmt.Println("Voice messages: enabled")
-	} else if confirm("Enable voice messages?") {
+		fmt.Println("  Enabled.")
+	} else if confirm("  Enable voice messages?") {
 		if err := voice.Setup(whisperDir); err != nil {
 			fmt.Printf("Voice setup failed: %v\n", err)
 			fmt.Println("You can retry later with 'nevinho setup'.")
