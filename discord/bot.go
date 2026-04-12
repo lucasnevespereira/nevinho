@@ -250,15 +250,20 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	text := strings.TrimSpace(m.Content)
 	isVoice := false
+	voiceMessageID := ""
 
 	// Handle voice messages: transcribe audio attachments
 	if text == "" && len(m.Attachments) > 0 {
 		for _, att := range m.Attachments {
 			if isAudioAttachment(att) {
+				s.ChannelTyping(m.ChannelID)
+				stopTranscribeTyping := keepTyping(s, m.ChannelID)
 				transcribed := b.transcribeAttachment(s, m.ChannelID, att)
+				stopTranscribeTyping()
 				if transcribed != "" {
 					text = transcribed
 					isVoice = true
+					voiceMessageID = m.ID
 				}
 				break
 			}
@@ -399,11 +404,20 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	response = cleanForDiscord(response)
-	for _, chunk := range splitMessage(response) {
-		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+	chunks := splitMessage(response)
+	for i, chunk := range chunks {
+		send := &discordgo.MessageSend{
 			Content: chunk,
 			Flags:   discordgo.MessageFlagsSuppressEmbeds,
-		})
+		}
+		if i == 0 && isVoice {
+			send.Content = fmt.Sprintf("-# 🎤 %q\n%s", text, chunk)
+			send.Reference = &discordgo.MessageReference{
+				MessageID: voiceMessageID,
+				ChannelID: m.ChannelID,
+			}
+		}
+		s.ChannelMessageSendComplex(m.ChannelID, send)
 	}
 }
 
