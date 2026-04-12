@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/lucasnevespereira/nevinho/crypto"
@@ -95,6 +96,7 @@ func (c *Config) Save() error {
 }
 
 func (c *Config) Get(key string) (string, error) {
+	key = strings.ToUpper(key)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	field, ok := c.keymap()[key]
@@ -105,14 +107,15 @@ func (c *Config) Get(key string) (string, error) {
 }
 
 func (c *Config) Set(key, value string) error {
+	key = strings.ToUpper(key)
 	if key == "CAVEMAN" {
-		switch value {
-		case "", "off", "lite", "full", "ultra":
-		default:
-			return fmt.Errorf("CAVEMAN must be one of: off, lite, full, ultra")
-		}
-		if value == "off" {
+		switch strings.ToLower(value) {
+		case "", "off":
 			value = ""
+		case "on":
+			value = "on"
+		default:
+			return fmt.Errorf("CAVEMAN must be on or off")
 		}
 	}
 	c.mu.Lock()
@@ -157,38 +160,29 @@ func (c *Config) Keys() []KeyStatus {
 
 func (c *Config) Dir() string { return c.dir }
 
-// CavemanPrompt returns the caveman prompt block to append to the system prompt,
-// based on the current CAVEMAN config value. Returns "" when disabled.
+// CavemanPrompt returns the style block to prepend to the system prompt.
+// Any non-empty, non-"off" value enables it (accepts legacy lite/full/ultra).
 func (c *Config) CavemanPrompt() string {
 	c.mu.RLock()
 	mode := c.Caveman
 	c.mu.RUnlock()
 
-	switch mode {
-	case "lite":
-		return `
-Response style:
-- No filler, no hedging, no pleasantries.
-- Keep articles and full sentences. Professional but tight.
-- Preserve code, URLs, commands, paths, and file contents exactly.`
-	case "full":
-		return `
-Response style:
-- Drop filler: articles (a, the), hedges (just, really, basically), pleasantries, qualifiers.
-- Use fragments, not full sentences.
-- Pattern: "[thing] [action] [reason]. [next step]."
-- Abbreviate freely in prose.
-- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
-	case "ultra":
-		return `
-Response style:
-- Drop articles, conjunctions, hedges, pleasantries.
-- Abbreviate: DB, auth, config, req, res, fn, impl, repo, env, var.
-- Use arrows for causality: "inline obj -> new ref -> re-render -> wrap useMemo".
-- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
-	default:
+	if mode == "" || mode == "off" {
 		return ""
 	}
+	return `CAVEMAN MODE. Override any default politeness. Write like a caveman:
+- Drop articles (a, the), conjunctions, hedges (just, really, basically), pleasantries, qualifiers.
+- Use fragments, not full sentences.
+- Abbreviate in prose: DB, auth, config, req, res, fn, impl, repo, env, var.
+- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.
+
+Examples:
+  Normal: "Lucas Neves Pereira's latest article is titled 'Build your own LinkTree with Go and GitHub Pages'. It discusses creating a simple, single-page personal website using Go."
+  Caveman: "Latest article: 'Build your own LinkTree with Go and GitHub Pages'. Covers personal site, Go + GH Pages. Source: <url>"
+
+  Normal: "The GOMEMLIMIT environment variable sets a soft memory limit for the Go runtime. When memory usage approaches the limit, the garbage collector becomes more aggressive."
+  Caveman: "GOMEMLIMIT: soft memory cap for Go runtime. Near limit -> GC more aggressive. Source: <url>"
+`
 }
 
 type ProviderConfig struct {

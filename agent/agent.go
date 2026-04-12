@@ -134,8 +134,13 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 		}
 	}
 
-	// Build system prompt with cwd and memory context
-	prompt := systemPrompt
+	// Caveman block goes first so its style rules aren't drowned out by the
+	// longer base prompt and tool descriptions.
+	prompt := ""
+	if cp := a.cfg.CavemanPrompt(); cp != "" {
+		prompt = cp + "\n\n"
+	}
+	prompt += systemPrompt
 	if cwd, err := os.Getwd(); err == nil {
 		prompt += "\n\nCurrent working directory: " + cwd
 	}
@@ -145,7 +150,6 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 	if mem := memory.Load(a.cfg.Dir()); mem != "" {
 		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
 	}
-	prompt += a.cfg.CavemanPrompt()
 
 	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
