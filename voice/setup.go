@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 )
 
@@ -24,97 +25,81 @@ func Setup(whisperDir string) error {
 
 	// Install ffmpeg if missing
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		fmt.Println("Installing ffmpeg...")
-		if err := installFFmpeg(); err != nil {
+		fmt.Print("  Installing ffmpeg... ")
+		if err := installPkg("ffmpeg"); err != nil {
 			return fmt.Errorf("ffmpeg install failed: %w", err)
 		}
-		fmt.Println("ffmpeg installed.")
+		fmt.Println("done")
 	}
 
 	// Build whisper binary from source
 	binaryPath := filepath.Join(whisperDir, "whisper-cli")
 	if _, err := os.Stat(binaryPath); err != nil {
-		fmt.Println("Building whisper from source...")
 		if err := buildWhisper(whisperDir, binaryPath); err != nil {
 			return fmt.Errorf("build whisper: %w", err)
 		}
-		fmt.Println("Whisper built.")
 	} else {
-		fmt.Println("Whisper binary already installed.")
+		fmt.Println("  Whisper: already installed")
 	}
 
 	// Download model
 	modelPath := filepath.Join(whisperDir, "ggml-tiny.bin")
 	if _, err := os.Stat(modelPath); err != nil {
-		fmt.Println("Downloading whisper model (~75MB)...")
+		fmt.Print("  Downloading model (~75MB)... ")
 		if err := downloadFile(modelURL, modelPath); err != nil {
 			return fmt.Errorf("download model: %w", err)
 		}
-		fmt.Println("Model downloaded.")
+		fmt.Println("done")
 	} else {
-		fmt.Println("Whisper model already installed.")
+		fmt.Println("  Model: already installed")
 	}
 
-	fmt.Println("Voice messages enabled.")
+	fmt.Println("  Voice messages enabled.")
 	return nil
 }
 
 func buildWhisper(whisperDir, dest string) error {
-	// Check for git and a C compiler
 	if _, err := exec.LookPath("git"); err != nil {
 		return fmt.Errorf("git is required to build whisper")
 	}
 	if _, err := exec.LookPath("gcc"); err != nil {
 		if _, err := exec.LookPath("cc"); err != nil {
-			return fmt.Errorf("a C compiler (gcc/cc) is required. Install with: sudo apt install build-essential")
+			return fmt.Errorf("a C compiler is required: sudo apt install build-essential")
 		}
 	}
 	if _, err := exec.LookPath("cmake"); err != nil {
-		fmt.Println("Installing cmake...")
-		if err := installCmake(); err != nil {
+		fmt.Print("  Installing cmake... ")
+		if err := installPkg("cmake"); err != nil {
 			return fmt.Errorf("cmake is required: %w", err)
 		}
+		fmt.Println("done")
 	}
 
 	srcDir := filepath.Join(whisperDir, "whisper.cpp")
 
-	// Clone if not already there
+	fmt.Print("  Cloning whisper.cpp... ")
 	if _, err := os.Stat(srcDir); err != nil {
-		fmt.Println("  Cloning whisper.cpp...")
-		cmd := exec.Command("git", "clone", "--depth", "1", whisperRepoURL, srcDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := runQuiet("git", "clone", "--depth", "1", whisperRepoURL, srcDir); err != nil {
 			return fmt.Errorf("git clone failed: %w", err)
 		}
 	}
+	fmt.Println("done")
 
-	// Build with cmake
 	buildDir := filepath.Join(srcDir, "build")
 	os.MkdirAll(buildDir, 0755)
 
-	fmt.Println("  Configuring...")
-	cmake := exec.Command("cmake", "..", "-DCMAKE_BUILD_TYPE=Release")
-	cmake.Dir = buildDir
-	cmake.Stdout = os.Stdout
-	cmake.Stderr = os.Stderr
-	if err := cmake.Run(); err != nil {
+	fmt.Print("  Compiling whisper... ")
+	if err := runQuietIn(buildDir, "cmake", "..", "-DCMAKE_BUILD_TYPE=Release"); err != nil {
 		return fmt.Errorf("cmake configure failed: %w", err)
 	}
-
-	fmt.Println("  Compiling...")
-	make := exec.Command("cmake", "--build", ".", "--config", "Release", "-j")
-	make.Dir = buildDir
-	make.Stdout = os.Stdout
-	make.Stderr = os.Stderr
-	if err := make.Run(); err != nil {
+	if err := runQuietIn(buildDir, "cmake", "--build", ".", "--config", "Release", "-j"); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
+	fmt.Println("done")
 
-	// Find and copy the binary
 	builtBinary := filepath.Join(buildDir, "bin", "whisper-cli")
 	if _, err := os.Stat(builtBinary); err != nil {
-		return fmt.Errorf("binary not found at %s after build", builtBinary)
+		return fmt.Errorf("binary not found after build")
 	}
 
 	data, err := os.ReadFile(builtBinary)
@@ -125,39 +110,91 @@ func buildWhisper(whisperDir, dest string) error {
 		return err
 	}
 
-	// Clean up source to save disk space
 	os.RemoveAll(srcDir)
 	return nil
 }
 
-func installCmake() error {
+// runQuiet runs a command with stdout/stderr suppressed, showing dots as progress.
+func runQuiet(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	stop := dots()
+	err := cmd.Run()
+	stop()
+	return err
+}
+
+// runQuietIn runs a command in a directory with output suppressed, showing dots.
+func runQuietIn(dir, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	stop := dots()
+	err := cmd.Run()
+	stop()
+	return err
+}
+
+// dots prints a dot every second until stop is called.
+func dots() func() {
+	var once sync.Once
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fmt.Print(".")
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() { close(done) })
+	}
+}
+
+// installPkg installs a package using the system package manager.
+func installPkg(pkg string) error {
 	switch runtime.GOOS {
 	case "linux":
-		for _, cmd := range [][]string{
-			{"apt-get", "install", "-y", "cmake"},
-			{"dnf", "install", "-y", "cmake"},
-			{"apk", "add", "cmake"},
+		for _, pm := range [][]string{
+			{"apt-get", "install", "-y"},
+			{"dnf", "install", "-y"},
+			{"apk", "add"},
 		} {
-			if _, err := exec.LookPath(cmd[0]); err == nil {
-				c := exec.Command("sudo", cmd...)
-				c.Stdout = os.Stdout
-				c.Stderr = os.Stderr
-				if err := c.Run(); err == nil {
+			if _, err := exec.LookPath(pm[0]); err == nil {
+				args := append([]string{pm[0]}, pm[1:]...)
+				args = append(args, pkg)
+				cmd := exec.Command("sudo", args...)
+				cmd.Stdout = io.Discard
+				cmd.Stderr = io.Discard
+				stop := dots()
+				err := cmd.Run()
+				stop()
+				if err == nil {
 					return nil
 				}
 			}
 		}
-		return fmt.Errorf("install cmake manually: sudo apt install cmake")
+		return fmt.Errorf("could not install %s automatically", pkg)
 	case "darwin":
 		if _, err := exec.LookPath("brew"); err == nil {
-			cmd := exec.Command("brew", "install", "cmake")
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			return cmd.Run()
+			cmd := exec.Command("brew", "install", pkg)
+			cmd.Stdout = io.Discard
+			cmd.Stderr = io.Discard
+			stop := dots()
+			err := cmd.Run()
+			stop()
+			return err
 		}
-		return fmt.Errorf("install cmake via Homebrew: brew install cmake")
+		return fmt.Errorf("install Homebrew first: https://brew.sh")
 	default:
-		return fmt.Errorf("install cmake manually for your platform")
+		return fmt.Errorf("install %s manually", pkg)
 	}
 }
 
@@ -182,26 +219,23 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 	}
 
-	// Get file size for progress
-	size := resp.ContentLength
-
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	if size > 0 {
-		return downloadWithProgress(f, resp.Body, size)
+	if resp.ContentLength > 0 {
+		return copyWithProgress(f, resp.Body, resp.ContentLength)
 	}
 	_, err = io.Copy(f, resp.Body)
 	return err
 }
 
-func downloadWithProgress(dst *os.File, src io.Reader, total int64) error {
+func copyWithProgress(dst io.Writer, src io.Reader, total int64) error {
 	buf := make([]byte, 32*1024)
 	var written int64
-	lastPercent := -1
+	lastPct := -1
 
 	for {
 		n, err := src.Read(buf)
@@ -211,11 +245,10 @@ func downloadWithProgress(dst *os.File, src io.Reader, total int64) error {
 				return werr
 			}
 			written += int64(nw)
-
-			percent := int(float64(written) / float64(total) * 100)
-			if percent != lastPercent && percent%10 == 0 {
-				fmt.Printf("  %d%%\n", percent)
-				lastPercent = percent
+			pct := int(float64(written) / float64(total) * 100)
+			if pct/25 != lastPct/25 {
+				fmt.Printf(" %d%%", pct)
+				lastPct = pct
 			}
 		}
 		if err == io.EOF {
@@ -233,34 +266,11 @@ func Remove(whisperDir string) error {
 	return os.RemoveAll(whisperDir)
 }
 
-func installFFmpeg() error {
-	switch runtime.GOOS {
-	case "linux":
-		// Try apt (Debian/Ubuntu), then dnf (Fedora/RHEL), then apk (Alpine)
-		for _, cmd := range [][]string{
-			{"apt-get", "install", "-y", "ffmpeg"},
-			{"dnf", "install", "-y", "ffmpeg"},
-			{"apk", "add", "ffmpeg"},
-		} {
-			if _, err := exec.LookPath(cmd[0]); err == nil {
-				c := exec.Command("sudo", cmd...)
-				c.Stdout = os.Stdout
-				c.Stderr = os.Stderr
-				if err := c.Run(); err == nil {
-					return nil
-				}
-			}
-		}
-		return fmt.Errorf("could not install ffmpeg automatically. Install manually:\n  Ubuntu/Debian: sudo apt install ffmpeg\n  Fedora: sudo dnf install ffmpeg\n  Alpine: apk add ffmpeg")
-	case "darwin":
-		if _, err := exec.LookPath("brew"); err == nil {
-			cmd := exec.Command("brew", "install", "ffmpeg")
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			return cmd.Run()
-		}
-		return fmt.Errorf("install Homebrew first (https://brew.sh), then run: brew install ffmpeg")
-	default:
-		return fmt.Errorf("install ffmpeg manually for your platform")
-	}
+// IsAvailable checks if whisper is set up.
+func IsAvailable(whisperDir string) bool {
+	binary := filepath.Join(whisperDir, "whisper-cli")
+	model := filepath.Join(whisperDir, "ggml-tiny.bin")
+	_, errBin := os.Stat(binary)
+	_, errModel := os.Stat(model)
+	return errBin == nil && errModel == nil
 }
