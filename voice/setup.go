@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	modelURL       = "https://huggingface.co/ggml-org/whisper.cpp/resolve/main/ggml-tiny.bin"
+	modelURL       = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
 	whisperRepoURL = "https://github.com/ggml-org/whisper.cpp.git"
 )
 
@@ -45,12 +45,12 @@ func Setup(whisperDir string) error {
 	// Download model
 	modelPath := filepath.Join(whisperDir, "ggml-tiny.bin")
 	if _, err := os.Stat(modelPath); err != nil {
-		stop := spinner("Downloading model (~75MB)")
-		if err := downloadFile(modelURL, modelPath); err != nil {
-			stop()
+		fmt.Print("  Downloading model (~75MB)")
+		if err := downloadFileWithProgress(modelURL, modelPath); err != nil {
+			fmt.Println()
 			return fmt.Errorf("download model: %w", err)
 		}
-		stop()
+		fmt.Println(" done")
 	} else {
 		fmt.Println("  Model: already installed")
 	}
@@ -62,13 +62,13 @@ func Setup(whisperDir string) error {
 // installWhisper tries to download a pre-built binary from the nevinho release,
 // falls back to building from source if download fails.
 func installWhisper(whisperDir, dest string) error {
-	stop := spinner("Downloading whisper")
+	stop := spinner("Downloading pre-built whisper binary")
 	err := downloadWhisperBinary(dest)
 	stop()
 	if err == nil {
 		return nil
 	}
-	// Fall back to building from source
+	fmt.Println("  No pre-built binary for this platform, building from source...")
 	return buildWhisper(whisperDir, dest)
 }
 
@@ -215,6 +215,38 @@ func installPkg(pkg string) error {
 }
 
 func downloadFile(url, dest string) error {
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
+// downloadFileWithProgress downloads a file and prints percentage inline.
+func downloadFileWithProgress(url, dest string) error {
 	client := &http.Client{
 		Timeout: 5 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
