@@ -84,13 +84,15 @@ func (r *Registry) Defs() []llm.ToolDef {
 		{
 			Name: "web_read",
 			Description: `Fetch a web page and return its readable text content. Strips scripts, styles, nav, and boilerplate.
-Use this instead of bash curl/wget for reading web content.`,
+Use this instead of bash curl/wget for reading web content.
+When you use information from a fetched page in your answer, cite the source URL at the end on its own line: "Source: <url>".`,
 			Schema: `{"type":"object","properties":{"url":{"type":"string","description":"Full URL to fetch (must be http or https)"}},"required":["url"]}`,
 		},
 		{
 			Name: "web_search",
 			Description: `Search the web and return titles, URLs, and snippets for the top results.
-Use this to find relevant pages, then use web_read to get full content.`,
+Use this to find relevant pages, then use web_read to get full content.
+When you use information from search results or pages you read, cite each source URL at the end of your answer on its own line: "Source: <url>". Multiple sources get multiple lines.`,
 			Schema: `{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`,
 		},
 		{

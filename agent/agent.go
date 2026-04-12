@@ -43,8 +43,15 @@ Guidelines:
 - Before answering questions about a codebase, explore it. Use file_list to see the structure, then read key files. Base your answer on what you read, not assumptions.
 - When the user asks to see a diff, run bash with "git diff". Don't dump the whole file.
 - Bash is non-interactive. Use -y flags. If credentials are needed, ask the user.
-- Be concise. The user reads on a phone.
-- When asked to build a full project, write a plan.md first. Check it before each step.`
+- When asked to build a full project, write a plan.md first. Check it before each step.
+
+Response style:
+- The user reads on a phone. Avoid wide tables and long horizontal lines.
+- Drop filler: articles (a, the), hedges (just, really, basically), pleasantries, qualifiers.
+- Use fragments, not full sentences.
+- Pattern: "[thing] [action] [reason]. [next step]."
+- Abbreviate freely in prose.
+- Preserve code, URLs, commands, paths, and file contents exactly. Never abbreviate inside code blocks.`
 )
 
 type Agent struct {
