@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"time"
 )
 
@@ -25,18 +24,19 @@ func Setup(whisperDir string) error {
 
 	// Install ffmpeg if missing
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		fmt.Print("  Installing ffmpeg... ")
+		stop := spinner("Installing ffmpeg")
 		if err := installPkg("ffmpeg"); err != nil {
+			stop()
 			return fmt.Errorf("ffmpeg install failed: %w", err)
 		}
-		fmt.Println("done")
+		stop()
 	}
 
-	// Build whisper binary from source
+	// Download or build whisper binary
 	binaryPath := filepath.Join(whisperDir, "whisper-cli")
 	if _, err := os.Stat(binaryPath); err != nil {
-		if err := buildWhisper(whisperDir, binaryPath); err != nil {
-			return fmt.Errorf("build whisper: %w", err)
+		if err := installWhisper(whisperDir, binaryPath); err != nil {
+			return fmt.Errorf("whisper install: %w", err)
 		}
 	} else {
 		fmt.Println("  Whisper: already installed")
@@ -45,17 +45,40 @@ func Setup(whisperDir string) error {
 	// Download model
 	modelPath := filepath.Join(whisperDir, "ggml-tiny.bin")
 	if _, err := os.Stat(modelPath); err != nil {
-		fmt.Print("  Downloading model (~75MB)... ")
+		stop := spinner("Downloading model (~75MB)")
 		if err := downloadFile(modelURL, modelPath); err != nil {
+			stop()
 			return fmt.Errorf("download model: %w", err)
 		}
-		fmt.Println("done")
+		stop()
 	} else {
 		fmt.Println("  Model: already installed")
 	}
 
 	fmt.Println("  Voice messages enabled.")
 	return nil
+}
+
+// installWhisper tries to download a pre-built binary from the nevinho release,
+// falls back to building from source if download fails.
+func installWhisper(whisperDir, dest string) error {
+	stop := spinner("Downloading whisper")
+	err := downloadWhisperBinary(dest)
+	stop()
+	if err == nil {
+		return nil
+	}
+	// Fall back to building from source
+	return buildWhisper(whisperDir, dest)
+}
+
+func downloadWhisperBinary(dest string) error {
+	platform := runtime.GOOS + "-" + runtime.GOARCH
+	url := fmt.Sprintf("https://github.com/lucasnevespereira/nevinho/releases/latest/download/whisper-cli-%s", platform)
+	if err := downloadFile(url, dest); err != nil {
+		return err
+	}
+	return os.Chmod(dest, 0755)
 }
 
 func buildWhisper(whisperDir, dest string) error {
@@ -68,34 +91,38 @@ func buildWhisper(whisperDir, dest string) error {
 		}
 	}
 	if _, err := exec.LookPath("cmake"); err != nil {
-		fmt.Print("  Installing cmake... ")
+		stop := spinner("Installing cmake")
 		if err := installPkg("cmake"); err != nil {
+			stop()
 			return fmt.Errorf("cmake is required: %w", err)
 		}
-		fmt.Println("done")
+		stop()
 	}
 
 	srcDir := filepath.Join(whisperDir, "whisper.cpp")
 
-	fmt.Print("  Cloning whisper.cpp... ")
 	if _, err := os.Stat(srcDir); err != nil {
+		stop := spinner("Cloning whisper.cpp")
 		if err := runQuiet("git", "clone", "--depth", "1", whisperRepoURL, srcDir); err != nil {
+			stop()
 			return fmt.Errorf("git clone failed: %w", err)
 		}
+		stop()
 	}
-	fmt.Println("done")
 
 	buildDir := filepath.Join(srcDir, "build")
 	os.MkdirAll(buildDir, 0755)
 
-	fmt.Print("  Compiling whisper... ")
+	stop := spinner("Compiling whisper (this may take a minute)")
 	if err := runQuietIn(buildDir, "cmake", "..", "-DCMAKE_BUILD_TYPE=Release"); err != nil {
+		stop()
 		return fmt.Errorf("cmake configure failed: %w", err)
 	}
 	if err := runQuietIn(buildDir, "cmake", "--build", ".", "--config", "Release", "-j"); err != nil {
+		stop()
 		return fmt.Errorf("build failed: %w", err)
 	}
-	fmt.Println("done")
+	stop()
 
 	builtBinary := filepath.Join(buildDir, "bin", "whisper-cli")
 	if _, err := os.Stat(builtBinary); err != nil {
@@ -114,47 +141,41 @@ func buildWhisper(whisperDir, dest string) error {
 	return nil
 }
 
-// runQuiet runs a command with stdout/stderr suppressed, showing dots as progress.
 func runQuiet(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	stop := dots()
-	err := cmd.Run()
-	stop()
-	return err
+	return cmd.Run()
 }
 
-// runQuietIn runs a command in a directory with output suppressed, showing dots.
 func runQuietIn(dir, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	stop := dots()
-	err := cmd.Run()
-	stop()
-	return err
+	return cmd.Run()
 }
 
-// dots prints a dot every second until stop is called.
-func dots() func() {
-	var once sync.Once
+// spinner shows an animated spinner until stop is called.
+func spinner(label string) func() {
+	frames := []string{"|", "/", "-", "\\"}
 	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+		i := 0
 		for {
 			select {
 			case <-done:
 				return
-			case <-ticker.C:
-				fmt.Print(".")
+			default:
+				fmt.Printf("\r  %s %s", label, frames[i%len(frames)])
+				i++
+				time.Sleep(200 * time.Millisecond)
 			}
 		}
 	}()
 	return func() {
-		once.Do(func() { close(done) })
+		close(done)
+		fmt.Printf("\r  %s done\n", label)
 	}
 }
 
@@ -173,9 +194,7 @@ func installPkg(pkg string) error {
 				cmd := exec.Command("sudo", args...)
 				cmd.Stdout = io.Discard
 				cmd.Stderr = io.Discard
-				stop := dots()
 				err := cmd.Run()
-				stop()
 				if err == nil {
 					return nil
 				}
@@ -187,10 +206,7 @@ func installPkg(pkg string) error {
 			cmd := exec.Command("brew", "install", pkg)
 			cmd.Stdout = io.Discard
 			cmd.Stderr = io.Discard
-			stop := dots()
-			err := cmd.Run()
-			stop()
-			return err
+			return cmd.Run()
 		}
 		return fmt.Errorf("install Homebrew first: https://brew.sh")
 	default:

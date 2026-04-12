@@ -19,7 +19,7 @@ func RunSetup(configDir string) error {
 	// Enter keeps current value, "-" clears it
 	prompt := func(label, current string) string {
 		if current != "" {
-			fmt.Printf("  %s [%s] (- to clear): ", label, maskSecret(current))
+			fmt.Printf("  %s [%s]: ", label, maskSecret(current))
 		} else {
 			fmt.Printf("  %s: ", label)
 		}
