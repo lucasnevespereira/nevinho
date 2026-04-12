@@ -485,7 +485,12 @@ func resolvePath(path, _ string) (string, error) {
 		return filepath.Clean(path), nil
 	}
 
-	return "", fmt.Errorf("relative paths are not supported — use an absolute path")
+	// Resolve relative paths against cwd
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("relative paths are not supported — use an absolute path")
+	}
+	return filepath.Clean(filepath.Join(cwd, path)), nil
 }
 
 func expandHome(path string) (string, error) {

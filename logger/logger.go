@@ -20,6 +20,7 @@ func Init() {
 }
 
 func User(text string)    { log.Printf("%suser%s     %s", cyan, reset, oneline(text)) }
+func Voice(text string)   { log.Printf("%suser%s     (voice) %s", cyan, reset, oneline(text)) }
 func Nevinho(text string) { log.Printf("%snevinho%s  %s", green, reset, oneline(text)) }
 func Tool(name, detail string) {
 	if detail != "" {

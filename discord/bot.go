@@ -255,7 +255,6 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			if isAudioAttachment(att) {
 				transcribed := b.transcribeAttachment(s, m.ChannelID, att)
 				if transcribed != "" {
-					s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("*%s*", transcribed))
 					text = transcribed
 				}
 				break
@@ -806,7 +805,7 @@ func (b *Bot) transcribeAttachment(s *discordgo.Session, channelID string, att *
 		return ""
 	}
 
-	logger.Info(fmt.Sprintf("transcribed: %s", text))
+	logger.Voice(text)
 	return text
 }
 
