@@ -29,7 +29,7 @@ jobs:
 
       - name: Build whisper-cli
         run: |
-          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
           cd whisper.cpp
           mkdir build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release

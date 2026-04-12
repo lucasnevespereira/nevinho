@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	modelURL       = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
-	whisperRepoURL = "https://github.com/ggerganov/whisper.cpp.git"
+	modelURL       = "https://huggingface.co/ggml-org/whisper.cpp/resolve/main/ggml-tiny.bin"
+	whisperRepoURL = "https://github.com/ggml-org/whisper.cpp.git"
 )
 
 // Setup downloads the whisper binary and model to the given directory.
