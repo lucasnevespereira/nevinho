@@ -635,7 +635,7 @@ func (b *Bot) modelStatus() string {
 	}
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
-		sb.WriteString("• `gpt-4o-mini`\n• `gpt-4o`\n• `o4-mini`\n\n")
+		sb.WriteString("• `gpt-5.4-nano`\n• `gpt-5.4-mini`\n• `gpt-5.4`\n• `gpt-4o-mini`\n• `gpt-4o`\n• `o4-mini`\n\n")
 	}
 	if pc.OllamaURL != "" {
 		sb.WriteString("**Ollama**\n")
@@ -795,8 +795,11 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 
 	if pc.OpenAIKey != "" {
 		for _, m := range [][2]string{
-			{"gpt-4o-mini", "Fast, affordable"},
-			{"gpt-4o", "Balanced"},
+			{"gpt-5.4-nano", "Fastest, cheapest"},
+			{"gpt-5.4-mini", "Fast, affordable"},
+			{"gpt-5.4", "Most capable"},
+			{"gpt-4o-mini", "Legacy, fast"},
+			{"gpt-4o", "Legacy, balanced"},
 			{"o4-mini", "Reasoning"},
 		} {
 			options = append(options, discordgo.SelectMenuOption{

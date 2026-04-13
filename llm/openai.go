@@ -32,7 +32,7 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 
 	body := map[string]interface{}{
 		"model":      o.model,
-		"max_tokens": req.MaxTokens,
+		"max_completion_tokens": req.MaxTokens,
 		"messages":   messages,
 		"tools":      o.formatTools(req.Tools),
 	}
