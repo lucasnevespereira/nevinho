@@ -50,7 +50,11 @@ func (a *activityIndicator) onEvent(ev agent.ToolEvent) {
 	content := formatIndicator(ev.Name, ev.Detail)
 
 	if a.messageID == "" {
-		msg, err := a.session.ChannelMessageSend(a.channelID, content)
+		msg, err := a.session.ChannelMessageSendComplex(a.channelID, &discordgo.MessageSend{
+			Content: content,
+			// Keep the indicator silent on mobile. It is metadata, not a reply.
+			Flags: discordgo.MessageFlagsSuppressNotifications,
+		})
 		if err != nil {
 			return
 		}
@@ -85,13 +89,15 @@ func (a *activityIndicator) Close() {
 
 func formatIndicator(name, detail string) string {
 	detail = strings.TrimSpace(detail)
+	// -# renders as small, muted subtext in Discord so the indicator reads as
+	// metadata rather than a regular message.
 	if detail == "" {
-		return fmt.Sprintf("_running %s..._", name)
+		return fmt.Sprintf("-# running %s...", name)
 	}
 	if len(detail) > indicatorMaxDetail {
 		detail = detail[:indicatorMaxDetail] + "..."
 	}
-	return fmt.Sprintf("_running %s:_ `%s`", name, escapeBackticks(detail))
+	return fmt.Sprintf("-# running %s: `%s`", name, escapeBackticks(detail))
 }
 
 // escapeBackticks prevents a detail that contains backticks from breaking out

@@ -17,19 +17,19 @@ func TestFormatIndicator(t *testing.T) {
 			name:   "no detail",
 			toolN:  "bash",
 			detail: "",
-			want:   "_running bash..._",
+			want:   "-# running bash...",
 		},
 		{
 			name:   "with detail wraps in code span",
 			toolN:  "bash",
 			detail: "ls -la",
-			want:   "_running bash:_ `ls -la`",
+			want:   "-# running bash: `ls -la`",
 		},
 		{
 			name:   "whitespace-only detail is treated as empty",
 			toolN:  "bash",
 			detail: "   ",
-			want:   "_running bash..._",
+			want:   "-# running bash...",
 		},
 		{
 			name:    "truncates long detail",
@@ -41,7 +41,7 @@ func TestFormatIndicator(t *testing.T) {
 			name:   "escapes backticks in detail",
 			toolN:  "bash",
 			detail: "echo `whoami`",
-			want:   "_running bash:_ `echo 'whoami'`",
+			want:   "-# running bash: `echo 'whoami'`",
 		},
 	}
 
