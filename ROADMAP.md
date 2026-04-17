@@ -1,98 +1,141 @@
 # Roadmap
 
-Guiding principles:
-- Every token entering the context window must earn its place
-- Observability over magic: the user should always know what's happening
-- Constraints produce better outcomes than feature bloat
-- Build on raw SDKs, not abstraction layers
+Nevinho is a sharp personal AI harness that runs in your Discord DMs. Tight context, observable, voice-native, self-hostable.
+
+## Principles
+
+- Every token in the context window must earn its place.
+- Observability over magic. The user always knows what's happening.
+- Constraints beat feature bloat.
+- Raw SDKs, not abstraction layers.
+- Grow by deepening the core, not widening the surface.
 
 ---
 
-## P0: Context Engineering (done)
+## Now
 
-- [x] **Prompt caching** -- `cache_control` breakpoints on system prompt and tool definitions. Turns 2+ reuse the cached prefix.
-- [x] **Cap tool results before history** -- Truncate tool outputs to ~4k chars before appending to history.
-- [x] **Token-aware history trimming** -- Replace fixed message count with a ~30k token budget. Approximate with `len/4`, trim oldest first.
-- [x] **Summarize on trim** -- When messages are evicted, summarize them into a "conversation so far" preamble instead of silently dropping them.
+In priority order. One at a time.
 
-## P1: Reliability
+### 1. Tool activity indicator on Discord
 
-A single transient error or stuck call should not kill a conversation.
+Biggest friction today is the 20-40s silent wait. Discord cannot do true token streaming (rate-limited, 2k char cap, mobile flicker). Realistic fix: show which tool is running.
 
-- [x] **Retry with exponential backoff** -- On 429/5xx, retry up to 3 times with backoff. Parse `Retry-After` for 429s. Thread `context.Context` through the HTTP layer so retries are cancellable.
-- [x] **Top-level timeout on Chat()** -- Wrap the chat loop in a 5-minute deadline. Prevents a stuck API call or infinite tool loop from hanging the bot.
-- [x] **Cost-per-message logging** -- Extend `logger.Done()` to include estimated cost (e.g., `1.2s · 1,340 tokens · $0.002`). Already have `estimateCost()`, just needs wiring.
+- [ ] Callback hook on tool start and tool end in the agent loop.
+- [ ] Discord handler edits the message to show the active tool: `running bash: ls -la`, `searching web: "go 1.24 release"`.
+- [ ] Clear the indicator when the final response ships.
+- [ ] One edit per tool call, well under Discord's rate limit.
 
-## P2: Harness-Level Memory (done)
+### 2. Observability surface
 
-- [x] **Auto-inject memory into system prompt** -- On `Chat()`, read `~/.nevinho/memory.md` and append its content to the system prompt as a `[Memory]` block. File missing or empty = no-op.
-- [x] **Harness-driven memory writes** -- After each user message, the harness scans for correction patterns (e.g. "remember X", "always X", "never X", "I prefer X") and appends one-line entries to `memory.md`. The LLM never sees write instructions.
-- [x] **Memory cap** -- Hard limit of 20 entries. Oldest entries rotate out. Deduplication prevents repeated entries.
+Cheap, compounding. Ship before Skills so you can measure context impact.
 
-## P3: Voice Messages (done)
+- [ ] `/status` shows cache hit rate (`cache_read / (cache_read + cache_creation)`) per session and lifetime.
+- [ ] `/status` shows per-tool call count and token cost.
+- [ ] `/why` command dumps what was injected into the last turn: memory entries loaded, skills loaded, cached prefix size, raw input tokens.
 
-- [x] **Voice transcription** -- Discord voice messages are downloaded and sent to OpenAI Whisper API. The transcribed text is fed to the agent as a normal message. Supports ogg, mp3, wav, m4a, webm formats. Requires `OPENAI_API_KEY`.
+### 3. Skills (progressive disclosure)
 
-## P4: Web Tooling
+Markdown files with YAML frontmatter in `~/.nevinho/skills/`. System prompt carries only a short index. Full body enters context only when the model loads it. Skills teach workflows; memory stores facts about the user.
 
-Accurate, citeable answers depend on search and fetch quality. Current implementation is minimal hand-rolled HTML parsing that breaks on JS-rendered sites.
+- [ ] Skill file format: frontmatter with `name`, `description`; body is markdown instructions.
+- [ ] On `Chat()`, scan the dir and append an index (name + one-line description) to the system prompt. Cap at 30 skills.
+- [ ] `load_skill(name)` tool returns the full body.
+- [ ] `/skills` lists available skills. `/skills <name>` shows the body.
+- [ ] Ship 3 built-in skills as templates (`git-commit`, `code-review`, `write-article`).
 
-**Minimal (reliability baseline):**
+### Polish in parallel (no feature weight)
 
-- [x] **Tavily deep search** -- Set `search_depth: "advanced"` and `include_answer: true` on Tavily calls. Surface the answer + citations instead of raw results.
-- [x] **Tavily extract for webRead** -- When `TAVILY_API_KEY` is set, use `https://api.tavily.com/extract`. Handles JS-rendered pages, returns markdown.
-- [x] **Jina Reader fallback for no-key path** -- Proxy through Jina Reader (`r.jina.ai/<url>`) so webRead works on modern JS-rendered docs sites without a key. Free tier is 20 RPM anonymous.
-- [x] **User-Agent + polite headers** -- `User-Agent: Nevinho/<version>`, `Accept`, and `Accept-Language` on outbound fetches. Avoids random 403s from Cloudflare-fronted sites.
-- [x] **Clear error signaling to the model** -- Explicit messages like "HTTP 403 forbidden (try another source)", "HTTP 429 rate limited (back off)", "timed out", "DNS lookup failed" so the model can decide to reformulate or retry instead of treating them as empty content.
-- [x] **Retry on 429/5xx for web calls** -- Matches the LLM retry layer: up to 3 attempts with exponential backoff, parses `Retry-After`. Prevents transient blips from killing a search mid-conversation.
+- [ ] Startup health check. On `nevinho start`, probe each configured provider with a trivial call. Fail fast with a clear error.
+- [ ] `nevinho doctor`. Dumps version, config presence, provider reachability, disk perms on `~/.nevinho/`.
+- [ ] Better setup errors. Map common failures (invalid Discord token, invalid API key, rate-limited, DNS) to specific messages.
+- [ ] Structured logs. One line per event, `key=value`. Greppable.
+- [ ] `file_edit` strict uniqueness. If `old_string` matches more than once, error with the count instead of fuzzy-matching.
+- [ ] Web fetch hardening.
+  - [ ] Swap raw HTML stripping for `github.com/JohannesKaufmann/html-to-markdown/v2` on the direct-fetch path.
+  - [ ] Revalidate SSRF blocklist on every HTTP redirect via `http.Client.CheckRedirect`.
+  - [ ] Fail closed on DNS resolution failure.
+  - [ ] Block metadata hostnames by name (`metadata.google.internal`, `metadata`) in addition to IP.
 
-**Polish (nice to have, ship when the pain shows up):**
+## Next
 
-- [ ] **URL cache** -- In-memory LRU, 5 min TTL, keyed on URL. Agent re-reading the same page in one session pays once.
-- [ ] **PDF support** -- Detect `application/pdf`, extract text via `pdfcpu` or `ledongthuc/pdf`. Many specs live as PDFs.
-- [ ] **Search result dedup** -- Hash URLs/hostnames before returning. Avoid 3 copies of the same Stack Overflow answer.
+Queued. Starts once Now lands.
 
-## P5: Streaming
+### OpenAI-compatible provider
 
-Waiting 20-40s with only a typing indicator provides no feedback. Streaming fixes this.
+One file covers Groq, Together, OpenRouter, LM Studio, vLLM, local servers.
 
-- [ ] **Streaming responses** -- Use the streaming API endpoint. Edit the Discord message as tokens arrive instead of waiting for the full response.
+- [ ] `llm/compat.go` pointing at any URL via `OPENAI_COMPAT_URL`, `OPENAI_COMPAT_KEY`, `OPENAI_COMPAT_MODEL`.
+- [ ] `nevinho setup` offers the new provider with presets for Groq, OpenRouter, LM Studio.
 
-## P6: Persist Across Restarts
+### CLI mode (`nevinho chat`)
 
-Conversations should survive process restarts and upgrades.
+Local REPL over the same agent core. Terminal streaming is free.
 
-- [ ] **Conversation summaries to disk** -- On trim or shutdown, write a summary to `~/.nevinho/summaries/{userID}.md`. On next message from that user, load the summary as context preamble.
+- [ ] `nevinho chat` command. Interactive REPL calling the same `agent.Chat()` Discord uses.
+- [ ] Raw token streaming to stdout.
+- [ ] Markdown rendering via `glamour`, fallback to raw text in non-TTY.
+- [ ] Session JSONL in `~/.nevinho/sessions/cli.jsonl`. `nevinho chat --new` starts fresh.
+- [ ] `nevinho setup --cli` skips Discord prompts. `nevinho setup --discord` wires Discord later.
 
-## P7: Scheduled Tasks
+### Google Gemini provider
 
-Nevinho runs 24/7 on a VPS. It should be able to run prompts on a schedule and report back to Discord.
+Native integration for 1M context and Gemini-specific features.
 
-- [ ] **Schedule tool** -- A single `schedule` tool with actions: `create`, `list`, `delete`, `pause`, `resume`. The agent translates "every morning at 9am fetch tech news" into a cron expression. The user never writes cron syntax.
-- [ ] **Schedule store** -- Encrypted JSON at `~/.nevinho/schedules.enc`. Each entry: ID, name, cron expression, prompt, enabled flag, last_run, next_run. Uses existing crypto package.
-- [ ] **Scheduler goroutine** -- A 1-minute ticker in the main loop. On tick, scan schedules for `next_run <= now`. Execute due tasks by calling `agent.Chat("sched:{id}", prompt)` with a dedicated history namespace so scheduled runs don't pollute manual conversations. Send results to the owner's Discord DM with a `**[{name}]**` header. Errors are reported, not swallowed.
-- [ ] **Cron parser** -- Minimal 5-field parser (`minute hour dom month dow`) plus shortcuts (`@daily`, `@hourly`, `@weekly`). ~100 LOC, no external dependency. Computes `next_run` from an expression and a reference time.
-- [ ] **Discord commands** -- `/schedules` to list active schedules with next run time. `/schedules pause|resume|delete <name>` to manage them.
-- [ ] **Concurrency guard** -- Scheduled tasks use virtual user ID `sched:{id}` for their own lock and history. Max one scheduled task runs at a time (channel semaphore) to prevent resource exhaustion. Manual chat is never blocked.
-- [ ] **Missed run policy** -- On startup, recompute `next_run` for all tasks. Never execute missed runs. Old news isn't news.
+- [ ] `llm/gemini.go`.
+- [ ] Implicit caching support.
+- [ ] Setup integration.
 
-Limits: max 10 active schedules, minimum interval 5 minutes, 5-minute execution timeout per run.
+### Scheduled tasks
 
-## P8: Richer Interactions
+Nevinho runs 24/7 on a VPS. Run prompts on a schedule and report back.
 
-Only after the foundation is solid.
+- [ ] `schedule` tool with create, list, delete, pause, resume actions.
+- [ ] Agent translates natural language to cron expressions. User never writes cron.
+- [ ] Encrypted store at `~/.nevinho/schedules.enc`. Entries: ID, name, cron, prompt, enabled, last_run, next_run.
+- [ ] 1-minute ticker. Scan for due tasks on each tick.
+- [ ] Dedicated history namespace so scheduled runs do not pollute manual conversations.
+- [ ] Use `github.com/robfig/cron/v3` for schedule parsing. Supports 5-field cron, `@daily`/`@hourly`/`@weekly` shortcuts, and `@every 30m` duration-style intervals. Handles timezones and DST correctly.
+- [ ] `/schedules` to list. `/schedules pause|resume|delete <name>` to manage.
+- [ ] Non-interactive bash policy (allowlist mode) during scheduled runs since the approval flow cannot prompt.
+- [ ] Limits: max 10 schedules, min 5-minute interval, 5-minute timeout, no missed-run catch-up.
 
-- [ ] **Image/attachment support** -- Accept images in Discord messages and pass them to vision-capable models.
+### Conversation persistence
+
+Conversations survive restarts and upgrades.
+
+- [ ] Write per-user summaries to `~/.nevinho/summaries/{userID}.md` on trim or shutdown.
+- [ ] Next message from that user loads the summary as context preamble.
+
+## Later
+
+Real but deferred. Ship when the above is solid or when a user hits the pain.
+
+- [ ] Semantic history compaction. Group evicted turns by topic before summarizing.
+- [ ] Tool-chain summarization. Collapse intermediate tool outputs after a chain completes.
+- [ ] Memory relevance ranking. Rank entries against the current message, inject top-K only.
+- [ ] Memory auto-expiry. `last_used` timestamp. Stale entries drop out.
+- [ ] Web tooling polish. URL cache (LRU, 5 min TTL). PDF extraction. Search result dedup.
+- [ ] Image and attachment support. Route Discord images to vision-capable models.
+- [ ] WhatsApp transport via `whatsmeow`. Needs a `transport/` interface refactor and real user demand first.
+- [ ] Proactive heartbeat. Periodic checklist drives agent actions. Ship only if distinct from scheduled tasks.
+- [ ] `delegate_research` tool. Fresh context, runs a research task, returns a summary. Only if long research chains blow the main context.
+
+## Won't build
+
+- **MCP.** Tool definitions are ~500 tokens. MCP overhead (13-18k) is 30x worse at this scale.
+- **Sub-agents.** Fragment the context we work hard to keep clean.
+- **LSP integration.** Not an IDE.
+- **Abstraction layers over provider SDKs.** Lose control over request shape.
+- **Prompt bloat.** System prompt stays under 1,000 tokens.
+- **Per-user analytics.** Personal bot. Global counters are enough.
+- **Parallel tool calls.** Sequential works. Added complexity is not worth it.
 
 ---
 
-## What we intentionally don't build
+## Shipped
 
-- **No MCP** -- Tool definitions are ~500 tokens. MCP overhead (13-18k tokens) would be 30x worse for no benefit at this scale.
-- **No sub-agents** -- Single agent, single context. Sub-agents are a black box within a black box.
-- **No LSP integration** -- Not an IDE. No mid-task error injection.
-- **No abstraction layers** -- Raw HTTP to provider APIs. Full control over request shape.
-- **No prompt bloat** -- System prompt stays under 1,000 tokens. Resist the urge to add instructions the model already knows from training.
-- **No platform abstraction** -- Built for Discord. Don't abstract for Slack/Telegram until someone actually asks.
-- **No per-user tracking** -- Personal bot. Global token counters are enough.
-- **No parallel tool calls** -- Sequential execution works. Low ROI for the added complexity.
+- [x] **Context engineering.** Prompt caching on system and tools. 30k-token history budget. Trim with summary preamble. 4k-char tool-result cap.
+- [x] **Reliability.** Exponential-backoff retries on 429/5xx with `Retry-After`. Cancellable via `context.Context`. 5-minute top-level timeout. Cost, token, and duration per message.
+- [x] **Harness memory.** Auto-injected `memory.md`. Pattern-triggered writes ("remember X", "always X"). 20-entry cap with dedup.
+- [x] **Voice.** Discord voice notes through OpenAI Whisper to agent input. Supports ogg, mp3, wav, m4a, webm.
+- [x] **Web tooling.** Tavily advanced search and extract. Jina Reader fallback. Polite headers. Explicit error signaling. 429/5xx retries.
