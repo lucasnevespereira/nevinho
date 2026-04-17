@@ -20,10 +20,11 @@ In priority order. One at a time.
 
 Biggest friction today is the 20-40s silent wait. Discord cannot do true token streaming (rate-limited, 2k char cap, mobile flicker). Realistic fix: show which tool is running.
 
-- [ ] Callback hook on tool start and tool end in the agent loop.
-- [ ] Discord handler edits the message to show the active tool: `running bash: ls -la`, `searching web: "go 1.24 release"`.
-- [ ] Clear the indicator when the final response ships.
-- [ ] One edit per tool call, well under Discord's rate limit.
+- [x] Per-user tool-start callback on the agent, panic-safe.
+- [x] Discord handler posts a subtext indicator (`-# running bash: ls -la`) on the first tool call, edits it on subsequent calls.
+- [x] `MessageFlagsSuppressNotifications` so the indicator stays silent on mobile.
+- [x] Edit throttle of 600ms to stay well under Discord's rate limit.
+- [x] Indicator deleted when the final response ships.
 
 ### 2. Observability surface
 
