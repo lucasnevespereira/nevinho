@@ -349,7 +349,12 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelTyping(m.ChannelID)
 	stopTyping := keepTyping(s, m.ChannelID)
 
+	indicator := newActivityIndicator(s, m.ChannelID)
+	b.agent.SetToolCallback(m.Author.ID, indicator.onEvent)
+
 	response, err := b.agent.Chat(m.Author.ID, text, isVoice)
+	b.agent.SetToolCallback(m.Author.ID, nil)
+	indicator.Close()
 	stopTyping()
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
@@ -722,7 +727,12 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	s.ChannelTyping(channelID)
 	stopTyping := keepTyping(s, channelID)
 
+	indicator := newActivityIndicator(s, channelID)
+	b.agent.SetToolCallback(userID, indicator.onEvent)
+
 	response, err := b.agent.Chat(userID, "yes", false)
+	b.agent.SetToolCallback(userID, nil)
+	indicator.Close()
 	stopTyping()
 	if err != nil {
 		s.ChannelMessageSend(channelID, friendlyError(err))

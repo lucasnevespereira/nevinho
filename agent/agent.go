@@ -47,6 +47,17 @@ Guidelines:
 - The user reads on Discord, often on a phone. Keep answers compact. Avoid wide tables and long horizontal lines.`
 )
 
+// ToolEvent fires when the agent begins executing a tool call. Consumers
+// (Discord bot, CLI) use it to render a live activity indicator so the user
+// sees what the agent is doing instead of staring at a typing indicator.
+type ToolEvent struct {
+	Name   string
+	Detail string
+}
+
+// ToolCallback receives ToolEvent values for a specific user.
+type ToolCallback func(ToolEvent)
+
 type Agent struct {
 	llm     llm.Provider
 	tools   *tools.Registry
@@ -57,6 +68,7 @@ type Agent struct {
 	history   map[string][]json.RawMessage
 	userLock  map[string]*sync.Mutex
 	cancelFn  map[string]context.CancelFunc
+	toolCb    map[string]ToolCallback
 	startTime time.Time
 	tokensIn  int
 	tokensOut int
@@ -71,8 +83,35 @@ func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		cancelFn:  make(map[string]context.CancelFunc),
+		toolCb:    make(map[string]ToolCallback),
 		startTime: time.Now(),
 	}
+}
+
+// SetToolCallback registers a per-user callback fired when a tool call starts.
+// Pass nil to clear. Callers should set before Chat and clear in a defer.
+func (a *Agent) SetToolCallback(userID string, cb ToolCallback) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if cb == nil {
+		delete(a.toolCb, userID)
+		return
+	}
+	a.toolCb[userID] = cb
+}
+
+func (a *Agent) emitToolEvent(userID, name, detail string) {
+	a.mu.Lock()
+	cb := a.toolCb[userID]
+	a.mu.Unlock()
+	if cb == nil {
+		return
+	}
+	defer func() {
+		// Never let a buggy consumer callback take down the agent loop.
+		_ = recover()
+	}()
+	cb(ToolEvent{Name: name, Detail: detail})
 }
 
 func (a *Agent) Cancel(userID string) bool {
@@ -186,7 +225,9 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 		needsApproval := false
 		for _, tc := range resp.ToolCalls {
 			toolsUsed = append(toolsUsed, tc.Name)
-			logger.Tool(tc.Name, toolDetail(tc.Name, tc.Input))
+			detail := toolDetail(tc.Name, tc.Input)
+			logger.Tool(tc.Name, detail)
+			a.emitToolEvent(userID, tc.Name, detail)
 			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
