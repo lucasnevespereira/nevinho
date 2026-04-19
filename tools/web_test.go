@@ -86,46 +86,65 @@ func TestParseDuckDuckGoLite_NoResults(t *testing.T) {
 	}
 }
 
-func TestExtractText(t *testing.T) {
+func TestHtmlToMarkdown(t *testing.T) {
 	tests := []struct {
 		name     string
 		html     string
-		contains string
-		excludes string
+		contains []string
+		excludes []string
 	}{
 		{
 			name:     "extracts paragraph text",
 			html:     "<html><body><p>Hello world</p></body></html>",
-			contains: "Hello world",
+			contains: []string{"Hello world"},
 		},
 		{
 			name:     "strips script tags",
 			html:     "<html><body><script>alert(1)</script><p>Safe</p></body></html>",
-			contains: "Safe",
-			excludes: "alert",
+			contains: []string{"Safe"},
+			excludes: []string{"alert"},
 		},
 		{
 			name:     "strips style tags",
 			html:     "<html><body><style>.x{color:red}</style><p>Visible</p></body></html>",
-			contains: "Visible",
-			excludes: "color:red",
+			contains: []string{"Visible"},
+			excludes: []string{"color:red"},
 		},
 		{
 			name:     "prefers main tag when present",
 			html:     "<html><body><nav>Nav stuff</nav><main><p>Content</p></main></body></html>",
-			contains: "Content",
-			excludes: "Nav stuff",
+			contains: []string{"Content"},
+			excludes: []string{"Nav stuff"},
+		},
+		{
+			name:     "preserves link as markdown",
+			html:     `<html><body><p>See <a href="https://example.com/x">the docs</a>.</p></body></html>`,
+			contains: []string{"[the docs](https://example.com/x)"},
+		},
+		{
+			name:     "preserves list structure",
+			html:     "<html><body><ul><li>one</li><li>two</li></ul></body></html>",
+			contains: []string{"- one", "- two"},
+		},
+		{
+			name:     "preserves heading",
+			html:     "<html><body><main><h2>Title</h2><p>body</p></main></body></html>",
+			contains: []string{"## Title", "body"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractText(tt.html)
-			if !strings.Contains(got, tt.contains) {
-				t.Errorf("output missing %q\ngot: %s", tt.contains, got)
+			got := htmlToMarkdown(tt.html)
+			for _, want := range tt.contains {
+				if !strings.Contains(got, want) {
+					t.Errorf("output missing %q\ngot: %s", want, got)
+				}
 			}
-			if tt.excludes != "" && strings.Contains(got, tt.excludes) {
-				t.Errorf("output should not contain %q\ngot: %s", tt.excludes, got)
+			for _, bad := range tt.excludes {
+				if strings.Contains(got, bad) {
+					t.Errorf("output should not contain %q\ngot: %s", bad, got)
+				}
 			}
 		})
 	}
