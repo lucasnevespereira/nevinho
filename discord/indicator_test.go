@@ -72,3 +72,51 @@ func TestFormatIndicator_RespectsMaxDetailLength(t *testing.T) {
 		t.Errorf("body length %d exceeds max+3 (%d): %q", len(body), indicatorMaxDetail+3, body)
 	}
 }
+
+func TestFormatChain(t *testing.T) {
+	tests := []struct {
+		name   string
+		chain  []string
+		detail string
+		want   string
+	}{
+		{
+			name:  "empty chain",
+			chain: []string{},
+			want:  "",
+		},
+		{
+			name:   "single tool no detail",
+			chain:  []string{"bash"},
+			detail: "",
+			want:   "-# running bash...",
+		},
+		{
+			name:   "two tools last has detail",
+			chain:  []string{"web_search", "web_read"},
+			detail: "https://example.com",
+			want:   "-# web_search → web_read: `https://example.com`",
+		},
+		{
+			name:   "three tools no detail",
+			chain:  []string{"web_search", "web_read", "file_write"},
+			detail: "",
+			want:   "-# web_search → web_read → file_write...",
+		},
+		{
+			name:   "prefix tools never show detail",
+			chain:  []string{"bash", "web_search"},
+			detail: "nevinho",
+			want:   "-# bash → web_search: `nevinho`",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatChain(tt.chain, tt.detail)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

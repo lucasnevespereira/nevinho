@@ -13,11 +13,16 @@ import (
 const (
 	indicatorMinInterval = 600 * time.Millisecond
 	indicatorMaxDetail   = 80
+	indicatorChainMax    = 3
 )
 
 // activityIndicator maintains a single Discord message that reflects the
-// currently running tool call. It creates the message lazily on the first
-// event, edits it on subsequent events, and deletes it on Close.
+// chain of tool calls in the current turn. It creates the message lazily on
+// the first event, edits it on subsequent events, and deletes it on Close.
+//
+// The chain shows up to indicatorChainMax most recent tool names joined with
+// an arrow, followed by the current tool's detail. Older tools fall off the
+// left as new ones arrive so the message stays compact on mobile.
 //
 // Discord rate-limits edits to roughly 5 per 5s per channel. We throttle to
 // one edit per ~600ms which keeps us well under that ceiling while staying
@@ -30,6 +35,7 @@ type activityIndicator struct {
 	messageID string
 	lastEdit  time.Time
 	closed    bool
+	chain     []string
 }
 
 func newActivityIndicator(s *discordgo.Session, channelID string) *activityIndicator {
@@ -47,7 +53,12 @@ func (a *activityIndicator) onEvent(ev agent.ToolEvent) {
 		return
 	}
 
-	content := formatIndicator(ev.Name, ev.Detail)
+	a.chain = append(a.chain, ev.Name)
+	if len(a.chain) > indicatorChainMax {
+		a.chain = a.chain[len(a.chain)-indicatorChainMax:]
+	}
+
+	content := formatChain(a.chain, ev.Detail)
 
 	if a.messageID == "" {
 		msg, err := a.session.ChannelMessageSendComplex(a.channelID, &discordgo.MessageSend{
@@ -87,17 +98,38 @@ func (a *activityIndicator) Close() {
 	a.messageID = ""
 }
 
-func formatIndicator(name, detail string) string {
+// formatChain renders the tool chain as subtext. Only the last (current) tool
+// carries its detail; earlier tools are shown by name only to keep the line
+// short on mobile.
+func formatChain(chain []string, detail string) string {
+	if len(chain) == 0 {
+		return ""
+	}
 	detail = strings.TrimSpace(detail)
-	// -# renders as small, muted subtext in Discord so the indicator reads as
-	// metadata rather than a regular message.
+
+	prefix := strings.Join(chain[:len(chain)-1], " → ")
+	current := chain[len(chain)-1]
+
+	var head string
+	if prefix == "" {
+		head = fmt.Sprintf("running %s", current)
+	} else {
+		head = fmt.Sprintf("%s → %s", prefix, current)
+	}
+
 	if detail == "" {
-		return fmt.Sprintf("-# running %s...", name)
+		return fmt.Sprintf("-# %s...", head)
 	}
 	if len(detail) > indicatorMaxDetail {
 		detail = detail[:indicatorMaxDetail] + "..."
 	}
-	return fmt.Sprintf("-# running %s: `%s`", name, escapeBackticks(detail))
+	return fmt.Sprintf("-# %s: `%s`", head, escapeBackticks(detail))
+}
+
+// formatIndicator is kept for backwards compatibility with existing tests and
+// single-tool callers. It renders a chain of length one.
+func formatIndicator(name, detail string) string {
+	return formatChain([]string{name}, detail)
 }
 
 // escapeBackticks prevents a detail that contains backticks from breaking out
