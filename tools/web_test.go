@@ -42,6 +42,50 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestTimeRangeToDays(t *testing.T) {
+	tests := map[string]int{
+		"d":  1,
+		"w":  7,
+		"m":  30,
+		"y":  365,
+		"":   0,
+		"xx": 0,
+		"D":  1,
+	}
+	for in, want := range tests {
+		if got := timeRangeToDays(in); got != want {
+			t.Errorf("timeRangeToDays(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestParseDuckDuckGoLite(t *testing.T) {
+	lite := `<html><body><table>
+<tr><td>1.</td><td><a class="result-link" href="https://example.com/a">Title A</a></td></tr>
+<tr><td></td><td class="result-snippet">Snippet for A</td></tr>
+<tr><td>2.</td><td><a class="result-link" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fb">Title B</a></td></tr>
+<tr><td></td><td class="result-snippet">Snippet for B</td></tr>
+</table></body></html>`
+
+	got := parseDuckDuckGoLite(lite)
+	for _, want := range []string{
+		"Title A", "Title B",
+		"https://example.com/a",
+		"https://example.com/b",
+		"Snippet for A", "Snippet for B",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q\ngot: %s", want, got)
+		}
+	}
+}
+
+func TestParseDuckDuckGoLite_NoResults(t *testing.T) {
+	if got := parseDuckDuckGoLite("<html><body>empty</body></html>"); got != "no results found" {
+		t.Errorf("expected no-results sentinel, got %q", got)
+	}
+}
+
 func TestExtractText(t *testing.T) {
 	tests := []struct {
 		name     string

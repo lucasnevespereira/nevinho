@@ -19,6 +19,94 @@ const httpTimeout = 15 * time.Second
 
 const userAgent = "Nevinho/1.0 (+https://github.com/lucasnevespereira/nevinho)"
 
+// browserUA is sent only to search engines. DuckDuckGo's HTML/lite endpoints
+// ship a leaner page (or an empty one) to non-browser user agents, which
+// starves the parser. A realistic Firefox string gets richer, more reliable
+// results. For fetching arbitrary sites we still send `userAgent` so operators
+// know who is hitting them.
+const browserUA = "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0"
+
+// regionToDDG maps a 2-letter country code to DuckDuckGo's `kl` locale hint.
+// The full kl list is long; this covers the countries most likely to matter.
+// Unknown codes pass through as `{code}-en` which DDG tolerates.
+var regionToDDG = map[string]string{
+	"ch": "ch-fr",
+	"us": "us-en",
+	"uk": "uk-en",
+	"gb": "uk-en",
+	"fr": "fr-fr",
+	"de": "de-de",
+	"es": "es-es",
+	"it": "it-it",
+	"nl": "nl-nl",
+	"be": "be-fr",
+	"pt": "pt-pt",
+	"br": "br-pt",
+	"at": "at-de",
+	"se": "se-sv",
+	"no": "no-no",
+	"dk": "dk-da",
+	"fi": "fi-fi",
+	"pl": "pl-pl",
+	"ie": "ie-en",
+	"ca": "ca-en",
+	"au": "au-en",
+	"nz": "nz-en",
+	"jp": "jp-jp",
+	"mx": "mx-es",
+	"in": "in-en",
+	"sg": "sg-en",
+	"ae": "xa-ar",
+}
+
+// regionToCountry maps a 2-letter code to Tavily's country parameter (full
+// lowercase English name). Tavily accepts this only when topic is "general".
+var regionToCountry = map[string]string{
+	"ch": "switzerland",
+	"us": "united states",
+	"uk": "united kingdom",
+	"gb": "united kingdom",
+	"fr": "france",
+	"de": "germany",
+	"es": "spain",
+	"it": "italy",
+	"nl": "netherlands",
+	"be": "belgium",
+	"pt": "portugal",
+	"br": "brazil",
+	"at": "austria",
+	"se": "sweden",
+	"no": "norway",
+	"dk": "denmark",
+	"fi": "finland",
+	"pl": "poland",
+	"ie": "ireland",
+	"ca": "canada",
+	"au": "australia",
+	"nz": "new zealand",
+	"jp": "japan",
+	"mx": "mexico",
+	"in": "india",
+	"sg": "singapore",
+	"ae": "united arab emirates",
+}
+
+// timeRangeToDays converts the shared "d"/"w"/"m"/"y" shorthand to a day
+// count Tavily understands. Returns 0 when the range is empty or unknown.
+func timeRangeToDays(r string) int {
+	switch strings.ToLower(r) {
+	case "d":
+		return 1
+	case "w":
+		return 7
+	case "m":
+		return 30
+	case "y":
+		return 365
+	}
+	return 0
+}
+
 // fetchWithRetry performs an HTTP request with up to 3 attempts, retrying on
 // 429/5xx and transient transport errors. Respects Retry-After on 429.
 // Returns the response body (capped at maxBody), status code, and any error.
@@ -275,7 +363,9 @@ func truncateText(s string) string {
 }
 
 type webSearchInput struct {
-	Query string `json:"query"`
+	Query     string `json:"query"`
+	Region    string `json:"region,omitempty"`
+	TimeRange string `json:"time_range,omitempty"`
 }
 
 func (r *Registry) webSearch(input json.RawMessage) string {
@@ -283,13 +373,15 @@ func (r *Registry) webSearch(input json.RawMessage) string {
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
+	in.Region = strings.ToLower(strings.TrimSpace(in.Region))
+	in.TimeRange = strings.ToLower(strings.TrimSpace(in.TimeRange))
 
 	if r.cfg.TavilyAPIKey != "" {
-		if out := searchTavily(in.Query, r.cfg.TavilyAPIKey); !isSearchFailure(out) {
+		if out := searchTavily(in, r.cfg.TavilyAPIKey); !isSearchFailure(out) {
 			return out
 		}
 	}
-	return searchDuckDuckGo(in.Query)
+	return searchDuckDuckGo(in)
 }
 
 // isSearchFailure returns true when a provider returned an error or empty result,
@@ -304,16 +396,26 @@ func isSearchFailure(out string) bool {
 		strings.HasPrefix(lower, "failed to")
 }
 
-func searchTavily(query, apiKey string) string {
+func searchTavily(in webSearchInput, apiKey string) string {
 	client := &http.Client{Timeout: httpTimeout}
 
-	reqBody, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"api_key":        apiKey,
-		"query":          query,
+		"query":          in.Query,
 		"max_results":    5,
 		"search_depth":   "advanced",
 		"include_answer": true,
-	})
+	}
+	if country, ok := regionToCountry[in.Region]; ok {
+		payload["country"] = country
+	}
+	if days := timeRangeToDays(in.TimeRange); days > 0 {
+		// `days` only applies when topic is "news"; switching topic is fine
+		// here because the caller explicitly asked for time-filtered results.
+		payload["topic"] = "news"
+		payload["days"] = days
+	}
+	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Sprintf("failed to build request: %v", err)
 	}
@@ -363,16 +465,41 @@ func searchTavily(query, apiKey string) string {
 	return sb.String()
 }
 
-func searchDuckDuckGo(query string) string {
+func searchDuckDuckGo(in webSearchInput) string {
 	client := &http.Client{Timeout: httpTimeout}
-	reqURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
+
+	out := fetchDuckDuckGo(client, "https://html.duckduckgo.com/html/", in, parseDuckDuckGoHTML)
+	if !isSearchFailure(out) {
+		return out
+	}
+	// DDG's HTML endpoint silently returns an empty results list under some
+	// conditions (bot-like UA heuristics, odd queries, transient layout
+	// changes). The lite endpoint uses a simpler renderer that is more
+	// resilient and often succeeds when /html/ does not.
+	return fetchDuckDuckGo(client, "https://lite.duckduckgo.com/lite/", in, parseDuckDuckGoLite)
+}
+
+func fetchDuckDuckGo(client *http.Client, endpoint string, in webSearchInput, parse func(string) string) string {
+	params := url.Values{}
+	params.Set("q", in.Query)
+	if kl, ok := regionToDDG[in.Region]; ok {
+		params.Set("kl", kl)
+	}
+	if in.TimeRange != "" {
+		params.Set("df", in.TimeRange)
+	}
+	reqURL := endpoint + "?" + params.Encode()
 
 	body, status, err := fetchWithRetry(client, func() (*http.Request, error) {
 		req, err := http.NewRequest("GET", reqURL, nil)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("User-Agent", userAgent)
+		// DDG serves thin or empty pages to non-browser UAs. A realistic
+		// browser string consistently returns the full result list.
+		req.Header.Set("User-Agent", browserUA)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 		return req, nil
 	}, 500*1024)
 	if err != nil {
@@ -382,7 +509,7 @@ func searchDuckDuckGo(query string) string {
 		return fmt.Sprintf("search failed: %s", describeHTTPStatus(status))
 	}
 
-	return parseDuckDuckGoHTML(string(body))
+	return parse(string(body))
 }
 
 func parseDuckDuckGoHTML(htmlContent string) string {
@@ -415,6 +542,58 @@ func parseDuckDuckGoHTML(htmlContent string) string {
 			}
 			if r.Title != "" && r.URL != "" {
 				results = append(results, r)
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if len(results) == 0 {
+		return "no results found"
+	}
+	if len(results) > 5 {
+		results = results[:5]
+	}
+
+	var sb strings.Builder
+	for i, r := range results {
+		fmt.Fprintf(&sb, "%d. **%s**\n   %s\n   %s\n\n", i+1, r.Title, r.URL, r.Description)
+	}
+	return sb.String()
+}
+
+// parseDuckDuckGoLite parses DDG's lite HTML. The layout is a flat table of
+// alternating rows: a link row (result-link anchor) followed by a snippet row
+// (td with result-snippet). We collect them in document order then pair each
+// link with the next snippet that follows it.
+func parseDuckDuckGoLite(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return "failed to parse search results"
+	}
+
+	type result struct {
+		Title, URL, Description string
+	}
+	var results []result
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" && hasClass(n, "result-link") {
+			r := result{Title: textContent(n)}
+			for _, attr := range n.Attr {
+				if attr.Key == "href" {
+					r.URL = extractDDGURL(attr.Val)
+				}
+			}
+			if r.Title != "" && r.URL != "" {
+				results = append(results, r)
+			}
+		} else if n.Type == html.ElementNode && n.Data == "td" && hasClass(n, "result-snippet") {
+			if len(results) > 0 && results[len(results)-1].Description == "" {
+				results[len(results)-1].Description = textContent(n)
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {

@@ -95,8 +95,11 @@ Use this to find relevant pages, then use web_read to get full content if the sn
 When to use:
 - Any knowledge question where an authoritative source exists (official docs, specs, project homepage, standards, reference manuals). This includes "what is X", "how does X work", "how do I do X", "why does X happen", comparisons, and best practices. The user wants references they can share with colleagues, so do not answer from memory alone when a citeable source is available.
 - Anything time-sensitive: versions, releases, news, pricing, current status.
+Optional params:
+- region: 2-letter country code (e.g., "ch", "us", "fr", "de") to bias results toward that country. Use when the query is location-specific ("jobs in Sion", "restaurants near Zurich").
+- time_range: "d" (past day), "w" (past week), "m" (past month), "y" (past year). Use for news, releases, or anything where freshness matters.
 When you use information from the answer or sources, cite each source URL at the end of your reply on its own line: "Source: <url>". Multiple sources get multiple lines.`,
-			Schema: `{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`,
+			Schema: `{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"region":{"type":"string","description":"2-letter country code to bias results (e.g. \"ch\", \"us\")"},"time_range":{"type":"string","enum":["d","w","m","y"],"description":"Freshness filter: d=day, w=week, m=month, y=year"}},"required":["query"]}`,
 		},
 		{
 			Name: "bash",
