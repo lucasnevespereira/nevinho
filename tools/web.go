@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"golang.org/x/net/html"
 )
 
@@ -286,7 +287,7 @@ func fetchDirect(target string) string {
 		return describeHTTPStatus(status)
 	}
 
-	return truncateText(extractText(string(body)))
+	return truncateText(htmlToMarkdown(string(body)))
 }
 
 func extractTavily(target, apiKey string) string {
@@ -689,21 +690,22 @@ func validateURL(rawURL string) error {
 	return nil
 }
 
-var skipTags = map[string]bool{
+// boilerplateTags are stripped before markdown conversion when the document
+// has no <main> or <article> root. Leaving them in lets navigation, ads, and
+// cookie banners leak into the output and waste tokens.
+var boilerplateTags = map[string]bool{
 	"script": true, "style": true, "noscript": true, "svg": true,
 	"iframe": true, "nav": true, "footer": true, "header": true,
 	"aside": true, "form": true, "button": true, "select": true,
 	"textarea": true, "input": true,
 }
 
-var blockTags = map[string]bool{
-	"p": true, "div": true, "br": true, "hr": true,
-	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
-	"li": true, "tr": true, "dt": true, "dd": true,
-	"blockquote": true, "pre": true, "article": true, "section": true,
-}
-
-func extractText(htmlContent string) string {
+// htmlToMarkdown parses raw HTML, narrows to <main>/<article> when present,
+// strips boilerplate otherwise, and converts the result to markdown. Markdown
+// preserves links, lists, headings, and tables — structure the plain-text
+// extractor threw away. On any parse or conversion failure, returns the raw
+// input so the caller still has something to show.
+func htmlToMarkdown(htmlContent string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return htmlContent
@@ -715,56 +717,38 @@ func extractText(htmlContent string) string {
 	} else if article := findTag(doc, "article"); article != nil {
 		root = article
 	} else {
+		stripBoilerplate(doc)
 		root = doc
 	}
 
-	var sb strings.Builder
-	var extract func(*html.Node)
-	extract = func(n *html.Node) {
-		if n.Type == html.ElementNode && skipTags[n.Data] {
+	md, err := htmltomarkdown.ConvertNode(root)
+	if err != nil {
+		return htmlContent
+	}
+	return strings.TrimSpace(string(md))
+}
+
+// stripBoilerplate removes nav/header/footer/script/style and similar nodes
+// in place. Walking with a pre-collected removal list avoids mutating the
+// tree during traversal.
+func stripBoilerplate(n *html.Node) {
+	var remove []*html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && boilerplateTags[n.Data] {
+			remove = append(remove, n)
 			return
 		}
-		if n.Type == html.ElementNode {
-			for _, a := range n.Attr {
-				if a.Key == "hidden" || (a.Key == "aria-hidden" && a.Val == "true") {
-					return
-				}
-			}
-		}
-		if n.Type == html.TextNode {
-			text := strings.TrimSpace(n.Data)
-			if text != "" {
-				sb.WriteString(text)
-				sb.WriteString(" ")
-			}
-		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			extract(c)
-		}
-		if n.Type == html.ElementNode && blockTags[n.Data] {
-			sb.WriteString("\n")
+			walk(c)
 		}
 	}
-
-	extract(root)
-
-	text := sb.String()
-	lines := strings.Split(text, "\n")
-	var out []string
-	blanks := 0
-	for _, line := range lines {
-		line = strings.TrimRight(line, " \t")
-		if line == "" {
-			blanks++
-			if blanks <= 1 {
-				out = append(out, "")
-			}
-		} else {
-			blanks = 0
-			out = append(out, line)
+	walk(n)
+	for _, node := range remove {
+		if node.Parent != nil {
+			node.Parent.RemoveChild(node)
 		}
 	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func findTag(n *html.Node, tag string) *html.Node {
