@@ -27,6 +27,15 @@ const (
 // Discord rate-limits edits to roughly 5 per 5s per channel. We throttle to
 // one edit per ~600ms which keeps us well under that ceiling while staying
 // responsive for the user.
+// chainEntry groups consecutive calls to the same tool. Seeing the exact
+// same tool fire three times in a row tells the user nothing new, so we
+// collapse it into one entry with a count instead of spamming the arrow
+// chain with duplicates.
+type chainEntry struct {
+	name  string
+	count int
+}
+
 type activityIndicator struct {
 	session   *discordgo.Session
 	channelID string
@@ -35,7 +44,7 @@ type activityIndicator struct {
 	messageID string
 	lastEdit  time.Time
 	closed    bool
-	chain     []string
+	chain     []chainEntry
 }
 
 func newActivityIndicator(s *discordgo.Session, channelID string) *activityIndicator {
@@ -53,9 +62,13 @@ func (a *activityIndicator) onEvent(ev agent.ToolEvent) {
 		return
 	}
 
-	a.chain = append(a.chain, ev.Name)
-	if len(a.chain) > indicatorChainMax {
-		a.chain = a.chain[len(a.chain)-indicatorChainMax:]
+	if n := len(a.chain); n > 0 && a.chain[n-1].name == ev.Name {
+		a.chain[n-1].count++
+	} else {
+		a.chain = append(a.chain, chainEntry{name: ev.Name, count: 1})
+		if len(a.chain) > indicatorChainMax {
+			a.chain = a.chain[len(a.chain)-indicatorChainMax:]
+		}
 	}
 
 	content := formatChain(a.chain, ev.Detail)
@@ -100,15 +113,20 @@ func (a *activityIndicator) Close() {
 
 // formatChain renders the tool chain as subtext. Only the last (current) tool
 // carries its detail; earlier tools are shown by name only to keep the line
-// short on mobile.
-func formatChain(chain []string, detail string) string {
+// short on mobile. Repeated consecutive calls to the same tool render as
+// "name ×N" instead of arrow-spamming the same name.
+func formatChain(chain []chainEntry, detail string) string {
 	if len(chain) == 0 {
 		return ""
 	}
 	detail = strings.TrimSpace(detail)
 
-	prefix := strings.Join(chain[:len(chain)-1], " → ")
-	current := chain[len(chain)-1]
+	parts := make([]string, len(chain))
+	for i, e := range chain {
+		parts[i] = renderEntry(e)
+	}
+	prefix := strings.Join(parts[:len(parts)-1], " → ")
+	current := parts[len(parts)-1]
 
 	var head string
 	if prefix == "" {
@@ -126,10 +144,17 @@ func formatChain(chain []string, detail string) string {
 	return fmt.Sprintf("-# %s: `%s`", head, escapeBackticks(detail))
 }
 
+func renderEntry(e chainEntry) string {
+	if e.count > 1 {
+		return fmt.Sprintf("%s ×%d", e.name, e.count)
+	}
+	return e.name
+}
+
 // formatIndicator is kept for backwards compatibility with existing tests and
 // single-tool callers. It renders a chain of length one.
 func formatIndicator(name, detail string) string {
-	return formatChain([]string{name}, detail)
+	return formatChain([]chainEntry{{name: name, count: 1}}, detail)
 }
 
 // escapeBackticks prevents a detail that contains backticks from breaking out

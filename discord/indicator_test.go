@@ -74,40 +74,53 @@ func TestFormatIndicator_RespectsMaxDetailLength(t *testing.T) {
 }
 
 func TestFormatChain(t *testing.T) {
+	e := func(name string, count int) chainEntry { return chainEntry{name: name, count: count} }
 	tests := []struct {
 		name   string
-		chain  []string
+		chain  []chainEntry
 		detail string
 		want   string
 	}{
 		{
 			name:  "empty chain",
-			chain: []string{},
+			chain: []chainEntry{},
 			want:  "",
 		},
 		{
 			name:   "single tool no detail",
-			chain:  []string{"bash"},
+			chain:  []chainEntry{e("bash", 1)},
 			detail: "",
 			want:   "-# running bash...",
 		},
 		{
 			name:   "two tools last has detail",
-			chain:  []string{"web_search", "web_read"},
+			chain:  []chainEntry{e("web_search", 1), e("web_read", 1)},
 			detail: "https://example.com",
 			want:   "-# web_search → web_read: `https://example.com`",
 		},
 		{
 			name:   "three tools no detail",
-			chain:  []string{"web_search", "web_read", "file_write"},
+			chain:  []chainEntry{e("web_search", 1), e("web_read", 1), e("file_write", 1)},
 			detail: "",
 			want:   "-# web_search → web_read → file_write...",
 		},
 		{
 			name:   "prefix tools never show detail",
-			chain:  []string{"bash", "web_search"},
+			chain:  []chainEntry{e("bash", 1), e("web_search", 1)},
 			detail: "nevinho",
 			want:   "-# bash → web_search: `nevinho`",
+		},
+		{
+			name:   "repeated tool shows count",
+			chain:  []chainEntry{e("web_search", 3)},
+			detail: "query",
+			want:   "-# running web_search ×3: `query`",
+		},
+		{
+			name:   "count only on repeated entry",
+			chain:  []chainEntry{e("web_search", 3), e("web_read", 1)},
+			detail: "https://example.com",
+			want:   "-# web_search ×3 → web_read: `https://example.com`",
 		},
 	}
 
@@ -118,5 +131,25 @@ func TestFormatChain(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIndicatorCollapsesDuplicates(t *testing.T) {
+	a := &activityIndicator{}
+	// Simulate three consecutive web_search calls followed by one web_read
+	// without touching Discord. We can't call onEvent because it hits the
+	// network, but the collapse logic lives purely in the chain update.
+	a.chain = append(a.chain, chainEntry{name: "web_search", count: 1})
+	for range 2 {
+		if n := len(a.chain); n > 0 && a.chain[n-1].name == "web_search" {
+			a.chain[n-1].count++
+		}
+	}
+	a.chain = append(a.chain, chainEntry{name: "web_read", count: 1})
+
+	got := formatChain(a.chain, "https://example.com")
+	want := "-# web_search ×3 → web_read: `https://example.com`"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
