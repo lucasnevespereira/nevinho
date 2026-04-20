@@ -83,93 +83,146 @@ func (r *Registry) Defs() []llm.ToolDef {
 	return []llm.ToolDef{
 		{
 			Name: "web_read",
-			Description: `Fetch a web page and return its readable text content. Strips scripts, styles, nav, and boilerplate.
-Use this instead of bash curl/wget for reading web content.
-When you use information from a fetched page in your answer, cite the source URL at the end on its own line: "Source: <url>".`,
+			Description: `Fetch a web page and return its content as markdown. Headings, lists, links, and tables are preserved. Scripts, styles, nav, and footer are stripped.
+Use instead of bash curl/wget for reading web content. Do not use for JSON APIs; use bash curl with the right Accept header.
+Output: markdown text. Truncated to 8000 chars with "...(truncated)" appended when longer.
+Errors (literal prefixes, match exactly):
+- "invalid input: ..." bad JSON args.
+- "blocked: ..." SSRF-blocked host, bad scheme, or private IP. Do not retry.
+- "failed to fetch: ..." network error. Detail is one of: "timed out", "DNS lookup failed", "connection refused", "connection reset", "TLS/certificate error", "HTTP 401/403/404/408/429", "HTTP <code> server error", "HTTP <code>".
+- "no content extracted" page had no readable body.
+Retry "failed to fetch: HTTP 5xx" or "timed out" at most once. On 401/403/404, try a different source. Cite the URL at the end of your reply on its own line: "Source: <url>".`,
 			Schema: `{"type":"object","properties":{"url":{"type":"string","description":"Full URL to fetch (must be http or https)"}},"required":["url"]}`,
 		},
 		{
 			Name: "web_search",
 			Description: `Search the web. Returns a summarized answer (when available) followed by source titles, URLs, and snippets.
-Use this to find relevant pages, then use web_read to get full content if the snippets are not enough.
+Use to find relevant pages, then web_read for full content when snippets are not enough.
 When to use:
-- Any knowledge question where an authoritative source exists (official docs, specs, project homepage, standards, reference manuals). This includes "what is X", "how does X work", "how do I do X", "why does X happen", comparisons, and best practices. The user wants references they can share with colleagues, so do not answer from memory alone when a citeable source is available.
+- Knowledge questions where an authoritative source exists (docs, specs, standards, reference manuals). The user wants citable sources, so do not answer from memory when one is available.
 - Anything time-sensitive: versions, releases, news, pricing, current status.
 Optional params:
-- region: 2-letter country code (e.g., "ch", "us", "fr", "de") to bias results toward that country. Use when the query is location-specific ("jobs in Sion", "restaurants near Zurich").
-- time_range: "d" (past day), "w" (past week), "m" (past month), "y" (past year). Use for news, releases, or anything where freshness matters.
-When you use information from the answer or sources, cite each source URL at the end of your reply on its own line: "Source: <url>". Multiple sources get multiple lines.`,
+- region: 2-letter country code ("ch", "us", "fr", "de") to bias results. Use for location-specific queries ("jobs in Sion", "restaurants near Zurich").
+- time_range: "d", "w", "m", "y" (past day/week/month/year). Use for news or anything where freshness matters.
+Output: plain text. Answer section (when available) then numbered sources with title, URL, and snippet.
+Errors (literal prefixes):
+- "invalid input: ..." bad JSON args.
+- "search failed: ..." network or HTTP error. Same detail vocabulary as web_read.
+- "no results found" query returned nothing. Try broader terms.
+- "failed to parse search results" upstream returned malformed data.
+Retry "search failed: HTTP 5xx" or "timed out" at most once. Cite each source URL at the end of your reply on its own line: "Source: <url>".`,
 			Schema: `{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"region":{"type":"string","description":"2-letter country code to bias results (e.g. \"ch\", \"us\")"},"time_range":{"type":"string","enum":["d","w","m","y"],"description":"Freshness filter: d=day, w=week, m=month, y=year"}},"required":["query"]}`,
 		},
 		{
 			Name: "bash",
-			Description: `Run a bash command and return combined stdout/stderr. Times out after 2 minutes. Non-interactive only.
-Guidelines:
-- Use -y or --yes flags for package managers. Never use interactive prompts.
-- Prefer file_read/file_write/file_edit over cat/echo/sed for file operations.
-- Prefer grep/find tools over bash grep/find for code search.
-- When cloning repos, clone into ~/apps unless told otherwise. Never clone into / or ~.
-- Always report the full path of created/cloned directories in your response.
-- Commands like rm, sudo, chmod, and curl with output flags require user approval.`,
+			Description: `Run a bash command and return combined stdout/stderr. 2-minute timeout. Non-interactive only.
+Rules:
+- No interactive prompts. Pass -y or --yes to package managers. Commands that wait for input will time out.
+- No long-running commands: tail -f, watch, sleep, servers, REPLs. They hit the timeout and return nothing useful. Use a one-shot form.
+- Prefer file_read, file_write, file_edit over cat, echo, sed. Prefer the grep and find tools over bash grep and find.
+- Clone into ~/apps unless the user says otherwise. Never into / or ~. Report the full path in your reply.
+- rm, sudo, chmod, kill, dd, curl piped to a shell, and curl with output flags require user approval. Paths under ~/.ssh, ~/.aws, ~/.kube, /etc, ~/.env, and anything named secret/token/password also require approval.
+Output: combined stdout and stderr with ANSI stripped. "(no output)" when empty. Appended "(timed out after 2m)" on timeout, "(cancelled)" on cancel, raw error string on other failures. Output over 8000 chars is tail-truncated with a "...(showing last <N> of <M> chars)..." header.
+Errors (literal prefixes):
+- "invalid input: ..." bad JSON args.
+- "NEEDS_APPROVAL:run_code" dangerous command or sensitive path. Stop and wait for the user.
+On approval the tool re-runs and returns the actual command output.`,
 			Schema: `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"}},"required":["command"]}`,
 		},
 		{
 			Name: "file_read",
-			Description: `Read a file's contents. Output is truncated to 200 lines. Use offset to continue reading large files.
-Guidelines:
-- Always read a file before editing it. Copy old_text exactly from the read output.
-- If the output says "truncated, use offset=N to continue", call file_read again with that offset.
-- The header shows [path, lines X-Y of Z] so you know where you are in the file.
-- When the user asks about a file (e.g. "what does this README say?", "what's in this config?"), read it then answer in your own words. Do not paste the raw file content back unless the user explicitly asks to see the file (e.g. "show me the full file", "paste the README").
-- For source code, quote only the relevant snippet, not the whole file.`,
+			Description: `Read a file. Default returns up to 200 lines. Use offset to paginate large files.
+Rules:
+- Always file_read before file_edit. Copy old_text exactly from the read output including whitespace.
+- When the result ends with "[truncated, use offset=<N> to continue]", call file_read again with that offset.
+- When the user asks what a file contains, summarize in your own words. Do not paste the whole file unless explicitly asked.
+- For source code, quote only the relevant snippet.
+Output: header "[<path>, lines <start>-<end> of <total>]" then content. Appends "[truncated, use offset=<N> to continue]" when there is more.
+Errors (literal prefixes):
+- "invalid input: ..." bad JSON args.
+- "invalid path: ..." path could not be resolved.
+- "file not found: <path>".
+- "failed to read: ..." permission or I/O error.
+- "offset <N> exceeds file length (<M> lines)".`,
 			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"offset":{"type":"integer","description":"Line number to start from (1-indexed)"},"limit":{"type":"integer","description":"Max lines to return (default 200)"}},"required":["path"]}`,
 		},
 		{
 			Name: "file_write",
-			Description: `Write content to a file, replacing it entirely. Creates parent directories if needed. Requires directory approval.
-Guidelines:
-- For small changes, prefer file_edit over file_write. It is safer and cheaper.
-- Always tell the user the full path of the file you wrote.`,
+			Description: `Write a file, replacing its full content. Creates parent directories. Requires directory approval.
+Rules:
+- Prefer file_edit for changes to existing files. Use file_write for new files or complete rewrites.
+- Content over 100KB is rejected. Split into smaller files.
+- Report the full path of the written file in your reply.
+Output: "saved to <path>" on success.
+Errors (literal prefixes):
+- "invalid input: ..." bad JSON args.
+- "content too large (max 100KB)".
+- "invalid path: ...".
+- "NEEDS_APPROVAL:<dir>" first write to a new directory. Stop and wait for the user; on approval the retry will succeed.
+- "failed to create directory: ...", "failed to write: ..." I/O errors.`,
 			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"content":{"type":"string","description":"Full file content"}},"required":["path","content"]}`,
 		},
 		{
 			Name: "file_list",
-			Description: `List files and directories at a path. Directories have a trailing /; files show size.
-Guidelines:
-- Use this to explore project structure before reading or editing files.
-- When the user mentions a project without a path, use file_list to find it.`,
+			Description: `List entries in a directory. Directories get a trailing slash; files show size.
+Use before reading or editing to confirm a path exists and to map project structure.
+Output: first line is the directory (home-abbreviated with ~). Each entry is indented two spaces. Format "<name>/" for directories, "<name> (<size>)" for files. "<dir> (empty)" when the directory has no entries.
+Errors (literal prefixes):
+- "invalid input: ...", "invalid path: ...", "failed to list: ...".`,
 			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Directory path to list (defaults to current directory)"}},"required":[]}`,
 		},
 		{
 			Name: "file_edit",
-			Description: `Replace exact text in a file. Supports multiple edits in one call via the edits array.
-Guidelines:
-- Always file_read the file first, then copy old_text exactly from the output.
-- Each old_text must appear exactly once in the file. Include enough context to be unique.
-- Keep old_text as small as possible while still being unique.
-- When changing multiple locations in one file, use one call with multiple edits[] entries.
-- All edits are matched against the original file content, not incrementally.
-- If a match fails, read the file again to get the exact current content.`,
+			Description: `Replace exact text in a file. One call can apply multiple non-overlapping edits.
+Rules:
+- Always file_read first. Copy old_text byte-for-byte from the output, including whitespace.
+- old_text must match exactly once. Add surrounding context until it does.
+- Keep old_text minimal while still unique.
+- Multiple changes in the same file go in one call with edits[]. All matches are against the original content, not incremental.
+- If a match fails, re-read the file. Content may have changed.
+- Requires directory approval for the target's parent.
+Output: "edited <path> (1 block replaced)" or "edited <path> (<N> blocks replaced)".
+Errors (literal prefixes):
+- "invalid input: ...", "invalid path: ...", "file not found: ...".
+- "at least one edit is required ...".
+- "edits[<i>]: old_text must not be empty" or "edits[<i>]: old_text and new_text are identical, no change needed".
+- "Could not find old_text in <path>. ..." re-read to see the exact content, then retry.
+- "Found <N> occurrences of old_text in <path>. Include more surrounding context ..." add more context.
+- "edits overlap ..." merge nearby changes into one edit or split into separate file_edit calls.
+- "NEEDS_APPROVAL:<dir>".
+- "failed to write: ...".`,
 			Schema: `{"type":"object","properties":{"path":{"type":"string","description":"Absolute file path"},"old_text":{"type":"string","description":"Exact text to find"},"new_text":{"type":"string","description":"Replacement text"},"edits":{"type":"array","description":"One or more replacements","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Exact text to find (must be unique in file)"},"new_text":{"type":"string","description":"Text to replace it with"}},"required":["old_text","new_text"]}}},"required":["path"]}`,
 		},
 		{
 			Name: "grep",
-			Description: `Search file contents for a regex pattern. Returns matching lines with file paths and line numbers.
-Guidelines:
-- Use this instead of bash grep for all code search. It is faster and returns structured output.
-- When the user asks about a symbol, function, or string, use grep to find it before asking for a path.
-- Long lines are truncated to 500 chars. Default limit is 100 matches.`,
+			Description: `Search file contents for a regex. Returns matching lines with file path and line number.
+Use instead of bash grep: faster, structured output, paths made relative to the search root.
+Rules:
+- Default path is the current directory. Pass path only when searching elsewhere.
+- Long lines are truncated at 500 chars with "...(truncated)".
+- Default limit is 100 matches. Raise limit only when you need more.
+Output: "<relpath>:<line>:<text>" per match. Appends "[<N> matches limit reached. Use limit=<M> for more, or refine pattern]" when capped. Appends "[Some lines truncated to 500 chars]" when line truncation happened.
+Errors (literal prefixes):
+- "invalid input: ...", "invalid path: ...", "pattern is required".
+- "no matches found" nothing matched. Try ignore_case or a broader pattern.
+- "grep timed out after 30s ..." narrow the path or pattern.
+- "grep failed: ..." other error.`,
 			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Search pattern (basic regex)"},"path":{"type":"string","description":"Directory or file to search (defaults to current directory)"},"glob":{"type":"string","description":"File name filter, e.g. \"*.go\""},"ignore_case":{"type":"boolean","description":"Case-insensitive search"},"context_lines":{"type":"integer","description":"Lines of context around matches"},"limit":{"type":"integer","description":"Max matches (default 100)"}},"required":["pattern"]}`,
 		},
 		{
 			Name: "find",
-			Description: `Find files or directories by glob pattern. Returns relative paths. Excludes .git, node_modules, __pycache__, .venv.
-Guidelines:
-- To explore a project structure, use file_list instead. Use find to locate specific files.
-- When the user mentions a file without a full path, use find to locate it first.
-- When looking for a project or directory by name, set type to "d".
-- If the user says "in apps/" or similar, resolve the full path (e.g. ~/apps). If no directory is given, search from ~.
-- Default limit is 500 results.`,
+			Description: `Find files or directories by name pattern (shell glob). Excludes .git, node_modules, __pycache__, .venv.
+Rules:
+- Default search root is the current working directory. Only pass path when the user explicitly references a different location (e.g. "in ~/apps").
+- Use type="d" for directories, "f" (default) for files.
+- Default limit is 500.
+- To list a directory, use file_list. find is for locating specific names.
+Output: one relative path per line. Appends "[<N> results limit reached. Use limit=<M> for more, or refine pattern]" when capped.
+Errors (literal prefixes):
+- "invalid input: ...", "invalid path: ...", "pattern is required ...".
+- "no files found matching pattern" pattern did not hit.
+- "find timed out after 30s ..." narrow the path or pattern.
+- "find failed: ..." other error.`,
 			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\", \"myproject\""},"path":{"type":"string","description":"Directory to search in (defaults to current directory)"},"type":{"type":"string","description":"Type: \"f\" for files (default), \"d\" for directories"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern"]}`,
 		},
 	}
