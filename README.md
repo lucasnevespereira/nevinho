@@ -8,6 +8,10 @@ A minimal personal AI harness that runs in your Discord DMs.
 Supports Anthropic, OpenAI, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
+<p align="center">
+  <img src="assets/demo-voice-weather.jpeg" width="360" alt="Voice message → transcription → tool call → answer, on mobile" />
+</p>
+
 ## Install
 
 ```bash
@@ -57,11 +61,11 @@ See [setup.md](setup.md) for Discord bot creation steps.
 
 Configure one or more LLM backends during setup:
 
-| Provider | Env var | Default model |
-|----------|---------|---------------|
-| Anthropic | `ANTHROPIC_API_KEY` | claude-haiku-4-5 |
-| OpenAI | `OPENAI_API_KEY` | gpt-4o-mini |
-| Ollama | `OLLAMA_MODEL=llama3` | any local model |
+| Provider  | Env var               | Default model    |
+| --------- | --------------------- | ---------------- |
+| Anthropic | `ANTHROPIC_API_KEY`   | claude-haiku-4-5 |
+| OpenAI    | `OPENAI_API_KEY`      | gpt-4o-mini      |
+| Ollama    | `OLLAMA_MODEL=llama3` | any local model  |
 
 On startup, nevinho uses your last selected model. If none is saved, it picks the first available: Ollama > Anthropic > OpenAI.
 
@@ -69,16 +73,16 @@ Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 
 ## Tools
 
-| Tool | What it does |
-|------|-------------|
-| `bash` | Run any bash command |
-| `grep` | Search file contents by pattern |
-| `find` | Find files by name |
-| `web_search` | Search via Tavily API or DuckDuckGo fallback |
-| `web_read` | Fetch a URL and extract readable text |
-| `file_list` | List directory contents |
-| `file_read` | Read a file (supports pagination) |
-| `file_edit` | Replace exact text in a file with fuzzy matching |
+| Tool         | What it does                                       |
+| ------------ | -------------------------------------------------- |
+| `bash`       | Run any bash command                               |
+| `grep`       | Search file contents by pattern                    |
+| `find`       | Find files by name                                 |
+| `web_search` | Search via Tavily API or DuckDuckGo fallback       |
+| `web_read`   | Fetch a URL and extract readable text              |
+| `file_list`  | List directory contents                            |
+| `file_read`  | Read a file (supports pagination)                  |
+| `file_edit`  | Replace exact text in a file with fuzzy matching   |
 | `file_write` | Write an entire file (directory approval required) |
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
@@ -91,17 +95,17 @@ Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installe
 
 ## Commands
 
-| Command | What it does |
-|---------|-------------|
-| `/new` | Start a fresh conversation |
-| `/model` | Show current model with dropdown selector |
-| `/model <name>` | Switch to a specific model |
-| `/status` | Uptime, token usage, model info |
-| `/config` | View or update configuration |
-| `/config KEY VALUE` | Set a config value |
-| `/paths` | List approved write paths |
-| `/paths clear` | Revoke all path permissions |
-| `/help` | Show capabilities |
+| Command             | What it does                              |
+| ------------------- | ----------------------------------------- |
+| `/new`              | Start a fresh conversation                |
+| `/model`            | Show current model with dropdown selector |
+| `/model <name>`     | Switch to a specific model                |
+| `/status`           | Uptime, token usage, model info           |
+| `/config`           | View or update configuration              |
+| `/config KEY VALUE` | Set a config value                        |
+| `/paths`            | List approved write paths                 |
+| `/paths clear`      | Revoke all path permissions               |
+| `/help`             | Show capabilities                         |
 
 All commands also work as plain text messages in the DM.
 
