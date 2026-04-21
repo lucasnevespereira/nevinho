@@ -9,7 +9,7 @@ Supports Anthropic, OpenAI, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
 <p align="center">
-  <img src="assets/demo-voice-weather.jpeg" width="360" alt="Voice message → transcription → tool call → answer, on mobile" />
+  <img src="assets/demo-discord.png" width="320" alt="Nevinho on Discord mobile: voice message, weather tool, code generation" />
 </p>
 
 ## Install
