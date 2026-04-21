@@ -46,9 +46,6 @@ Markdown files with YAML frontmatter in `~/.nevinho/skills/`. System prompt carr
 
 ### Polish in parallel (no feature weight)
 
-- [ ] Startup health check. On `nevinho start`, probe each configured provider with a trivial call. Fail fast with a clear error.
-- [ ] `nevinho doctor`. Dumps version, config presence, provider reachability, disk perms on `~/.nevinho/`.
-- [ ] Better setup errors. Map common failures (invalid Discord token, invalid API key, rate-limited, DNS) to specific messages.
 - [ ] Structured logs. One line per event, `key=value`. Greppable.
 - [ ] `file_edit` strict uniqueness. If `old_string` matches more than once, error with the count instead of fuzzy-matching.
 - [ ] Web fetch hardening.
