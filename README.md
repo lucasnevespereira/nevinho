@@ -8,10 +8,6 @@ A minimal personal AI harness that runs in your Discord DMs.
 Supports Anthropic, OpenAI, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
-<p align="center">
-  <img src="assets/demo-discord.png" width="320" alt="Nevinho on Discord mobile: voice message, weather tool, code generation" />
-</p>
-
 ## Install
 
 ```bash
@@ -151,6 +147,12 @@ voice/       local Whisper transcription for voice messages
 discord/     bot, slash commands, message handling
 logger/      colored terminal output
 ```
+
+## Demo
+
+<p align="center">
+  <img src="assets/demo-discord.png" width="260" alt="Nevinho on Discord mobile" />
+</p>
 
 ## License
 
