@@ -150,9 +150,12 @@ logger/      colored terminal output
 
 ## Demo
 
-<p align="center">
-  <img src="assets/demo-discord.png" width="260" alt="Nevinho on Discord mobile" />
-</p>
+<table>
+  <tr>
+    <td><img src="assets/demo-discord.png" alt="Voice message, weather tool, code generation on Discord mobile" /></td>
+    <td><img src="assets/demo-rust-websearch.jpeg" alt="Agent running web_search tool to answer a question" /></td>
+  </tr>
+</table>
 
 ## License
 
