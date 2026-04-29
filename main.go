@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/lucasnevespereira/nevinho/agent"
@@ -87,6 +89,11 @@ func run(configDir string) {
 	<-stop
 
 	logger.Info("shutting down...")
+
+	persistCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	a.PersistAll(persistCtx)
+	cancel()
+
 	bot.Stop()
 }
 

@@ -54,6 +54,13 @@ Markdown files with YAML frontmatter in `~/.nevinho/skills/`. System prompt carr
   - [ ] Fail closed on DNS resolution failure.
   - [ ] Block metadata hostnames by name (`metadata.google.internal`, `metadata`) in addition to IP.
 
+### Reliability (24/7 unattended)
+
+Personal bot on a VPS. Silent failures are the worst kind.
+
+- [ ] Crash heartbeat. On boot after an unclean shutdown, DM the owner: `restarted after crash at <ts>, last seen <ts>`. Write a `last_alive` timestamp every minute. Compare on boot.
+- [ ] Log rotation. `nevinho logs` file grows unbounded today. Wire `logrotate` config (or in-process rotation) to cap size and keep N days. Ship the config in `install.sh`.
+
 ## Next
 
 Queued. Starts once Now lands.
@@ -97,13 +104,6 @@ Nevinho runs 24/7 on a VPS. Run prompts on a schedule and report back.
 - [ ] Non-interactive bash policy (allowlist mode) during scheduled runs since the approval flow cannot prompt.
 - [ ] Limits: max 10 schedules, min 5-minute interval, 5-minute timeout, no missed-run catch-up.
 
-### Conversation persistence
-
-Conversations survive restarts and upgrades.
-
-- [ ] Write per-user summaries to `~/.nevinho/summaries/{userID}.md` on trim or shutdown.
-- [ ] Next message from that user loads the summary as context preamble.
-
 ## Later
 
 Real but deferred. Ship when the above is solid or when a user hits the pain.
@@ -137,3 +137,4 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Harness memory.** Auto-injected `memory.md`. Pattern-triggered writes ("remember X", "always X"). 20-entry cap with dedup.
 - [x] **Voice.** Discord voice notes through OpenAI Whisper to agent input. Supports ogg, mp3, wav, m4a, webm.
 - [x] **Web tooling.** Tavily advanced search and extract. Jina Reader fallback. Polite headers. Explicit error signaling. 429/5xx retries.
+- [x] **Conversation persistence (ELEPHANT).** On shutdown, summarize each user's history to `~/.nevinho/summaries/{userID}.md`. Reload as `[Previous conversation: ...]` preamble on next start. Default on, toggle via `ELEPHANT=off`. `/forget` wipes both in-memory history and the saved summary.
