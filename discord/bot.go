@@ -71,6 +71,14 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		Description: "Wipe this conversation and any persisted summary",
 	},
 	{
+		Name:        "memory",
+		Description: "Show what nevinho remembers about you",
+	},
+	{
+		Name:        "summary",
+		Description: "Show the saved summary of the current conversation",
+	},
+	{
 		Name:        "model",
 		Description: "Show or switch the current LLM model",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -184,6 +192,12 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 		b.agent.ClearHistory(userID)
 		reply = "Forgotten. Fresh thread."
 
+	case "memory":
+		reply = b.agent.MemoryView()
+
+	case "summary":
+		reply = b.agent.SummaryView(userID)
+
 	case "help":
 		reply = helpMessage()
 
@@ -286,6 +300,12 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	case lower == "/forget":
 		b.agent.ClearHistory(m.Author.ID)
 		s.ChannelMessageSend(m.ChannelID, "Forgotten. Fresh thread.")
+		return
+	case lower == "/memory":
+		s.ChannelMessageSend(m.ChannelID, b.agent.MemoryView())
+		return
+	case lower == "/summary":
+		s.ChannelMessageSend(m.ChannelID, b.agent.SummaryView(m.Author.ID))
 		return
 	case lower == "/help":
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
@@ -877,6 +897,8 @@ func helpMessage() string {
 **Commands:**
 ` + "`/cancel`" + ` cancel current operation
 ` + "`/forget`" + ` wipe this conversation
+` + "`/memory`" + ` show what nevinho remembers about you
+` + "`/summary`" + ` show the saved conversation summary
 ` + "`/model`" + ` show or switch model
 ` + "`/status`" + ` uptime, tokens, cost
 ` + "`/paths`" + ` manage approved write paths
