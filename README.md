@@ -94,6 +94,8 @@ Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installe
 | Command             | What it does                              |
 | ------------------- | ----------------------------------------- |
 | `/forget`           | Wipe this conversation and any saved summary |
+| `/memory`           | Show what nevinho remembers about you     |
+| `/summary`          | Show the saved conversation summary       |
 | `/model`            | Show current model with dropdown selector |
 | `/model <name>`     | Switch to a specific model                |
 | `/status`           | Uptime, token usage, model info           |

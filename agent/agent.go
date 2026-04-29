@@ -63,6 +63,7 @@ type Agent struct {
 	tools   *tools.Registry
 	cfg     *config.Config
 	version string
+	selfDoc string
 
 	mu        sync.Mutex
 	history   map[string][]json.RawMessage
@@ -74,12 +75,13 @@ type Agent struct {
 	tokensOut int
 }
 
-func New(provider llm.Provider, cfg *config.Config, version string) *Agent {
+func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Agent {
 	return &Agent{
 		llm:       provider,
 		tools:     tools.NewRegistry(cfg),
 		cfg:       cfg,
 		version:   version,
+		selfDoc:   strings.TrimSpace(selfDoc),
 		history:   make(map[string][]json.RawMessage),
 		userLock:  make(map[string]*sync.Mutex),
 		cancelFn:  make(map[string]context.CancelFunc),
@@ -189,6 +191,9 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 	if mem := memory.Load(a.cfg.Dir()); mem != "" {
 		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
 	}
+	if a.selfDoc != "" {
+		prompt += "\n\n" + a.selfDoc
+	}
 
 	a.maybeLoadSummary(userID)
 
@@ -260,6 +265,46 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
 	return reply, nil
+}
+
+// MemoryView returns the user-visible dump of memory.md entries.
+func (a *Agent) MemoryView() string {
+	mem := memory.Load(a.cfg.Dir())
+	if mem == "" {
+		return "Nothing remembered yet. Tell me to \"remember X\", \"always X\", or \"never X\"."
+	}
+	var sb strings.Builder
+	sb.WriteString("**What I remember about you:**\n")
+	for _, line := range strings.Split(mem, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "• %s\n", line)
+	}
+	return sb.String()
+}
+
+// SummaryView returns the user-visible dump of the persisted conversation
+// summary for the given user. Reflects ELEPHANT state in the empty case.
+func (a *Agent) SummaryView(userID string) string {
+	if !a.cfg.ElephantEnabled() {
+		return "Persistence is off (`ELEPHANT=off`). No summary will be saved on shutdown."
+	}
+	path, err := summaryPath(a.cfg.Dir(), userID)
+	if err != nil {
+		return "Could not locate summary file."
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "No saved summary yet. One will be written when nevinho shuts down."
+	}
+	body := loadSummary(a.cfg.Dir(), userID)
+	if body == "" {
+		return "No saved summary yet. One will be written when nevinho shuts down."
+	}
+	age := time.Since(info.ModTime()).Truncate(time.Second)
+	return fmt.Sprintf("**Saved summary** (loads on next restart)\n\n%s\n\n_Last updated: %s ago_", body, formatDuration(age))
 }
 
 func (a *Agent) ClearHistory(userID string) {

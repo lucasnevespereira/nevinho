@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -17,6 +18,9 @@ import (
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 )
+
+//go:embed NEVINHO.md
+var selfDoc string
 
 var version = "dev"
 
@@ -72,7 +76,7 @@ func run(configDir string) {
 
 	provider := detectProvider(cfg)
 
-	a := agent.New(provider, cfg, version)
+	a := agent.New(provider, cfg, version, selfDoc)
 	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
