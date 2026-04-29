@@ -93,7 +93,7 @@ Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installe
 
 | Command             | What it does                              |
 | ------------------- | ----------------------------------------- |
-| `/new`              | Start a fresh conversation                |
+| `/forget`           | Wipe this conversation and any saved summary |
 | `/model`            | Show current model with dropdown selector |
 | `/model <name>`     | Switch to a specific model                |
 | `/status`           | Uptime, token usage, model info           |
@@ -124,12 +124,15 @@ config.enc          encrypted configuration (AES-256-GCM)
 secret.key          auto-generated encryption key
 approved_paths.json persisted write permissions
 memory.md           learned user preferences
+summaries/          per-user conversation summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
 ```
 
 You can also use a `.env` file in the project directory for development. Env vars take priority over encrypted config.
 
 Set `CAVEMAN` to `on` via `/config` for a token-saving caveman-style response. Off by default.
+
+Set `ELEPHANT` to `off` via `/config` to disable conversation persistence across restarts. On by default. When on, nevinho summarizes your conversation on shutdown and reloads it on the next start so you can pick up where you left off.
 
 ## Project structure
 

@@ -190,6 +190,8 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 		prompt += "\n\n[Memory]\nThe user has told you these things. Follow them:\n" + mem
 	}
 
+	a.maybeLoadSummary(userID)
+
 	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
@@ -265,6 +267,81 @@ func (a *Agent) ClearHistory(userID string) {
 	lock.Lock()
 	defer lock.Unlock()
 	delete(a.history, userID)
+	if err := deleteSummary(a.cfg.Dir(), userID); err != nil {
+		logger.Err(fmt.Errorf("delete summary: %w", err))
+	}
+}
+
+// maybeLoadSummary injects the persisted summary into history if elephant is on
+// and this user has no in-memory history yet (fresh process start).
+func (a *Agent) maybeLoadSummary(userID string) {
+	if !a.cfg.ElephantEnabled() {
+		return
+	}
+	if len(a.history[userID]) > 0 {
+		return
+	}
+	summary := loadSummary(a.cfg.Dir(), userID)
+	if summary == "" {
+		return
+	}
+	preamble := a.llm.FormatUserMessage("[Previous conversation: " + summary + "]")
+	a.history[userID] = append(a.history[userID], preamble)
+	logger.Info("loaded persisted summary")
+}
+
+// PersistAll summarizes each active user's in-memory history and writes it to
+// disk. Called on shutdown so the next process start can resume context.
+// Respects the parent context for early cancellation; skips users on error so
+// one bad summary doesn't block the rest.
+func (a *Agent) PersistAll(ctx context.Context) {
+	if !a.cfg.ElephantEnabled() {
+		return
+	}
+	a.mu.Lock()
+	users := make([]string, 0, len(a.history))
+	for u := range a.history {
+		users = append(users, u)
+	}
+	a.mu.Unlock()
+
+	for _, userID := range users {
+		if ctx.Err() != nil {
+			logger.Info("persist cancelled, skipping remaining users")
+			return
+		}
+		a.persistUser(ctx, userID)
+	}
+}
+
+func (a *Agent) persistUser(ctx context.Context, userID string) {
+	a.mu.Lock()
+	msgs := a.history[userID]
+	a.mu.Unlock()
+	if len(msgs) == 0 {
+		return
+	}
+	flat := flattenMessages(msgs)
+	if flat == "" {
+		return
+	}
+	resp, err := a.llm.Complete(ctx, &llm.Request{
+		SystemPrompt: "Summarize this conversation in 3-5 sentences. Capture what the user was working on, key decisions, and unresolved threads. Be specific enough that the next session can pick up where this left off.",
+		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
+		MaxTokens:    400,
+	})
+	if err != nil {
+		logger.Err(fmt.Errorf("persist summary for user: %w", err))
+		return
+	}
+	if resp.Text == "" {
+		return
+	}
+	if err := saveSummary(a.cfg.Dir(), userID, resp.Text); err != nil {
+		logger.Err(fmt.Errorf("save summary: %w", err))
+		return
+	}
+	logger.Info("persisted summary")
 }
 
 func (a *Agent) Model() string {

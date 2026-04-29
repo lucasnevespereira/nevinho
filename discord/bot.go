@@ -67,8 +67,8 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		Description: "Cancel the current operation",
 	},
 	{
-		Name:        "new",
-		Description: "Start a fresh conversation",
+		Name:        "forget",
+		Description: "Wipe this conversation and any persisted summary",
 	},
 	{
 		Name:        "model",
@@ -180,9 +180,9 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 			reply = "Nothing running."
 		}
 
-	case "new":
+	case "forget":
 		b.agent.ClearHistory(userID)
-		reply = "Fresh conversation started."
+		reply = "Forgotten. Fresh thread."
 
 	case "help":
 		reply = helpMessage()
@@ -283,9 +283,9 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 			s.ChannelMessageSend(m.ChannelID, "Nothing running.")
 		}
 		return
-	case lower == "/new":
+	case lower == "/forget":
 		b.agent.ClearHistory(m.Author.ID)
-		s.ChannelMessageSend(m.ChannelID, "Fresh conversation started.")
+		s.ChannelMessageSend(m.ChannelID, "Forgotten. Fresh thread.")
 		return
 	case lower == "/help":
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
@@ -876,7 +876,7 @@ func helpMessage() string {
 
 **Commands:**
 ` + "`/cancel`" + ` cancel current operation
-` + "`/new`" + ` fresh conversation
+` + "`/forget`" + ` wipe this conversation
 ` + "`/model`" + ` show or switch model
 ` + "`/status`" + ` uptime, tokens, cost
 ` + "`/paths`" + ` manage approved write paths

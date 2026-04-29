@@ -25,6 +25,7 @@ type Config struct {
 	TavilyAPIKey    string `json:"tavily_api_key"`
 	Model           string `json:"model"`
 	Caveman         string `json:"caveman"`
+	Elephant        string `json:"elephant"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
@@ -38,6 +39,7 @@ func (c *Config) keymap() map[string]*string {
 		"TAVILY_API_KEY":    &c.TavilyAPIKey,
 		"MODEL":             &c.Model,
 		"CAVEMAN":           &c.Caveman,
+		"ELEPHANT":          &c.Elephant,
 	}
 }
 
@@ -118,6 +120,16 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("CAVEMAN must be on or off")
 		}
 	}
+	if key == "ELEPHANT" {
+		switch strings.ToLower(value) {
+		case "", "on":
+			value = ""
+		case "off":
+			value = "off"
+		default:
+			return fmt.Errorf("ELEPHANT must be on or off")
+		}
+	}
 	c.mu.Lock()
 	field, ok := c.keymap()[key]
 	if !ok {
@@ -140,7 +152,7 @@ func (c *Config) Keys() []KeyStatus {
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
-		"TAVILY_API_KEY", "MODEL", "CAVEMAN",
+		"TAVILY_API_KEY", "MODEL", "CAVEMAN", "ELEPHANT",
 	}
 
 	km := c.keymap()
@@ -159,6 +171,14 @@ func (c *Config) Keys() []KeyStatus {
 }
 
 func (c *Config) Dir() string { return c.dir }
+
+// ElephantEnabled reports whether conversation persistence is on. Default is on:
+// only an explicit "off" disables it. Named after elephants, who never forget.
+func (c *Config) ElephantEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return strings.ToLower(c.Elephant) != "off"
+}
 
 // CavemanPrompt returns the style block to prepend to the system prompt.
 // Any non-empty, non-"off" value enables it (accepts legacy lite/full/ultra).
