@@ -9,7 +9,7 @@ import (
 
 const (
 	summariesDir   = "summaries"
-	summaryMaxSize = 4000 // ~1000 tokens, generous cap
+	summaryMaxSize = 4000 // ~1000 tokens
 )
 
 // summaryPath returns the on-disk location for a user's persisted summary.
