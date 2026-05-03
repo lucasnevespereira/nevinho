@@ -112,6 +112,39 @@ func (a *Anthropic) FormatUserMessage(text string) json.RawMessage {
 	return msg
 }
 
+func (a *Anthropic) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
+	for i := len(history) - 1; i >= 0; i-- {
+		var msg struct {
+			Role    string                   `json:"role"`
+			Content []map[string]interface{} `json:"content"`
+		}
+		if err := json.Unmarshal(history[i], &msg); err != nil {
+			continue
+		}
+		if msg.Role != "user" {
+			continue
+		}
+		changed := false
+		for j, block := range msg.Content {
+			if block["type"] != "tool_result" {
+				continue
+			}
+			if id, _ := block["tool_use_id"].(string); id == toolUseID {
+				msg.Content[j]["content"] = newOutput
+				delete(msg.Content[j], "is_error")
+				changed = true
+			}
+		}
+		if changed {
+			if rebuilt, err := json.Marshal(msg); err == nil {
+				history[i] = rebuilt
+			}
+			return history
+		}
+	}
+	return history
+}
+
 func (a *Anthropic) FormatToolResults(results []ToolResult) []json.RawMessage {
 	var content []interface{}
 	for _, r := range results {

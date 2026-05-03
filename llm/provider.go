@@ -13,6 +13,10 @@ type Provider interface {
 	Complete(ctx context.Context, req *Request) (*Response, error)
 	FormatUserMessage(text string) json.RawMessage
 	FormatToolResults(results []ToolResult) []json.RawMessage
+	// ReplaceToolResult swaps the stored output of a prior tool_result for the
+	// given tool-use id. Used after deferred approval so the LLM sees the
+	// actual executed output instead of the stale NEEDS_APPROVAL placeholder.
+	ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage
 	Model() string
 }
 
