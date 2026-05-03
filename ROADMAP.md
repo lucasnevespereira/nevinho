@@ -71,6 +71,7 @@ One file covers Groq, Together, OpenRouter, LM Studio, vLLM, local servers.
 
 - [ ] `llm/compat.go` pointing at any URL via `OPENAI_COMPAT_URL`, `OPENAI_COMPAT_KEY`, `OPENAI_COMPAT_MODEL`.
 - [ ] `nevinho setup` offers the new provider with presets for Groq, OpenRouter, LM Studio.
+- [ ] OpenRouter preset: default model picker, auth key field, docs note on paid/free models.
 
 ### CLI mode (`nevinho chat`)
 
