@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -112,6 +113,15 @@ func (r *Registry) executeBashCtx(parent context.Context, command string) string
 	// Force no-color output to avoid wasting tokens on ANSI codes
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
+	// Run in its own process group so cancel can SIGKILL the whole tree.
+	// Without this, children like `python3 -m http.server` outlive the bash parent.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	output, err := cmd.CombinedOutput()
 	result := stripANSI(string(output))
 
@@ -144,12 +154,12 @@ func (r *Registry) executeBashCtx(parent context.Context, command string) string
 }
 
 // executePendingBash runs a command after user approval.
-func (r *Registry) executePendingBash(input json.RawMessage) string {
+func (r *Registry) executePendingBash(ctx context.Context, input json.RawMessage) string {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return fmt.Sprintf("invalid input: %v", err)
 	}
-	return r.executeBashCtx(context.Background(), in.Command)
+	return r.executeBashCtx(ctx, in.Command)
 }
 
 // isDangerous returns a reason string if the command needs approval, empty otherwise.

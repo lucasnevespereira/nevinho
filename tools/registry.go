@@ -285,7 +285,7 @@ func (r *Registry) ApprovePending(userID string) {
 	delete(r.pending, userID)
 }
 
-func (r *Registry) ExecutePendingCode(userID string) string {
+func (r *Registry) ExecutePendingCode(ctx context.Context, userID string) string {
 	r.mu.Lock()
 	p := r.pending[userID]
 	r.mu.Unlock()
@@ -295,7 +295,7 @@ func (r *Registry) ExecutePendingCode(userID string) string {
 	r.mu.Lock()
 	delete(r.pending, userID)
 	r.mu.Unlock()
-	return r.executePendingBash(p.Code.Input)
+	return r.executePendingBash(ctx, p.Code.Input)
 }
 
 func (r *Registry) checkWritePermission(resolved, userID string) error {
