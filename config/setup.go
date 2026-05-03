@@ -47,7 +47,7 @@ func RunSetup(configDir string) error {
 	}
 
 	// Show hint only on re-run (when some values already exist)
-	if cfg.DiscordBotToken != "" || cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" {
+	if cfg.DiscordBotToken != "" || cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OpenRouterAPIKey != "" {
 		fmt.Println("Press Enter to keep current value, - to clear.")
 		fmt.Println()
 	}
@@ -62,10 +62,11 @@ func RunSetup(configDir string) error {
 	fmt.Println("LLM providers")
 	cfg.AnthropicAPIKey = prompt("Anthropic API key", cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = prompt("OpenAI API key", cfg.OpenAIAPIKey)
+	cfg.OpenRouterAPIKey = prompt("OpenRouter API key", cfg.OpenRouterAPIKey)
 	cfg.OllamaModel = prompt("Ollama model (e.g. llama3)", cfg.OllamaModel)
 
 	// Warn if no provider
-	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OllamaModel == "" {
+	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OpenRouterAPIKey == "" && cfg.OllamaModel == "" {
 		fmt.Println()
 		fmt.Println("  Warning: no LLM provider configured. nevinho needs at least one.")
 	}
@@ -98,6 +99,7 @@ func RunSetup(configDir string) error {
 	printStatus("  Discord", cfg.DiscordBotToken != "" && cfg.DiscordOwnerID != "")
 	printStatus("  Anthropic", cfg.AnthropicAPIKey != "")
 	printStatus("  OpenAI", cfg.OpenAIAPIKey != "")
+	printStatus("  OpenRouter", cfg.OpenRouterAPIKey != "")
 	printStatus("  Ollama", cfg.OllamaModel != "")
 	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))

@@ -19,8 +19,9 @@ type Config struct {
 
 	DiscordBotToken string `json:"discord_bot_token"`
 	DiscordOwnerID  string `json:"discord_owner_id"`
-	AnthropicAPIKey string `json:"anthropic_api_key"`
-	OpenAIAPIKey    string `json:"openai_api_key"`
+	AnthropicAPIKey  string `json:"anthropic_api_key"`
+	OpenAIAPIKey     string `json:"openai_api_key"`
+	OpenRouterAPIKey string `json:"openrouter_api_key"`
 	OllamaModel     string `json:"ollama_model"`
 	TavilyAPIKey    string `json:"tavily_api_key"`
 	Model           string `json:"model"`
@@ -33,8 +34,9 @@ func (c *Config) keymap() map[string]*string {
 	return map[string]*string{
 		"DISCORD_BOT_TOKEN": &c.DiscordBotToken,
 		"DISCORD_OWNER_ID":  &c.DiscordOwnerID,
-		"ANTHROPIC_API_KEY": &c.AnthropicAPIKey,
-		"OPENAI_API_KEY":    &c.OpenAIAPIKey,
+		"ANTHROPIC_API_KEY":  &c.AnthropicAPIKey,
+		"OPENAI_API_KEY":     &c.OpenAIAPIKey,
+		"OPENROUTER_API_KEY": &c.OpenRouterAPIKey,
 		"OLLAMA_MODEL":      &c.OllamaModel,
 		"TAVILY_API_KEY":    &c.TavilyAPIKey,
 		"MODEL":             &c.Model,
@@ -151,7 +153,7 @@ func (c *Config) Keys() []KeyStatus {
 
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
-		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
+		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_MODEL",
 		"TAVILY_API_KEY", "MODEL", "CAVEMAN", "ELEPHANT",
 	}
 
@@ -206,17 +208,19 @@ Examples:
 }
 
 type ProviderConfig struct {
-	AnthropicKey string
-	OpenAIKey    string
-	OllamaURL    string
+	AnthropicKey   string
+	OpenAIKey      string
+	OpenRouterKey  string
+	OllamaURL      string
 }
 
 func (c *Config) ProviderConfig() ProviderConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	pc := ProviderConfig{
-		AnthropicKey: c.AnthropicAPIKey,
-		OpenAIKey:    c.OpenAIAPIKey,
+		AnthropicKey:   c.AnthropicAPIKey,
+		OpenAIKey:      c.OpenAIAPIKey,
+		OpenRouterKey:  c.OpenRouterAPIKey,
 	}
 	if c.OllamaModel != "" {
 		pc.OllamaURL = "http://localhost:11434"

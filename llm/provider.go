@@ -61,6 +61,27 @@ type ToolDef struct {
 
 // Resolve maps a model name to the correct provider using the given config.
 func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
+	if name == "" {
+		return nil, fmt.Errorf("model name required")
+	}
+	if strings.HasPrefix(name, "openrouter:") {
+		if pc.OpenRouterKey == "" {
+			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
+		}
+		return NewOpenRouter(pc.OpenRouterKey, "", strings.TrimPrefix(name, "openrouter:")), nil
+	}
+	if strings.HasPrefix(name, "openai:") {
+		if pc.OpenAIKey == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY not configured")
+		}
+		return NewOpenAI(pc.OpenAIKey, "", strings.TrimPrefix(name, "openai:")), nil
+	}
+	if strings.HasPrefix(name, "anthropic:") {
+		if pc.AnthropicKey == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY not configured")
+		}
+		return NewAnthropic(pc.AnthropicKey, "", strings.TrimPrefix(name, "anthropic:")), nil
+	}
 	switch {
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
 		if pc.OpenAIKey == "" {
@@ -72,12 +93,14 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY not configured")
 		}
 		return NewAnthropic(pc.AnthropicKey, "", name), nil
+	case strings.HasPrefix(name, "kimi-") || strings.HasPrefix(name, "moonshot-"):
+		if pc.OpenRouterKey == "" {
+			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
+		}
+		return NewOpenRouter(pc.OpenRouterKey, "", name), nil
 	default:
 		if pc.OllamaURL != "" {
 			return NewOpenAI("", pc.OllamaURL, name), nil
-		}
-		if pc.OpenAIKey != "" {
-			return NewOpenAI(pc.OpenAIKey, "", name), nil
 		}
 		return nil, fmt.Errorf("unknown model: %s", name)
 	}
