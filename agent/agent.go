@@ -151,7 +151,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 			text = text + "\n[Access granted to " + p.Detail + ". Retry the file operation.]"
 		case "code":
 			logger.Info("approved: code execution")
-			output := a.tools.ExecutePendingCode(userID)
+			output := a.tools.ExecutePendingCode(ctx, userID)
 			text = text + "\n[Code execution approved. Output:\n" + output + "]"
 		}
 	}
