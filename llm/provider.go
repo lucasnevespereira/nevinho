@@ -102,6 +102,15 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		if pc.OllamaURL != "" {
 			return NewOpenAI("", pc.OllamaURL, name), nil
 		}
+		if pc.OpenRouterKey != "" {
+			return NewOpenRouter(pc.OpenRouterKey, "", name), nil
+		}
+		if pc.OpenAIKey != "" {
+			return NewOpenAI(pc.OpenAIKey, "", name), nil
+		}
+		if pc.AnthropicKey != "" {
+			return NewAnthropic(pc.AnthropicKey, "", name), nil
+		}
 		return nil, fmt.Errorf("unknown model: %s", name)
 	}
 }
