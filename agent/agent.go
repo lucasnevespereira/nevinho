@@ -65,11 +65,12 @@ type Agent struct {
 	version string
 	selfDoc string
 
-	mu        sync.Mutex
-	history   map[string][]json.RawMessage
-	userLock  map[string]*sync.Mutex
-	cancelFn  map[string]context.CancelFunc
-	toolCb    map[string]ToolCallback
+	mu             sync.Mutex
+	history        map[string][]json.RawMessage
+	userLock       map[string]*sync.Mutex
+	cancelFn       map[string]context.CancelFunc
+	toolCb         map[string]ToolCallback
+	pendingToolID  map[string]string
 	startTime time.Time
 	tokensIn  int
 	tokensOut int
@@ -77,16 +78,17 @@ type Agent struct {
 
 func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Agent {
 	return &Agent{
-		llm:       provider,
-		tools:     tools.NewRegistry(cfg),
-		cfg:       cfg,
-		version:   version,
-		selfDoc:   strings.TrimSpace(selfDoc),
-		history:   make(map[string][]json.RawMessage),
-		userLock:  make(map[string]*sync.Mutex),
-		cancelFn:  make(map[string]context.CancelFunc),
-		toolCb:    make(map[string]ToolCallback),
-		startTime: time.Now(),
+		llm:           provider,
+		tools:         tools.NewRegistry(cfg),
+		cfg:           cfg,
+		version:       version,
+		selfDoc:       strings.TrimSpace(selfDoc),
+		history:       make(map[string][]json.RawMessage),
+		userLock:      make(map[string]*sync.Mutex),
+		cancelFn:      make(map[string]context.CancelFunc),
+		toolCb:        make(map[string]ToolCallback),
+		pendingToolID: make(map[string]string),
+		startTime:     time.Now(),
 	}
 }
 
@@ -152,6 +154,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 		case "code":
 			logger.Info("approved: code execution")
 			output := a.tools.ExecutePendingCode(ctx, userID)
+			a.replacePendingToolResult(userID, output)
 			text = text + "\n[Code execution approved. Output:\n" + output + "]"
 		}
 	}
@@ -245,6 +248,9 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
+				a.mu.Lock()
+				a.pendingToolID[userID] = tc.ID
+				a.mu.Unlock()
 			}
 		}
 
@@ -312,6 +318,9 @@ func (a *Agent) ClearHistory(userID string) {
 	lock.Lock()
 	defer lock.Unlock()
 	delete(a.history, userID)
+	a.mu.Lock()
+	delete(a.pendingToolID, userID)
+	a.mu.Unlock()
 	if err := deleteSummary(a.cfg.Dir(), userID); err != nil {
 		logger.Err(fmt.Errorf("delete summary: %w", err))
 	}
@@ -508,6 +517,25 @@ func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted [
 	copy(evicted, a.history[userID][:evictedCount])
 	a.history[userID] = trimmed
 	return evicted
+}
+
+// replacePendingToolResult swaps the stale NEEDS_APPROVAL placeholder in
+// history with the real output once the user approves. Without this the LLM
+// sees the original tool_use as never-executed and re-emits it, causing an
+// approval loop.
+func (a *Agent) replacePendingToolResult(userID, output string) {
+	a.mu.Lock()
+	id := a.pendingToolID[userID]
+	delete(a.pendingToolID, userID)
+	hist := a.history[userID]
+	a.mu.Unlock()
+	if id == "" || len(hist) == 0 {
+		return
+	}
+	updated := a.llm.ReplaceToolResult(hist, id, output)
+	a.mu.Lock()
+	a.history[userID] = updated
+	a.mu.Unlock()
 }
 
 func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (output string) {

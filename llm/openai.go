@@ -95,6 +95,27 @@ func (o *OpenAI) FormatUserMessage(text string) json.RawMessage {
 	return msg
 }
 
+func (o *OpenAI) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
+	for i := len(history) - 1; i >= 0; i-- {
+		var msg map[string]interface{}
+		if err := json.Unmarshal(history[i], &msg); err != nil {
+			continue
+		}
+		if role, _ := msg["role"].(string); role != "tool" {
+			continue
+		}
+		if id, _ := msg["tool_call_id"].(string); id != toolUseID {
+			continue
+		}
+		msg["content"] = newOutput
+		if rebuilt, err := json.Marshal(msg); err == nil {
+			history[i] = rebuilt
+		}
+		return history
+	}
+	return history
+}
+
 func (o *OpenAI) FormatToolResults(results []ToolResult) []json.RawMessage {
 	var msgs []json.RawMessage
 	for _, r := range results {
