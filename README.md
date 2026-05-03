@@ -5,7 +5,7 @@
 # nevinho
 
 A minimal personal AI harness that runs in your Discord DMs.
-Supports Anthropic, OpenAI, and Ollama.
+Supports Anthropic, OpenAI, OpenRouter, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
 ## Install
@@ -57,13 +57,20 @@ See [setup.md](setup.md) for Discord bot creation steps.
 
 Configure one or more LLM backends during setup:
 
-| Provider  | Env var               | Default model    |
-| --------- | --------------------- | ---------------- |
-| Anthropic | `ANTHROPIC_API_KEY`   | claude-haiku-4-5 |
-| OpenAI    | `OPENAI_API_KEY`      | gpt-4o-mini      |
-| Ollama    | `OLLAMA_MODEL=llama3` | any local model  |
+| Provider   | Env var                | Default model       |
+| ---------- | ---------------------- | ------------------- |
+| Anthropic  | `ANTHROPIC_API_KEY`    | claude-haiku-4-5    |
+| OpenAI     | `OPENAI_API_KEY`       | gpt-4o-mini         |
+| OpenRouter | `OPENROUTER_API_KEY`   | any supported model |
+| Ollama     | `OLLAMA_MODEL=llama3`   | any local model     |
 
-On startup, nevinho uses your last selected model. If none is saved, it picks the first available: Ollama > Anthropic > OpenAI.
+On startup, nevinho uses your last selected model. If none is saved, it picks `DEFAULT_PROVIDER` when set. Else legacy order: Ollama > OpenRouter > OpenAI > Anthropic.
+
+Prefix model names for exact provider:
+- `openrouter:claude-sonnet-4-5`
+- `openai:gpt-4o-mini`
+- `anthropic:claude-haiku-4-5`
+- `ollama:llama3`
 
 Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 

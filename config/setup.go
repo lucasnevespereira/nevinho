@@ -75,6 +75,7 @@ func RunSetup(configDir string) error {
 	fmt.Println()
 	fmt.Println("Optional")
 	cfg.TavilyAPIKey = prompt("Tavily Search API key", cfg.TavilyAPIKey)
+	cfg.DefaultProvider = prompt("Default provider (openrouter/openai/anthropic/ollama)", cfg.DefaultProvider)
 
 	// Voice messages
 	fmt.Println()
@@ -102,6 +103,7 @@ func RunSetup(configDir string) error {
 	printStatus("  OpenRouter", cfg.OpenRouterAPIKey != "")
 	printStatus("  Ollama", cfg.OllamaModel != "")
 	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
+	printStatus("  Default provider", cfg.DefaultProvider != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))
 
 	fmt.Println()

@@ -22,11 +22,12 @@ type Config struct {
 	AnthropicAPIKey  string `json:"anthropic_api_key"`
 	OpenAIAPIKey     string `json:"openai_api_key"`
 	OpenRouterAPIKey string `json:"openrouter_api_key"`
-	OllamaModel     string `json:"ollama_model"`
-	TavilyAPIKey    string `json:"tavily_api_key"`
-	Model           string `json:"model"`
-	Caveman         string `json:"caveman"`
-	Elephant        string `json:"elephant"`
+	OllamaModel      string `json:"ollama_model"`
+	TavilyAPIKey     string `json:"tavily_api_key"`
+	Model            string `json:"model"`
+	DefaultProvider   string `json:"default_provider"`
+	Caveman          string `json:"caveman"`
+	Elephant         string `json:"elephant"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
@@ -40,6 +41,7 @@ func (c *Config) keymap() map[string]*string {
 		"OLLAMA_MODEL":      &c.OllamaModel,
 		"TAVILY_API_KEY":    &c.TavilyAPIKey,
 		"MODEL":             &c.Model,
+		"DEFAULT_PROVIDER":  &c.DefaultProvider,
 		"CAVEMAN":           &c.Caveman,
 		"ELEPHANT":          &c.Elephant,
 	}
@@ -154,7 +156,7 @@ func (c *Config) Keys() []KeyStatus {
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_MODEL",
-		"TAVILY_API_KEY", "MODEL", "CAVEMAN", "ELEPHANT",
+		"TAVILY_API_KEY", "MODEL", "DEFAULT_PROVIDER", "CAVEMAN", "ELEPHANT",
 	}
 
 	km := c.keymap()
@@ -212,15 +214,17 @@ type ProviderConfig struct {
 	OpenAIKey      string
 	OpenRouterKey  string
 	OllamaURL      string
+	DefaultProvider string
 }
 
 func (c *Config) ProviderConfig() ProviderConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	pc := ProviderConfig{
-		AnthropicKey:   c.AnthropicAPIKey,
-		OpenAIKey:      c.OpenAIAPIKey,
-		OpenRouterKey:  c.OpenRouterAPIKey,
+		AnthropicKey:    c.AnthropicAPIKey,
+		OpenAIKey:       c.OpenAIAPIKey,
+		OpenRouterKey:   c.OpenRouterAPIKey,
+		DefaultProvider: c.DefaultProvider,
 	}
 	if c.OllamaModel != "" {
 		pc.OllamaURL = "http://localhost:11434"

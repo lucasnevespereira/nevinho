@@ -64,6 +64,12 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 	if name == "" {
 		return nil, fmt.Errorf("model name required")
 	}
+	if strings.HasPrefix(name, "ollama:") {
+		if pc.OllamaURL == "" {
+			return nil, fmt.Errorf("OLLAMA_MODEL not configured")
+		}
+		return NewOpenAI("", pc.OllamaURL, strings.TrimPrefix(name, "ollama:")), nil
+	}
 	if strings.HasPrefix(name, "openrouter:") {
 		if pc.OpenRouterKey == "" {
 			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
@@ -82,18 +88,23 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		}
 		return NewAnthropic(pc.AnthropicKey, "", strings.TrimPrefix(name, "anthropic:")), nil
 	}
-	switch {
-	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
+	switch strings.ToLower(pc.DefaultProvider) {
+	case "ollama":
+		if pc.OllamaURL == "" {
+			return nil, fmt.Errorf("OLLAMA_MODEL not configured")
+		}
+		return NewOpenAI("", pc.OllamaURL, name), nil
+	case "openai":
 		if pc.OpenAIKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY not configured")
 		}
 		return NewOpenAI(pc.OpenAIKey, "", name), nil
-	case strings.HasPrefix(name, "claude-"):
+	case "anthropic":
 		if pc.AnthropicKey == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY not configured")
 		}
 		return NewAnthropic(pc.AnthropicKey, "", name), nil
-	case strings.HasPrefix(name, "kimi-") || strings.HasPrefix(name, "moonshot-"):
+	case "openrouter":
 		if pc.OpenRouterKey == "" {
 			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
 		}
