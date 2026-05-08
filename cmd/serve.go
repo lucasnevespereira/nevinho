@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +23,8 @@ import (
 // macOS it runs in the foreground when the user calls `nevinho start`.
 func Serve(configDir, version, selfDoc string) {
 	logger.Init()
+
+	checkPID(configDir)
 
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -44,6 +50,8 @@ func Serve(configDir, version, selfDoc string) {
 		log.Fatalf("failed to start bot: %v", err)
 	}
 
+	writePID(configDir)
+
 	logger.Info("nevinho is online")
 
 	stop := make(chan os.Signal, 1)
@@ -52,11 +60,39 @@ func Serve(configDir, version, selfDoc string) {
 
 	logger.Info("shutting down...")
 
+	os.Remove(pidPath(configDir))
+
 	persistCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	a.PersistAll(persistCtx)
 	cancel()
 
 	bot.Stop()
+}
+
+func pidPath(configDir string) string {
+	return filepath.Join(configDir, "nevinho.pid")
+}
+
+func checkPID(configDir string) {
+	data, err := os.ReadFile(pidPath(configDir))
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	if proc.Signal(syscall.Signal(0)) == nil {
+		log.Fatalf("nevinho is already running (PID %d)", pid)
+	}
+}
+
+func writePID(configDir string) {
+	os.WriteFile(pidPath(configDir), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0644)
 }
 
 func detectProvider(cfg *config.Config) llm.Provider {

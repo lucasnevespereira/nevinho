@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	maxOutputTokens        = 4096
+	maxOutputTokens  = 4096
 	maxLoops         = 25
 	maxHistoryTokens = 30_000
 	maxToolResult    = 4000
@@ -65,15 +65,15 @@ type Agent struct {
 	version string
 	selfDoc string
 
-	mu             sync.Mutex
-	history        map[string][]json.RawMessage
-	userLock       map[string]*sync.Mutex
-	cancelFn       map[string]context.CancelFunc
-	toolCb         map[string]ToolCallback
-	pendingToolID  map[string]string
-	startTime time.Time
-	tokensIn  int
-	tokensOut int
+	mu            sync.Mutex
+	history       map[string][]json.RawMessage
+	userLock      map[string]*sync.Mutex
+	cancelFn      map[string]context.CancelFunc
+	toolCb        map[string]ToolCallback
+	pendingToolID map[string]string
+	startTime     time.Time
+	tokensIn      int
+	tokensOut     int
 }
 
 func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Agent {
@@ -598,7 +598,9 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	if flat == "" {
 		return
 	}
-	resp, err := a.llm.Complete(context.Background(), &llm.Request{
+	summarizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := a.llm.Complete(summarizeCtx, &llm.Request{
 		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
 		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat, nil)},
 		MaxTokens:    200,
