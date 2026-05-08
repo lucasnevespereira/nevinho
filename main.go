@@ -47,7 +47,7 @@ func main() {
 		cli.StatusCmd(version)
 	case "version":
 		fmt.Println("nevinho " + version)
-	case "--run":
+	case "run", "--run": // --run kept for backward compat with installed systemd units
 		cli.RunCmd(configDir, version, selfDoc)
 	default:
 		printUsage()

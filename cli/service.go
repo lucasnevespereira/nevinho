@@ -151,7 +151,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=%s --run
+ExecStart=%s run
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=5
