@@ -132,15 +132,22 @@ func installService() {
 
 	home, _ := os.UserHomeDir()
 
+	// StartLimitIntervalSec + StartLimitBurst stop a hard restart loop.
+	// After 5 failures in 10 minutes systemd holds the unit. The user clears
+	// it with: systemctl reset-failed nevinho && systemctl start nevinho.
+	// Without this, a bad token or Discord rate limit makes nevinho thrash
+	// the gateway, which extends the rate limit and floods the journal.
 	unit := fmt.Sprintf(`[Unit]
 Description=nevinho
 After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=%s --run
-Restart=always
-RestartSec=5
+Restart=on-failure
+RestartSec=10
 TimeoutStopSec=5
 Environment=HOME=%s
 
