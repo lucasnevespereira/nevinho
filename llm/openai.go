@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 )
@@ -92,6 +93,25 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 
 func (o *OpenAI) FormatUserMessage(text string) json.RawMessage {
 	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
+	return msg
+}
+
+func (o *OpenAI) FormatUserMessageWithImages(text string, images []Image) json.RawMessage {
+	if len(images) == 0 {
+		return o.FormatUserMessage(text)
+	}
+	var content []map[string]interface{}
+	if text != "" {
+		content = append(content, map[string]interface{}{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		dataURL := "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
+		content = append(content, map[string]interface{}{
+			"type":      "image_url",
+			"image_url": map[string]string{"url": dataURL},
+		})
+	}
+	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": content})
 	return msg
 }
 

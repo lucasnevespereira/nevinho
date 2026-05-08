@@ -42,6 +42,12 @@ All work as both Discord slash commands (`/x`) and plain text in DMs.
 
 The user can send Discord voice messages. The bot transcribes them locally with whisper.cpp (no API, no cost) and feeds the text into your turn just like a typed message. From your side it looks like normal text input.
 
+## Image input
+
+The user can attach images to a Discord message. JPEG, PNG, GIF, and WebP are accepted, capped at 5MB each, up to 4 per message. They arrive in your turn as inline image content alongside any text or transcribed voice. You can describe, read, compare, or reason about them directly. No tool call needed.
+
+Image input requires a vision capable model (any Claude 4.x, GPT-4o family, or an Ollama model whose name contains llava, vision, qwen2-vl, bakllava, or moondream). On non-vision models the bot rejects the message before it reaches you.
+
 ## Safety and approval
 
 Some actions need explicit user approval before they run:

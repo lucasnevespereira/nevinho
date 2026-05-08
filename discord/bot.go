@@ -13,8 +13,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 	"github.com/lucasnevespereira/nevinho/voice"
+)
+
+const (
+	maxImageBytes  = 5 * 1024 * 1024
+	maxImagesPerMessage = 4
 )
 
 const maxMessageLen = 2000
@@ -266,7 +272,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	isVoice := false
 	voiceMessageID := ""
 
-	// Handle voice messages: transcribe audio attachments
+	// Voice messages. Transcribe audio attachments when there is no text.
 	if text == "" && len(m.Attachments) > 0 {
 		for _, att := range m.Attachments {
 			if isAudioAttachment(att) {
@@ -284,7 +290,37 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	if text == "" {
+	// Image attachments. Independent of voice path. The model sees images
+	// alongside any text or voice transcription in the same turn.
+	var images []llm.Image
+	for _, att := range m.Attachments {
+		mt := imageMediaType(att)
+		if mt == "" {
+			continue
+		}
+		if len(images) >= maxImagesPerMessage {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Only the first %d images were used.", maxImagesPerMessage))
+			break
+		}
+		if att.Size > maxImageBytes {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Skipped %s (over 5MB).", att.Filename))
+			continue
+		}
+		img, err := b.downloadImage(att, mt)
+		if err != nil {
+			logger.Err(fmt.Errorf("image %s: %w", att.Filename, err))
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to load %s.", att.Filename))
+			continue
+		}
+		images = append(images, img)
+	}
+
+	if text == "" && len(images) == 0 {
+		return
+	}
+
+	if len(images) > 0 && !llm.ModelSupportsVision(b.agent.Model()) {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Current model `%s` cannot read images. Switch to a vision capable model with `/model`.", b.agent.Model()))
 		return
 	}
 
@@ -372,7 +408,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	indicator := newActivityIndicator(s, m.ChannelID)
 	b.agent.SetToolCallback(m.Author.ID, indicator.onEvent)
 
-	response, err := b.agent.Chat(m.Author.ID, text, isVoice)
+	response, err := b.agent.Chat(m.Author.ID, text, isVoice, images)
 	b.agent.SetToolCallback(m.Author.ID, nil)
 	indicator.Close()
 	stopTyping()
@@ -750,7 +786,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	indicator := newActivityIndicator(s, channelID)
 	b.agent.SetToolCallback(userID, indicator.onEvent)
 
-	response, err := b.agent.Chat(userID, "yes", false)
+	response, err := b.agent.Chat(userID, "yes", false, nil)
 	b.agent.SetToolCallback(userID, nil)
 	indicator.Close()
 	stopTyping()
@@ -854,6 +890,49 @@ func isAudioAttachment(att *discordgo.MessageAttachment) bool {
 	}
 	ext := strings.ToLower(filepath.Ext(att.Filename))
 	return audioExtensions[ext]
+}
+
+var imageMediaTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+var imageExtMediaTypes = map[string]string{
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+}
+
+// imageMediaType returns the canonical media type for a Discord attachment, or
+// empty string if it is not a supported image. Falls back on the filename
+// extension when ContentType is missing or generic.
+func imageMediaType(att *discordgo.MessageAttachment) string {
+	if imageMediaTypes[att.ContentType] {
+		return att.ContentType
+	}
+	ext := strings.ToLower(filepath.Ext(att.Filename))
+	return imageExtMediaTypes[ext]
+}
+
+func (b *Bot) downloadImage(att *discordgo.MessageAttachment, mediaType string) (llm.Image, error) {
+	resp, err := http.Get(att.URL)
+	if err != nil {
+		return llm.Image{}, fmt.Errorf("download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
+	if err != nil {
+		return llm.Image{}, fmt.Errorf("read: %w", err)
+	}
+	if len(data) > maxImageBytes {
+		return llm.Image{}, fmt.Errorf("image exceeds %d bytes", maxImageBytes)
+	}
+	return llm.Image{MediaType: mediaType, Data: data}, nil
 }
 
 func (b *Bot) transcribeAttachment(s *discordgo.Session, channelID string, att *discordgo.MessageAttachment) string {

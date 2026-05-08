@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -109,6 +110,28 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 
 func (a *Anthropic) FormatUserMessage(text string) json.RawMessage {
 	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
+	return msg
+}
+
+func (a *Anthropic) FormatUserMessageWithImages(text string, images []Image) json.RawMessage {
+	if len(images) == 0 {
+		return a.FormatUserMessage(text)
+	}
+	var content []map[string]interface{}
+	if text != "" {
+		content = append(content, map[string]interface{}{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		content = append(content, map[string]interface{}{
+			"type": "image",
+			"source": map[string]string{
+				"type":       "base64",
+				"media_type": img.MediaType,
+				"data":       base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": content})
 	return msg
 }
 

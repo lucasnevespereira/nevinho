@@ -129,7 +129,7 @@ func (a *Agent) Cancel(userID string) bool {
 	return false
 }
 
-func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
+func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -200,7 +200,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool) (string, error) {
 
 	a.maybeLoadSummary(userID)
 
-	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text)); len(evicted) > 2 {
+	if evicted := a.appendHistory(userID, a.llm.FormatUserMessageWithImages(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
 

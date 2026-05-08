@@ -89,6 +89,12 @@ Send voice messages in Discord and nevinho transcribes them using a local Whispe
 
 Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installed if missing). The Whisper model (~75MB) is stored in `~/.nevinho/whisper/`.
 
+## Images
+
+Attach images to a Discord message and nevinho passes them straight to a vision capable model. JPEG, PNG, GIF, WebP. Up to 4 images per message, 5MB each. Works with any Claude 4.x model, the GPT-4o family, and Ollama vision models like llava or llama3.2-vision.
+
+If the current model can't read images, nevinho replies with a hint to switch via `/model` instead of dropping the message silently.
+
 ## Commands
 
 | Command             | What it does                              |
