@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"fmt"
@@ -14,11 +14,11 @@ import (
 
 const serviceFile = "/etc/systemd/system/nevinho.service"
 
-// StartCmd starts nevinho as a systemd service on Linux. On other platforms
-// it runs the bot in the foreground via RunCmd.
-func StartCmd(configDir, version, selfDoc string) {
+// Start starts nevinho as a systemd service on Linux. On other platforms it
+// runs the bot in the foreground via Serve.
+func Start(configDir, version, selfDoc string) {
 	if runtime.GOOS != "linux" {
-		RunCmd(configDir, version, selfDoc)
+		Serve(configDir, version, selfDoc)
 		return
 	}
 
@@ -45,8 +45,8 @@ func StartCmd(configDir, version, selfDoc string) {
 	fmt.Println("  nevinho stop     stop the bot")
 }
 
-// StopCmd stops the running nevinho systemd service.
-func StopCmd() {
+// Stop stops the running nevinho systemd service.
+func Stop() {
 	if runtime.GOOS != "linux" {
 		fmt.Println("On macOS, stop with Ctrl+C.")
 		return
@@ -59,8 +59,8 @@ func StopCmd() {
 	fmt.Println("nevinho stopped.")
 }
 
-// LogsCmd streams or prints recent log lines from journalctl.
-func LogsCmd(args []string) {
+// Logs streams or prints recent log lines from journalctl.
+func Logs(args []string) {
 	if runtime.GOOS != "linux" {
 		fmt.Println("Logs are available on Linux with systemd.")
 		return
@@ -97,8 +97,8 @@ func LogsCmd(args []string) {
 	cmd.Run()
 }
 
-// StatusCmd reports whether nevinho is currently running.
-func StatusCmd(version string) {
+// Status reports whether nevinho is currently running.
+func Status(version string) {
 	if runtime.GOOS != "linux" {
 		fmt.Println("nevinho " + version)
 		fmt.Println("Service management is only available on Linux.")
@@ -113,12 +113,22 @@ func StatusCmd(version string) {
 	}
 }
 
-// RestartService restarts the running unit. No op when not running.
-func RestartService() {
+// Restart restarts the running unit. No op when not running.
+func Restart() {
 	if runtime.GOOS != "linux" || !isRunning() {
 		return
 	}
 	systemctl("restart", "nevinho")
+}
+
+// InstallSystemdUnit (re)writes the systemd unit file and reloads the daemon.
+// Used by Start on first install and by Upgrade to refresh after binary swap.
+// No op on platforms without systemd.
+func InstallSystemdUnit() {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	installService()
 }
 
 func isRunning() bool {
@@ -151,7 +161,7 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=%s run
+ExecStart=%s serve
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=5

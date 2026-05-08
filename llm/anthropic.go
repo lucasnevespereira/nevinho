@@ -108,14 +108,10 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 	return resp, nil
 }
 
-func (a *Anthropic) FormatUserMessage(text string) json.RawMessage {
-	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
-	return msg
-}
-
-func (a *Anthropic) FormatUserMessageWithImages(text string, images []Image) json.RawMessage {
+func (a *Anthropic) FormatUserMessage(text string, images []Image) json.RawMessage {
 	if len(images) == 0 {
-		return a.FormatUserMessage(text)
+		msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
+		return msg
 	}
 	var content []map[string]interface{}
 	if text != "" {

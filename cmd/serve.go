@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"context"
@@ -15,9 +15,9 @@ import (
 	"github.com/lucasnevespereira/nevinho/logger"
 )
 
-// RunCmd is the actual bot main loop. systemd invokes it via `nevinho --run`.
-// On macOS it runs in the foreground when the user calls `nevinho start`.
-func RunCmd(configDir, version, selfDoc string) {
+// Serve is the bot main loop. On Linux, systemd invokes `nevinho serve`. On
+// macOS it runs in the foreground when the user calls `nevinho start`.
+func Serve(configDir, version, selfDoc string) {
 	logger.Init()
 
 	cfg, err := config.Load(configDir)

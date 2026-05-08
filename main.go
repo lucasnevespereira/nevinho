@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/joho/godotenv"
-	"github.com/lucasnevespereira/nevinho/cli"
+	"github.com/lucasnevespereira/nevinho/cmd"
 	"github.com/lucasnevespereira/nevinho/config"
 )
 
@@ -23,32 +23,32 @@ func main() {
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".nevinho")
 
-	cmd := ""
+	name := ""
 	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+		name = os.Args[1]
 	}
 
-	switch cmd {
+	switch name {
 	case "setup":
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
 		}
 	case "config":
-		cli.ConfigCmd(configDir, os.Args[2:])
+		cmd.Config(configDir, os.Args[2:])
 	case "start":
-		cli.StartCmd(configDir, version, selfDoc)
+		cmd.Start(configDir, version, selfDoc)
 	case "stop":
-		cli.StopCmd()
+		cmd.Stop()
 	case "logs":
-		cli.LogsCmd(os.Args[2:])
+		cmd.Logs(os.Args[2:])
 	case "upgrade":
-		cli.UpgradeCmd(version)
+		cmd.Upgrade(version)
 	case "status":
-		cli.StatusCmd(version)
+		cmd.Status(version)
 	case "version":
 		fmt.Println("nevinho " + version)
-	case "run", "--run": // --run kept for backward compat with installed systemd units
-		cli.RunCmd(configDir, version, selfDoc)
+	case "serve":
+		cmd.Serve(configDir, version, selfDoc)
 	default:
 		printUsage()
 	}

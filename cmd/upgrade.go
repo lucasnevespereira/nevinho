@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"encoding/json"
@@ -13,9 +13,11 @@ import (
 
 const repo = "lucasnevespereira/nevinho"
 
-// UpgradeCmd downloads the latest release binary and replaces the current
-// one in place. If a service is running, it is restarted on the new binary.
-func UpgradeCmd(version string) {
+// Upgrade downloads the latest release binary, replaces the current one in
+// place, refreshes the systemd unit if present, and restarts the running
+// service. The unit refresh ensures changes to ExecStart (e.g. subcommand
+// renames) land without manual intervention from the operator.
+func Upgrade(version string) {
 	latest, err := fetchLatestVersion()
 	if err != nil {
 		log.Fatalf("failed to check latest version: %v", err)
@@ -69,7 +71,8 @@ func UpgradeCmd(version string) {
 	}
 
 	fmt.Printf("Updated to %s.\n", latest)
-	RestartService()
+	InstallSystemdUnit()
+	Restart()
 }
 
 func fetchLatestVersion() (string, error) {

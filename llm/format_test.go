@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestAnthropicFormatUserMessageWithImages(t *testing.T) {
+func TestAnthropicFormatUserMessage(t *testing.T) {
 	a := NewAnthropic("k", "", "claude-haiku-4-5")
 	img := Image{MediaType: "image/png", Data: []byte("PNG\x00bytes")}
-	raw := a.FormatUserMessageWithImages("hello", []Image{img})
+	raw := a.FormatUserMessage("hello", []Image{img})
 
 	var msg struct {
 		Role    string                   `json:"role"`
@@ -43,10 +43,10 @@ func TestAnthropicFormatUserMessageWithImages(t *testing.T) {
 	}
 }
 
-func TestAnthropicFormatUserMessageWithImagesEmptyText(t *testing.T) {
+func TestAnthropicFormatUserMessageEmptyText(t *testing.T) {
 	a := NewAnthropic("k", "", "claude-haiku-4-5")
 	img := Image{MediaType: "image/jpeg", Data: []byte("JPG")}
-	raw := a.FormatUserMessageWithImages("", []Image{img})
+	raw := a.FormatUserMessage("", []Image{img})
 
 	var msg struct {
 		Content []map[string]interface{} `json:"content"`
@@ -62,9 +62,9 @@ func TestAnthropicFormatUserMessageWithImagesEmptyText(t *testing.T) {
 	}
 }
 
-func TestAnthropicFormatUserMessageWithImagesNoImagesIsString(t *testing.T) {
+func TestAnthropicFormatUserMessageNoImagesIsString(t *testing.T) {
 	a := NewAnthropic("k", "", "claude-haiku-4-5")
-	raw := a.FormatUserMessageWithImages("plain", nil)
+	raw := a.FormatUserMessage("plain", nil)
 
 	var msg struct {
 		Role    string          `json:"role"`
@@ -82,10 +82,10 @@ func TestAnthropicFormatUserMessageWithImagesNoImagesIsString(t *testing.T) {
 	}
 }
 
-func TestOpenAIFormatUserMessageWithImages(t *testing.T) {
+func TestOpenAIFormatUserMessage(t *testing.T) {
 	o := NewOpenAI("k", "", "gpt-4o-mini")
 	img := Image{MediaType: "image/png", Data: []byte("PNG\x00bytes")}
-	raw := o.FormatUserMessageWithImages("look", []Image{img})
+	raw := o.FormatUserMessage("look", []Image{img})
 
 	var msg struct {
 		Role    string                   `json:"role"`
@@ -116,9 +116,9 @@ func TestOpenAIFormatUserMessageWithImages(t *testing.T) {
 	}
 }
 
-func TestOpenAIFormatUserMessageWithImagesNoImagesIsString(t *testing.T) {
+func TestOpenAIFormatUserMessageNoImagesIsString(t *testing.T) {
 	o := NewOpenAI("k", "", "gpt-4o-mini")
-	raw := o.FormatUserMessageWithImages("plain", nil)
+	raw := o.FormatUserMessage("plain", nil)
 
 	var msg struct {
 		Content json.RawMessage `json:"content"`

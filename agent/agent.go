@@ -200,7 +200,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 
 	a.maybeLoadSummary(userID)
 
-	if evicted := a.appendHistory(userID, a.llm.FormatUserMessageWithImages(text, images)); len(evicted) > 2 {
+	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
 
@@ -339,7 +339,7 @@ func (a *Agent) maybeLoadSummary(userID string) {
 	if summary == "" {
 		return
 	}
-	preamble := a.llm.FormatUserMessage("[Previous conversation: " + summary + "]")
+	preamble := a.llm.FormatUserMessage("[Previous conversation: "+summary+"]", nil)
 	a.history[userID] = append(a.history[userID], preamble)
 	logger.Info("loaded persisted summary")
 }
@@ -381,7 +381,7 @@ func (a *Agent) persistUser(ctx context.Context, userID string) {
 	}
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: "Summarize this conversation in 3-5 sentences. Capture what the user was working on, key decisions, and unresolved threads. Be specific enough that the next session can pick up where this left off.",
-		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
+		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat, nil)},
 		MaxTokens:    400,
 	})
 	if err != nil {
@@ -600,7 +600,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	}
 	resp, err := a.llm.Complete(context.Background(), &llm.Request{
 		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
-		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat)},
+		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat, nil)},
 		MaxTokens:    200,
 	})
 	if err != nil {
@@ -610,7 +610,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	if resp.Text == "" {
 		return
 	}
-	preamble := a.llm.FormatUserMessage("[Conversation so far: " + resp.Text + "]")
+	preamble := a.llm.FormatUserMessage("[Conversation so far: "+resp.Text+"]", nil)
 	a.history[userID] = append([]json.RawMessage{preamble}, a.history[userID]...)
 }
 

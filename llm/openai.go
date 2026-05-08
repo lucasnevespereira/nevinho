@@ -91,14 +91,10 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 	return resp, nil
 }
 
-func (o *OpenAI) FormatUserMessage(text string) json.RawMessage {
-	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
-	return msg
-}
-
-func (o *OpenAI) FormatUserMessageWithImages(text string, images []Image) json.RawMessage {
+func (o *OpenAI) FormatUserMessage(text string, images []Image) json.RawMessage {
 	if len(images) == 0 {
-		return o.FormatUserMessage(text)
+		msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
+		return msg
 	}
 	var content []map[string]interface{}
 	if text != "" {

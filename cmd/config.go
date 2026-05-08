@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"fmt"
@@ -8,13 +8,13 @@ import (
 	"github.com/lucasnevespereira/nevinho/config"
 )
 
-// ConfigCmd dispatches `nevinho config ...` subcommands.
+// Config dispatches `nevinho config ...` subcommands.
 //
 //	nevinho config                  list all keys
 //	nevinho config get KEY          print one value, masked if secret
 //	nevinho config set KEY VALUE    set a value
 //	nevinho config delete KEY       clear a value
-func ConfigCmd(configDir string, args []string) {
+func Config(configDir string, args []string) {
 	cfg, err := config.Load(configDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
