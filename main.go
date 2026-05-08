@@ -104,12 +104,16 @@ func run(configDir string) {
 func detectProvider(cfg *config.Config) llm.Provider {
 	pc := cfg.ProviderConfig()
 
-	// Use saved model preference if available
+	// Use saved model preference if available. On error (unknown model,
+	// missing key) log the reason so the operator sees why nevinho fell
+	// back to a different provider instead of silently picking one.
 	if cfg.Model != "" {
-		if p, err := llm.Resolve(cfg.Model, pc); err == nil {
+		p, err := llm.Resolve(cfg.Model, pc)
+		if err == nil {
 			logger.Info("provider: " + cfg.Model + " (saved)")
 			return p
 		}
+		logger.Info("saved model " + cfg.Model + " unusable: " + err.Error() + ", falling back")
 	}
 
 	switch {

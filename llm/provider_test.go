@@ -1,0 +1,70 @@
+package llm
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/lucasnevespereira/nevinho/config"
+)
+
+func TestIsKnownModel(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"claude-haiku-4-5", true},
+		{"claude-sonnet-4-6", true},
+		{"gpt-4o-mini", true},
+		{"gpt-4o", true},
+		{"o4-mini", true},
+		{"gpt-5.4-mini", false},
+		{"claude-haiku-9000", false},
+		{"llama3", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := IsKnownModel(c.name); got != c.want {
+			t.Errorf("IsKnownModel(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestResolveRejectsBogusOpenAI(t *testing.T) {
+	_, err := Resolve("gpt-5.4-mini", config.ProviderConfig{OpenAIKey: "k"})
+	if err == nil {
+		t.Fatal("expected error for unknown gpt model, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown OpenAI model") {
+		t.Errorf("error mismatch: %v", err)
+	}
+}
+
+func TestResolveRejectsBogusAnthropic(t *testing.T) {
+	_, err := Resolve("claude-imaginary", config.ProviderConfig{AnthropicKey: "k"})
+	if err == nil {
+		t.Fatal("expected error for unknown claude model, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown Anthropic model") {
+		t.Errorf("error mismatch: %v", err)
+	}
+}
+
+func TestResolveAllowsKnownOpenAI(t *testing.T) {
+	p, err := Resolve("gpt-4o-mini", config.ProviderConfig{OpenAIKey: "k"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
+	}
+}
+
+func TestResolveAllowsAnyOllamaModel(t *testing.T) {
+	p, err := Resolve("custom-local-model", config.ProviderConfig{OllamaURL: "http://localhost:11434"})
+	if err != nil {
+		t.Fatalf("expected ollama to accept any name, got: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
+	}
+}
