@@ -62,23 +62,25 @@ type ToolDef struct {
 	Schema      string
 }
 
-// KnownModels is the canonical list of model names per provider that nevinho
-// recognizes. Names outside this list resolve only when the provider is
-// Ollama (any local model name allowed) so a typo or stale saved name fails
-// loudly instead of producing 400s at request time.
+// KnownModels is the canonical list of friendly model names per provider
+// that nevinho recognizes. Names outside this list resolve only when the
+// provider is Ollama (any local model name allowed) so a typo or stale
+// saved name fails loudly instead of producing 400s at request time.
+//
+// Dated variants like claude-haiku-4-5-20251001 are accepted by the upstream
+// API and used internally as defaults, but are not listed here to keep the
+// user facing menu compact.
 var KnownModels = map[string][]string{
 	"anthropic": {
 		"claude-haiku-4-5",
-		"claude-haiku-4-5-20251001",
 		"claude-sonnet-4-6",
-		"claude-sonnet-4-6-20250514",
 		"claude-sonnet-4-7",
 		"claude-opus-4-6",
 		"claude-opus-4-7",
 	},
 	"openai": {
-		"gpt-4o",
 		"gpt-4o-mini",
+		"gpt-4o",
 		"gpt-4-turbo",
 		"o1-mini",
 		"o3-mini",
@@ -86,11 +88,31 @@ var KnownModels = map[string][]string{
 	},
 }
 
-// IsKnownModel reports whether name appears in any provider's KnownModels list.
+// isDatedVariant reports whether name looks like a friendly model with a
+// trailing date suffix (e.g. claude-haiku-4-5-20251001). Such names route
+// to the same provider as their friendly counterpart.
+func isDatedVariant(name string) bool {
+	if len(name) < 9 {
+		return false
+	}
+	tail := name[len(name)-8:]
+	for _, c := range tail {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return name[len(name)-9] == '-'
+}
+
+// IsKnownModel reports whether name appears in any provider's KnownModels
+// list, or is a dated variant of one of those names.
 func IsKnownModel(name string) bool {
 	for _, models := range KnownModels {
 		for _, m := range models {
 			if m == name {
+				return true
+			}
+			if isDatedVariant(name) && strings.HasPrefix(name, m+"-") {
 				return true
 			}
 		}

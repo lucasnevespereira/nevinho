@@ -14,6 +14,8 @@ func TestIsKnownModel(t *testing.T) {
 	}{
 		{"claude-haiku-4-5", true},
 		{"claude-sonnet-4-6", true},
+		{"claude-haiku-4-5-20251001", true}, // dated variant
+		{"claude-sonnet-4-6-20250514", true},
 		{"gpt-4o-mini", true},
 		{"gpt-4o", true},
 		{"o4-mini", true},
