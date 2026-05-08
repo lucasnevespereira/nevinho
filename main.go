@@ -23,12 +23,12 @@ func main() {
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".nevinho")
 
-	name := ""
+	arg := ""
 	if len(os.Args) > 1 {
-		name = os.Args[1]
+		arg = os.Args[1]
 	}
 
-	switch name {
+	switch arg {
 	case "setup":
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
