@@ -49,8 +49,12 @@ func main() {
 		fmt.Println("nevinho " + version)
 	case "serve":
 		cmd.Serve(configDir, version, selfDoc)
-	default:
+	case "help", "-h", "--help":
 		printUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", arg)
+		printUsage()
+		os.Exit(2)
 	}
 }
 

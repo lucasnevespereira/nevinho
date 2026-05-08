@@ -28,9 +28,11 @@ func Config(configDir string, args []string) {
 	}
 
 	switch args[0] {
+	case "help", "-h", "--help":
+		printConfigUsage(os.Stdout)
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: nevinho config get KEY [--reveal]")
+			printConfigUsage(os.Stderr)
 			os.Exit(2)
 		}
 		reveal := false
@@ -42,7 +44,7 @@ func Config(configDir string, args []string) {
 		printConfigValue(cfg, args[1], reveal)
 	case "set":
 		if len(args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: nevinho config set KEY VALUE")
+			printConfigUsage(os.Stderr)
 			os.Exit(2)
 		}
 		key := args[1]
@@ -54,7 +56,7 @@ func Config(configDir string, args []string) {
 		fmt.Printf("set %s\n", key)
 	case "delete", "clear", "unset":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: nevinho config delete KEY")
+			printConfigUsage(os.Stderr)
 			os.Exit(2)
 		}
 		key := args[1]
@@ -64,9 +66,26 @@ func Config(configDir string, args []string) {
 		}
 		fmt.Printf("cleared %s\n", key)
 	default:
-		fmt.Fprintln(os.Stderr, "unknown subcommand. Use: get, set, delete, or no args to list.")
+		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n\n", args[0])
+		printConfigUsage(os.Stderr)
 		os.Exit(2)
 	}
+}
+
+func printConfigUsage(w *os.File) {
+	fmt.Fprintln(w, "Usage: nevinho config [SUBCOMMAND]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Subcommands:")
+	fmt.Fprintln(w, "  (none)                  list all keys")
+	fmt.Fprintln(w, "  get KEY [--reveal]      print one value, masked unless --reveal")
+	fmt.Fprintln(w, "  set KEY VALUE           set a value")
+	fmt.Fprintln(w, "  delete KEY              clear a value")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Known keys:")
+	fmt.Fprintln(w, "  DISCORD_BOT_TOKEN, DISCORD_OWNER_ID")
+	fmt.Fprintln(w, "  ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY")
+	fmt.Fprintln(w, "  OLLAMA_MODEL, TAVILY_API_KEY")
+	fmt.Fprintln(w, "  MODEL, CAVEMAN, ELEPHANT")
 }
 
 func printConfigList(cfg *config.Config) {
