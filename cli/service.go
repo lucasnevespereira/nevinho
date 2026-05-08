@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -14,13 +14,16 @@ import (
 
 const serviceFile = "/etc/systemd/system/nevinho.service"
 
-func startService(configDir string) {
+// StartCmd starts nevinho as a systemd service on Linux. On other platforms
+// it runs the bot in the foreground via RunCmd.
+func StartCmd(configDir, version, selfDoc string) {
 	if runtime.GOOS != "linux" {
-		run(configDir)
+		RunCmd(configDir, version, selfDoc)
 		return
 	}
 
-	// Pre-flight: verify config exists before installing a service that would crash-loop
+	// Pre flight, verify config exists before installing a service that
+	// would otherwise crash loop on the first start.
 	cfg, err := config.Load(configDir)
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
@@ -42,7 +45,8 @@ func startService(configDir string) {
 	fmt.Println("  nevinho stop     stop the bot")
 }
 
-func stopService() {
+// StopCmd stops the running nevinho systemd service.
+func StopCmd() {
 	if runtime.GOOS != "linux" {
 		fmt.Println("On macOS, stop with Ctrl+C.")
 		return
@@ -55,7 +59,8 @@ func stopService() {
 	fmt.Println("nevinho stopped.")
 }
 
-func showLogs(args []string) {
+// LogsCmd streams or prints recent log lines from journalctl.
+func LogsCmd(args []string) {
 	if runtime.GOOS != "linux" {
 		fmt.Println("Logs are available on Linux with systemd.")
 		return
@@ -83,7 +88,6 @@ func showLogs(args []string) {
 	}
 
 	if full {
-		// Show full output without journalctl line wrapping
 		jArgs = append(jArgs, "--no-hostname")
 	}
 
@@ -93,7 +97,8 @@ func showLogs(args []string) {
 	cmd.Run()
 }
 
-func serviceStatus() {
+// StatusCmd reports whether nevinho is currently running.
+func StatusCmd(version string) {
 	if runtime.GOOS != "linux" {
 		fmt.Println("nevinho " + version)
 		fmt.Println("Service management is only available on Linux.")
@@ -108,7 +113,8 @@ func serviceStatus() {
 	}
 }
 
-func restartService() {
+// RestartService restarts the running unit. No op when not running.
+func RestartService() {
 	if runtime.GOOS != "linux" || !isRunning() {
 		return
 	}

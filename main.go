@@ -1,22 +1,15 @@
 package main
 
 import (
-	"context"
 	_ "embed"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
-	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/cli"
 	"github.com/lucasnevespereira/nevinho/config"
-	"github.com/lucasnevespereira/nevinho/discord"
-	"github.com/lucasnevespereira/nevinho/llm"
-	"github.com/lucasnevespereira/nevinho/logger"
 )
 
 //go:embed NEVINHO.md
@@ -40,95 +33,24 @@ func main() {
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
 		}
+	case "config":
+		cli.ConfigCmd(configDir, os.Args[2:])
 	case "start":
-		startService(configDir)
+		cli.StartCmd(configDir, version, selfDoc)
 	case "stop":
-		stopService()
+		cli.StopCmd()
 	case "logs":
-		showLogs(os.Args[2:])
+		cli.LogsCmd(os.Args[2:])
 	case "upgrade":
-		upgrade()
+		cli.UpgradeCmd(version)
 	case "status":
-		serviceStatus()
+		cli.StatusCmd(version)
 	case "version":
 		fmt.Println("nevinho " + version)
 	case "--run":
-		run(configDir)
+		cli.RunCmd(configDir, version, selfDoc)
 	default:
 		printUsage()
-	}
-}
-
-func run(configDir string) {
-	logger.Init()
-
-	cfg, err := config.Load(configDir)
-	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
-	}
-
-	if cfg.DiscordBotToken == "" {
-		log.Fatal("DISCORD_BOT_TOKEN is required (run nevinho setup)")
-	}
-	if cfg.DiscordOwnerID == "" {
-		log.Fatal("DISCORD_OWNER_ID is required (run nevinho setup)")
-	}
-
-	provider := detectProvider(cfg)
-
-	a := agent.New(provider, cfg, version, selfDoc)
-	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, cfg)
-	if err != nil {
-		log.Fatalf("failed to create bot: %v", err)
-	}
-
-	if err := bot.Start(); err != nil {
-		log.Fatalf("failed to start bot: %v", err)
-	}
-
-	logger.Info("nevinho is online")
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
-	logger.Info("shutting down...")
-
-	persistCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	a.PersistAll(persistCtx)
-	cancel()
-
-	bot.Stop()
-}
-
-func detectProvider(cfg *config.Config) llm.Provider {
-	pc := cfg.ProviderConfig()
-
-	// Use saved model preference if available. On error (unknown model,
-	// missing key) log the reason so the operator sees why nevinho fell
-	// back to a different provider instead of silently picking one.
-	if cfg.Model != "" {
-		p, err := llm.Resolve(cfg.Model, pc)
-		if err == nil {
-			logger.Info("provider: " + cfg.Model + " (saved)")
-			return p
-		}
-		logger.Info("saved model " + cfg.Model + " unusable: " + err.Error() + ", falling back")
-	}
-
-	switch {
-	case cfg.OllamaModel != "":
-		logger.Info("provider: ollama (" + cfg.OllamaModel + ")")
-		return llm.NewOpenAI("", pc.OllamaURL, cfg.OllamaModel)
-	case pc.AnthropicKey != "":
-		logger.Info("provider: anthropic")
-		return llm.NewAnthropic(pc.AnthropicKey, "", "")
-	case pc.OpenAIKey != "":
-		logger.Info("provider: openai")
-		return llm.NewOpenAI(pc.OpenAIKey, "", "")
-	default:
-		log.Fatal("no LLM provider configured (run nevinho setup)")
-		return nil
 	}
 }
 
@@ -137,6 +59,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  nevinho setup    configure Discord token and LLM keys")
+	fmt.Println("  nevinho config   view, set, or delete config keys")
 	fmt.Println("  nevinho start    start the bot")
 	fmt.Println("  nevinho stop     stop the bot")
 	fmt.Println("  nevinho logs     show live logs (--full, --last N)")

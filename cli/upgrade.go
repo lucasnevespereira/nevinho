@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -13,7 +13,9 @@ import (
 
 const repo = "lucasnevespereira/nevinho"
 
-func upgrade() {
+// UpgradeCmd downloads the latest release binary and replaces the current
+// one in place. If a service is running, it is restarted on the new binary.
+func UpgradeCmd(version string) {
 	latest, err := fetchLatestVersion()
 	if err != nil {
 		log.Fatalf("failed to check latest version: %v", err)
@@ -67,7 +69,7 @@ func upgrade() {
 	}
 
 	fmt.Printf("Updated to %s.\n", latest)
-	restartService()
+	RestartService()
 }
 
 func fetchLatestVersion() (string, error) {
