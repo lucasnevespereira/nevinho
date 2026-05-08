@@ -39,7 +39,12 @@ func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error
 		return nil, fmt.Errorf("failed to create Discord session: %w", err)
 	}
 
-	session.Identify.Intents = discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
+	// nevinho is DM only. Discord exempts DMs from MESSAGE_CONTENT, so we
+	// receive full message content with just the DirectMessages intent.
+	// Dropping the privileged intent removes a setup foot gun (no toggle
+	// to flip in the developer portal) and avoids a class of session close
+	// errors when that toggle is off.
+	session.Identify.Intents = discordgo.IntentsDirectMessages
 
 	bot := &Bot{
 		session: session,
@@ -260,11 +265,15 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	if m.Author.ID != b.ownerID {
+		logger.Info(fmt.Sprintf("ignoring message from non owner %s", m.Author.ID))
 		return
 	}
 
-	channel, err := s.Channel(m.ChannelID)
-	if err != nil || channel.Type != discordgo.ChannelTypeDM {
+	// DMs have an empty GuildID. We rely on this rather than s.Channel()
+	// which depends on the state cache and can return an error for DM
+	// channels that have not been seen yet, causing silent drops.
+	if m.GuildID != "" {
+		logger.Info("ignoring guild message (DM only bot)")
 		return
 	}
 
@@ -692,11 +701,17 @@ func (b *Bot) modelStatus() string {
 
 	if pc.AnthropicKey != "" {
 		sb.WriteString("**Anthropic**\n")
-		sb.WriteString("• `claude-haiku-4-5`\n• `claude-sonnet-4-6`\n• `claude-opus-4-6`\n\n")
+		for _, m := range llm.KnownModels["anthropic"] {
+			fmt.Fprintf(&sb, "• `%s`\n", m)
+		}
+		sb.WriteString("\n")
 	}
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
-		sb.WriteString("• `gpt-5.4-nano`\n• `gpt-5.4-mini`\n• `gpt-5.4`\n• `gpt-4o-mini`\n• `gpt-4o`\n• `o4-mini`\n\n")
+		for _, m := range llm.KnownModels["openai"] {
+			fmt.Fprintf(&sb, "• `%s`\n", m)
+		}
+		sb.WriteString("\n")
 	}
 	if pc.OllamaURL != "" {
 		sb.WriteString("**Ollama**\n")
