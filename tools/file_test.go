@@ -360,6 +360,50 @@ func TestFileEditCRLF(t *testing.T) {
 	}
 }
 
+func TestFileEditPreservesMode(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "run.sh")
+
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	input := marshalInput(t, map[string]string{
+		"path":     path,
+		"old_text": "echo hi",
+		"new_text": "echo bye",
+	})
+	got := r.fileEdit(input, "u1")
+	if !strings.Contains(got, "edited") {
+		t.Fatalf("expected success, got: %s", got)
+	}
+
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755 (preserved)", info.Mode().Perm())
+	}
+}
+
+func TestFileEditRejectsOversizeFile(t *testing.T) {
+	r, dir := newTestRegistry(t)
+	path := filepath.Join(dir, "huge.txt")
+
+	big := strings.Repeat("x", maxFileSize+1)
+	if err := os.WriteFile(path, []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	input := marshalInput(t, map[string]string{
+		"path":     path,
+		"old_text": "x",
+		"new_text": "y",
+	})
+	got := r.fileEdit(input, "u1")
+	if !strings.Contains(got, "too large") {
+		t.Errorf("expected size cap error, got: %s", got)
+	}
+}
+
 func TestFormatSize(t *testing.T) {
 	tests := []struct {
 		bytes int64

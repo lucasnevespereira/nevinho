@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
 const (
@@ -49,7 +51,7 @@ func Add(configDir, entry string) error {
 		lines = lines[len(lines)-maxEntries:]
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+	return safeio.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 // correction patterns that indicate user preferences

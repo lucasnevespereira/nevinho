@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/lucasnevespereira/nevinho/crypto"
+	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
 type Config struct {
@@ -86,15 +87,11 @@ func (c *Config) Save() error {
 		return err
 	}
 
-	if err := os.MkdirAll(c.dir, 0755); err != nil {
-		return err
-	}
-
 	enc, err := crypto.Encrypt(c.key, plain)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.filePath, enc, 0600)
+	return safeio.WriteFile(c.filePath, enc, 0o600)
 }
 
 func (c *Config) Get(key string) (string, error) {

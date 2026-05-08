@@ -11,6 +11,7 @@ import (
 
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
 const maxResponseLen = 8000
@@ -348,11 +349,7 @@ func (r *Registry) saveApproved() {
 		log.Printf("failed to marshal approved paths: %v", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(r.permFile), 0755); err != nil {
-		log.Printf("failed to create config dir: %v", err)
-		return
-	}
-	if err := os.WriteFile(r.permFile, data, 0644); err != nil {
+	if err := safeio.WriteFile(r.permFile, data, 0o644); err != nil {
 		log.Printf("failed to save approved paths: %v", err)
 	}
 }
