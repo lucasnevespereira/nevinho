@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
 const (
@@ -110,7 +112,7 @@ func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("failed to create directory: %v", err)
 	}
 
-	if err := os.WriteFile(resolved, []byte(in.Content), 0644); err != nil {
+	if err := safeio.WriteFile(resolved, []byte(in.Content), 0o644); err != nil {
 		return fmt.Sprintf("failed to write: %v", err)
 	}
 
@@ -233,6 +235,10 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		return fmt.Sprintf("failed to read: %v", err)
 	}
 
+	if len(data) > maxFileSize {
+		return fmt.Sprintf("file too large to edit (%dKB, max %dKB). Use file_write or split the change.", len(data)/1024, maxFileSize/1024)
+	}
+
 	raw := string(data)
 	content, hasBOM := stripBOM(raw)
 	content, hasCRLF := normalizeLineEndings(content)
@@ -292,7 +298,7 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		newContent = utf8BOM + newContent
 	}
 
-	if err := os.WriteFile(resolved, []byte(newContent), 0644); err != nil {
+	if err := safeio.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
 		return fmt.Sprintf("failed to write: %v", err)
 	}
 

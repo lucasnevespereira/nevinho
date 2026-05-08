@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
 const (
@@ -47,8 +49,8 @@ func loadSummary(configDir, userID string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// saveSummary writes the summary atomically: write to .tmp then rename so a
-// crash mid-write can't leave a half-written file.
+// saveSummary writes the summary atomically through safeio.WriteFile so a
+// crash mid write cannot leave a half written file.
 func saveSummary(configDir, userID, text string) error {
 	path, err := summaryPath(configDir, userID)
 	if err != nil {
@@ -61,18 +63,8 @@ func saveSummary(configDir, userID, text string) error {
 	if len(text) > summaryMaxSize {
 		text = text[:summaryMaxSize]
 	}
-
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("create summaries dir: %w", err)
-	}
-
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(text+"\n"), 0644); err != nil {
+	if err := safeio.WriteFile(path, []byte(text+"\n"), 0o644); err != nil {
 		return fmt.Errorf("write summary: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename summary: %w", err)
 	}
 	return nil
 }
