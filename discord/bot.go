@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	maxImageBytes  = 5 * 1024 * 1024
+	maxImageBytes       = 5 * 1024 * 1024
 	maxImagesPerMessage = 4
 )
 
@@ -39,12 +39,10 @@ func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error
 		return nil, fmt.Errorf("failed to create Discord session: %w", err)
 	}
 
-	// nevinho is DM only. Discord exempts DMs from MESSAGE_CONTENT, so we
-	// receive full message content with just the DirectMessages intent.
-	// Dropping the privileged intent removes a setup foot gun (no toggle
-	// to flip in the developer portal) and avoids a class of session close
-	// errors when that toggle is off.
-	session.Identify.Intents = discordgo.IntentsDirectMessages
+	// nevinho is DM only. Discord exempts DMs from MESSAGE_CONTENT, but
+	// we include it as a hedge against API regressions. The privileged
+	// intent must be enabled in the Developer Portal.
+	session.Identify.Intents = discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 
 	bot := &Bot{
 		session: session,
@@ -260,6 +258,11 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("panic in onMessage: %v", r)
+		}
+	}()
 	if s.State != nil && s.State.User != nil && m.Author.ID == s.State.User.ID {
 		return
 	}

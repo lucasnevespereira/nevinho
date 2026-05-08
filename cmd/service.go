@@ -164,7 +164,7 @@ Type=simple
 ExecStart=%s serve
 Restart=on-failure
 RestartSec=10
-TimeoutStopSec=5
+TimeoutStopSec=30
 Environment=HOME=%s
 
 [Install]
