@@ -260,7 +260,7 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
+	if s.State != nil && s.State.User != nil && m.Author.ID == s.State.User.ID {
 		return
 	}
 
@@ -860,38 +860,23 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 	var options []discordgo.SelectMenuOption
 
 	if pc.AnthropicKey != "" {
-		for _, m := range [][2]string{
-			{"claude-haiku-4-5", "Fast, affordable"},
-			{"claude-sonnet-4-6", "Balanced"},
-			{"claude-opus-4-6", "Most capable"},
-		} {
+		for _, name := range llm.KnownModels["anthropic"] {
 			options = append(options, discordgo.SelectMenuOption{
-				Label:       m[0],
-				Value:       m[0],
-				Description: m[1],
-				Default:     m[0] == current,
+				Label:   name,
+				Value:   name,
+				Default: name == current,
 			})
 		}
 	}
-
 	if pc.OpenAIKey != "" {
-		for _, m := range [][2]string{
-			{"gpt-5.4-nano", "Fastest, cheapest"},
-			{"gpt-5.4-mini", "Fast, affordable"},
-			{"gpt-5.4", "Most capable"},
-			{"gpt-4o-mini", "Legacy, fast"},
-			{"gpt-4o", "Legacy, balanced"},
-			{"o4-mini", "Reasoning"},
-		} {
+		for _, name := range llm.KnownModels["openai"] {
 			options = append(options, discordgo.SelectMenuOption{
-				Label:       m[0],
-				Value:       m[0],
-				Description: m[1],
-				Default:     m[0] == current,
+				Label:   name,
+				Value:   name,
+				Default: name == current,
 			})
 		}
 	}
-
 	return options
 }
 
