@@ -113,7 +113,6 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [ ] Memory relevance ranking. Rank entries against the current message, inject top-K only.
 - [ ] Memory auto-expiry. `last_used` timestamp. Stale entries drop out.
 - [ ] Web tooling polish. URL cache (LRU, 5 min TTL). PDF extraction. Search result dedup.
-- [ ] Image and attachment support. Route Discord images to vision-capable models.
 - [ ] WhatsApp transport via `whatsmeow`. Needs a `transport/` interface refactor and real user demand first.
 - [ ] Proactive heartbeat. Periodic checklist drives agent actions. Ship only if distinct from scheduled tasks.
 - [ ] `delegate_research` tool. Fresh context, runs a research task, returns a summary. Only if long research chains blow the main context.
@@ -139,3 +138,4 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Web tooling.** Tavily advanced search and extract. Jina Reader fallback. Polite headers. Explicit error signaling. 429/5xx retries.
 - [x] **Conversation persistence (ELEPHANT).** On shutdown, summarize each user's history to `~/.nevinho/summaries/{userID}.md`. Reload as `[Previous conversation: ...]` preamble on next start. Default on, toggle via `ELEPHANT=off`. `/forget` wipes both in-memory history and the saved summary.
 - [x] **Self-knowledge.** `NEVINHO.md` at repo root, embedded in the binary via `go:embed` and auto-injected into the system prompt. Covers identity, persistence model, commands, architecture, and source-lookup strategy (local file_read for dev installs, web_read against GitHub raw for binary installs). `/memory` and `/summary` expose persisted state to the user.
+- [x] **Image input.** Discord image attachments (JPEG/PNG/GIF/WebP) routed inline to vision-capable models. 5MB per image, 4 per message. Vision capability checked per model before send. Anthropic and OpenAI both supported.
