@@ -10,10 +10,11 @@ import (
 
 // Config dispatches `nevinho config ...` subcommands.
 //
-//	nevinho config                  list all keys
-//	nevinho config get KEY          print one value, masked if secret
-//	nevinho config set KEY VALUE    set a value
-//	nevinho config delete KEY       clear a value
+//	nevinho config                       list all keys
+//	nevinho config get KEY               print one value, masked if secret
+//	nevinho config get KEY --reveal      print one value unmasked
+//	nevinho config set KEY VALUE         set a value
+//	nevinho config delete KEY            clear a value
 func Config(configDir string, args []string) {
 	cfg, err := config.Load(configDir)
 	if err != nil {
@@ -29,10 +30,16 @@ func Config(configDir string, args []string) {
 	switch args[0] {
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: nevinho config get KEY")
+			fmt.Fprintln(os.Stderr, "usage: nevinho config get KEY [--reveal]")
 			os.Exit(2)
 		}
-		printConfigValue(cfg, args[1])
+		reveal := false
+		for _, a := range args[2:] {
+			if a == "--reveal" {
+				reveal = true
+			}
+		}
+		printConfigValue(cfg, args[1], reveal)
 	case "set":
 		if len(args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: nevinho config set KEY VALUE")
@@ -78,7 +85,7 @@ func printConfigList(cfg *config.Config) {
 	}
 }
 
-func printConfigValue(cfg *config.Config, key string) {
+func printConfigValue(cfg *config.Config, key string, reveal bool) {
 	val, err := cfg.Get(key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -88,7 +95,7 @@ func printConfigValue(cfg *config.Config, key string) {
 		fmt.Println("(unset)")
 		return
 	}
-	if isSecretKey(key) {
+	if isSecretKey(key) && !reveal {
 		fmt.Println(maskSecret(val))
 		return
 	}
