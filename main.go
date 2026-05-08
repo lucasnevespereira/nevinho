@@ -43,6 +43,8 @@ func main() {
 		cmd.Logs(os.Args[2:])
 	case "upgrade":
 		cmd.Upgrade(version)
+	case "uninstall":
+		cmd.Uninstall(configDir, os.Args[2:])
 	case "status":
 		cmd.Status(version)
 	case "version":
@@ -68,6 +70,7 @@ func printUsage() {
 	fmt.Println("  nevinho stop     stop the bot")
 	fmt.Println("  nevinho logs     show live logs (--full, --last N)")
 	fmt.Println("  nevinho upgrade  update to latest version")
+	fmt.Println("  nevinho uninstall  remove service, binary, and ~/.nevinho")
 	fmt.Println("  nevinho status   check if bot is running")
 	fmt.Println("  nevinho version  show version")
 }
