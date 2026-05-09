@@ -35,6 +35,8 @@ func main() {
 		}
 	case "config":
 		cmd.Config(configDir, os.Args[2:])
+	case "chat":
+		cmd.Chat(configDir, version, selfDoc)
 	case "start":
 		cmd.Start(configDir, version, selfDoc)
 	case "stop":
@@ -66,6 +68,7 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  nevinho setup    configure Discord token and LLM keys")
 	fmt.Println("  nevinho config   view, set, or delete config keys")
+	fmt.Println("  nevinho chat     local REPL with the agent (no Discord)")
 	fmt.Println("  nevinho start    start the bot")
 	fmt.Println("  nevinho stop     stop the bot")
 	fmt.Println("  nevinho logs     show live logs (--full, --last N)")
