@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
 var slashCommands = []*discordgo.ApplicationCommand{
@@ -43,6 +45,29 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		},
 	},
 	{Name: "help", Description: "Show available commands and capabilities"},
+	{
+		Name:        "schedules",
+		Description: "List, pause, resume, or delete scheduled tasks",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "action",
+				Description: "Action: pause, resume, or delete. Omit to list.",
+				Required:    false,
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "pause", Value: "pause"},
+					{Name: "resume", Value: "resume"},
+					{Name: "delete", Value: "delete"},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "name",
+				Description: "Schedule name. Required for pause, resume, delete.",
+				Required:    false,
+			},
+		},
+	},
 	{
 		Name:        "config",
 		Description: "View or update configuration",
@@ -170,6 +195,18 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	case "config":
 		b.handleConfigSlash(s, i, data)
 		return
+
+	case "schedules":
+		var action, name string
+		for _, opt := range data.Options {
+			switch opt.Name {
+			case "action":
+				action = opt.StringValue()
+			case "name":
+				name = opt.StringValue()
+			}
+		}
+		reply = b.scheduleAction(action, name)
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -461,4 +498,72 @@ func (b *Bot) reloadProvider() {
 
 func isLLMKey(key string) bool {
 	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "OLLAMA_MODEL"
+}
+
+// scheduleAction handles /schedules: list (default), pause, resume, delete.
+// The bot talks to the store directly here. The agent's schedule tool
+// covers the same actions for natural language requests in chat.
+func (b *Bot) scheduleAction(action, name string) string {
+	if b.schedules == nil {
+		return "Scheduling is not enabled in this process."
+	}
+	action = strings.ToLower(strings.TrimSpace(action))
+
+	switch action {
+	case "", "list":
+		return formatSchedules(b.schedules.All())
+	case "pause", "resume":
+		if name == "" {
+			return fmt.Sprintf("Usage: `/schedules %s NAME`", action)
+		}
+		s, err := b.schedules.SetEnabled(name, action == "resume")
+		if err != nil {
+			return "Failed: " + err.Error()
+		}
+		if action == "pause" {
+			return fmt.Sprintf("Paused `%s`.", s.Name)
+		}
+		return fmt.Sprintf("Resumed `%s`. Next run: %s", s.Name, formatScheduleTime(s.NextRun))
+	case "delete":
+		if name == "" {
+			return "Usage: `/schedules delete NAME`"
+		}
+		ok, err := b.schedules.Delete(name)
+		if err != nil {
+			return "Failed: " + err.Error()
+		}
+		if !ok {
+			return fmt.Sprintf("No schedule named `%s`.", name)
+		}
+		return fmt.Sprintf("Deleted `%s`.", name)
+	default:
+		return "Unknown action. Use list, pause, resume, or delete."
+	}
+}
+
+func formatSchedules(list []schedule.Schedule) string {
+	if len(list) == 0 {
+		return "No schedules. Ask nevinho to set one up: \"every morning summarize HN\"."
+	}
+	var sb strings.Builder
+	sb.WriteString("**Schedules**\n")
+	for _, s := range list {
+		state := "▶"
+		if !s.Enabled {
+			state = "⏸"
+		}
+		fmt.Fprintf(&sb, "\n%s `%s`\n", state, s.Name)
+		fmt.Fprintf(&sb, "  cron: `%s`\n", s.Cron)
+		fmt.Fprintf(&sb, "  next: %s\n", formatScheduleTime(s.NextRun))
+		fmt.Fprintf(&sb, "  prompt: %s\n", s.Prompt)
+	}
+	sb.WriteString("\nManage with `/schedules pause|resume|delete NAME`.")
+	return sb.String()
+}
+
+func formatScheduleTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.Format("Mon 2006-01-02 15:04 MST")
 }

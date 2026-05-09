@@ -139,6 +139,7 @@ func helpMessage() string {
 ` + "`/model`" + ` show or switch model
 ` + "`/status`" + ` uptime, tokens, cost
 ` + "`/paths`" + ` manage approved write paths
+` + "`/schedules`" + ` list, pause, resume, or delete scheduled tasks
 ` + "`/config`" + ` view or update configuration
 ` + "`/help`" + ` this message
 

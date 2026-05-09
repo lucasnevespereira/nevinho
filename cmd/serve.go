@@ -17,6 +17,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
+	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
 // Serve is the bot main loop. On Linux, systemd invokes `nevinho serve`. On
@@ -50,6 +51,11 @@ func Serve(configDir, version, selfDoc string) {
 		log.Fatalf("failed to start bot: %v", err)
 	}
 
+	runner, err := startScheduler(a, bot, configDir)
+	if err != nil {
+		logger.Err(fmt.Errorf("scheduler not started: %w", err))
+	}
+
 	writePID(configDir)
 
 	logger.Info("nevinho is online")
@@ -62,11 +68,54 @@ func Serve(configDir, version, selfDoc string) {
 
 	os.Remove(pidPath(configDir))
 
+	if runner != nil {
+		runner.Stop()
+	}
+
 	persistCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	a.PersistAll(persistCtx)
 	cancel()
 
 	bot.Stop()
+}
+
+// startScheduler loads the schedule store, wires it to the agent's tool
+// registry, and starts the runner. Failures are returned so the caller
+// can log and keep nevinho online without scheduling.
+func startScheduler(a *agent.Agent, bot *discord.Bot, configDir string) (*schedule.Runner, error) {
+	store, err := schedule.LoadStore(configDir)
+	if err != nil {
+		return nil, err
+	}
+	a.SetScheduleStore(store)
+	bot.SetScheduleStore(store)
+
+	runFn := func(ctx context.Context, userID, prompt string) (string, error) {
+		// Chat manages its own per-call timeout. The ctx here is the
+		// runner's deadline, used by future agent paths that accept it.
+		_ = ctx
+		return a.Chat(userID, prompt, false, nil)
+	}
+
+	notifyFn := func(s schedule.Schedule, result string, err error) {
+		var msg string
+		switch {
+		case err != nil:
+			msg = fmt.Sprintf("**Schedule `%s` failed**\n%v", s.Name, err)
+		case result == "":
+			msg = fmt.Sprintf("**Schedule `%s` ran** (no output)", s.Name)
+		default:
+			msg = fmt.Sprintf("**Schedule `%s`**\n%s", s.Name, result)
+		}
+		if err := bot.SendOwnerDM(msg); err != nil {
+			logger.Err(fmt.Errorf("schedule notify: %w", err))
+		}
+	}
+
+	r := schedule.NewRunner(store, runFn, notifyFn, 0)
+	r.Start()
+	logger.Info("scheduler started")
+	return r, nil
 }
 
 func pidPath(configDir string) string {

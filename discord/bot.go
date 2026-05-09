@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
 const (
@@ -16,11 +17,19 @@ const (
 )
 
 type Bot struct {
-	session *discordgo.Session
-	ownerID string
-	agent   *agent.Agent
-	cfg     *config.Config
-	cmds    []*discordgo.ApplicationCommand
+	session   *discordgo.Session
+	ownerID   string
+	agent     *agent.Agent
+	cfg       *config.Config
+	cmds      []*discordgo.ApplicationCommand
+	schedules *schedule.Store
+}
+
+// SetScheduleStore wires the schedule store so the /schedules command
+// can query and mutate schedules without going through the agent loop.
+// Optional. When nil, /schedules replies that scheduling is disabled.
+func (b *Bot) SetScheduleStore(s *schedule.Store) {
+	b.schedules = s
 }
 
 func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error) {
@@ -64,4 +73,23 @@ func (b *Bot) Start() error {
 func (b *Bot) Stop() {
 	b.removeCommands()
 	b.session.Close()
+}
+
+// SendOwnerDM opens (or reuses) a DM channel with the configured owner
+// and sends the given content. Used by background workers like the
+// schedule runner that have no incoming event to reply to.
+func (b *Bot) SendOwnerDM(content string) error {
+	ch, err := b.session.UserChannelCreate(b.ownerID)
+	if err != nil {
+		return fmt.Errorf("open owner DM: %w", err)
+	}
+	for _, chunk := range splitMessage(cleanForDiscord(content)) {
+		if _, err := b.session.ChannelMessageSendComplex(ch.ID, &discordgo.MessageSend{
+			Content: chunk,
+			Flags:   discordgo.MessageFlagsSuppressEmbeds,
+		}); err != nil {
+			return fmt.Errorf("send owner DM: %w", err)
+		}
+	}
+	return nil
 }

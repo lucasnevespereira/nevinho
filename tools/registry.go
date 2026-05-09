@@ -12,6 +12,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/safeio"
+	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
 const maxResponseLen = 8000
@@ -35,12 +36,13 @@ type pendingCode struct {
 }
 
 type Registry struct {
-	mu       sync.Mutex
-	cfg      *config.Config
-	approved map[string]bool
-	pending  map[string]*Pending
-	files    map[string][]FileDisplay
-	permFile string
+	mu        sync.Mutex
+	cfg       *config.Config
+	approved  map[string]bool
+	pending   map[string]*Pending
+	files     map[string][]FileDisplay
+	permFile  string
+	schedules *schedule.Store
 }
 
 func NewRegistry(cfg *config.Config) *Registry {
@@ -53,6 +55,15 @@ func NewRegistry(cfg *config.Config) *Registry {
 	}
 	r.loadApproved()
 	return r
+}
+
+// SetScheduleStore wires the schedule store. Optional. When nil the
+// schedule tool returns a clear error so the model knows the feature
+// is not available in the current process (e.g. during nevinho chat).
+func (r *Registry) SetScheduleStore(s *schedule.Store) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.schedules = s
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) string {
@@ -75,6 +86,8 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 		return r.grepSearch(ctx, input, userID)
 	case "find":
 		return r.findFiles(ctx, input, userID)
+	case "schedule":
+		return r.scheduleTool(input)
 	default:
 		return fmt.Sprintf("unknown tool: %s", name)
 	}
@@ -225,6 +238,22 @@ Errors (literal prefixes):
 - "find timed out after 30s ..." narrow the path or pattern.
 - "find failed: ..." other error.`,
 			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\", \"myproject\""},"path":{"type":"string","description":"Directory to search in (defaults to current directory)"},"type":{"type":"string","description":"Type: \"f\" for files (default), \"d\" for directories"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern"]}`,
+		},
+		{
+			Name: "schedule",
+			Description: `Manage recurring prompts that nevinho runs on a cron timetable.
+Use to set up "every morning at 9 summarize hacker news", "every Monday list my open PRs", etc.
+Translate the user's natural language into a cron expression yourself. Do not ask the user to write cron.
+Schedules run without an interactive approval prompt, so refuse to create schedules whose prompts would normally need approval (destructive bash, file writes outside approved paths). Suggest a safer prompt instead.
+Cron accepts standard 5-field expressions ("0 9 * * *"), descriptors (@daily, @hourly, @weekly), and durations (@every 30m, @every 6h). Minimum interval is 5 minutes. Maximum 10 schedules total.
+Actions:
+- list: returns every schedule with its cron, next run, and current state. Default action when "action" is omitted.
+- create: requires name, cron, and prompt. Returns the new entry with its first NextRun.
+- delete: requires name. Removes the schedule.
+- pause: requires name. Disables firing without removing the entry.
+- resume: requires name. Re-enables a paused schedule and recomputes NextRun.
+Output: human readable text. Errors are prefixed with "failed: " or "invalid input:".`,
+			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, and resume."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."}},"required":["action"]}`,
 		},
 	}
 }

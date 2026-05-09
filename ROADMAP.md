@@ -90,19 +90,15 @@ Native integration for 1M context and Gemini-specific features.
 - [ ] Implicit caching support.
 - [ ] Setup integration.
 
-### Scheduled tasks
+### Scheduled tasks: follow-ups
 
-Nevinho runs 24/7 on a VPS. Run prompts on a schedule and report back.
+Foundation shipped. Remaining work:
 
-- [ ] `schedule` tool with create, list, delete, pause, resume actions.
-- [ ] Agent translates natural language to cron expressions. User never writes cron.
-- [ ] Encrypted store at `~/.nevinho/schedules.enc`. Entries: ID, name, cron, prompt, enabled, last_run, next_run.
-- [ ] 1-minute ticker. Scan for due tasks on each tick.
-- [ ] Dedicated history namespace so scheduled runs do not pollute manual conversations.
-- [ ] Use `github.com/robfig/cron/v3` for schedule parsing. Supports 5-field cron, `@daily`/`@hourly`/`@weekly` shortcuts, and `@every 30m` duration-style intervals. Handles timezones and DST correctly.
-- [ ] `/schedules` to list. `/schedules pause|resume|delete <name>` to manage.
-- [ ] Non-interactive bash policy (allowlist mode) during scheduled runs since the approval flow cannot prompt.
-- [ ] Limits: max 10 schedules, min 5-minute interval, 5-minute timeout, no missed-run catch-up.
+- [ ] `pause` / `resume` actions on the agent tool.
+- [ ] `/schedules` Discord command (slash + plain text).
+- [ ] Non-interactive bash allowlist mode during scheduled runs so safe commands (read-only) can complete without an approval prompt.
+- [ ] `last_run` and `next_run` exposed in `/status`.
+- [ ] Surface failed-run history (last N errors per schedule).
 
 ## Later
 
