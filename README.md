@@ -168,6 +168,12 @@ logger/      colored terminal output
   </tr>
 </table>
 
+## Documentation
+
+- [Architecture](ARCHITECTURE.md) — how nevinho processes a message and manages context
+- [Setup](SETUP.md) — Discord bot creation, VPS install, voice setup
+- [Roadmap](ROADMAP.md) — what's shipped and what's next
+
 ## License
 
 [MIT](LICENSE)
