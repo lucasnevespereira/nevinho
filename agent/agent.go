@@ -372,6 +372,12 @@ func (a *Agent) PersistAll(ctx context.Context) {
 			logger.Info("persist cancelled, skipping remaining users")
 			return
 		}
+		// Skip per-schedule namespaces. Their history is transient
+		// state for the runner, not a conversation worth resuming, and
+		// persisting them would leak scheduled prompts to disk.
+		if strings.HasPrefix(userID, "scheduler:") {
+			continue
+		}
 		a.persistUser(ctx, userID)
 	}
 }

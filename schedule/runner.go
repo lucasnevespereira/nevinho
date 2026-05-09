@@ -19,9 +19,10 @@ type RunFunc func(ctx context.Context, userID, prompt string) (string, error)
 // human readable message in result.
 type NotifyFunc func(schedule Schedule, result string, err error)
 
-// Runner ticks once a minute, fires due schedules, and reports results
-// through the notify hook. One goroutine, no per-schedule timers, since
-// the cap of MaxSchedules makes a full scan trivially cheap.
+// Runner ticks once a minute, fires due schedules concurrently, and
+// reports results through the notify hook. One goroutine per due
+// schedule per tick. Per userID locking in the agent prevents the same
+// schedule from running twice in parallel.
 type Runner struct {
 	store  *Store
 	run    RunFunc
@@ -29,8 +30,9 @@ type Runner struct {
 
 	tickInterval time.Duration
 
-	stop chan struct{}
-	done chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	mu      sync.Mutex
 	running bool
@@ -47,8 +49,6 @@ func NewRunner(store *Store, run RunFunc, notify NotifyFunc, tickInterval time.D
 		run:          run,
 		notify:       notify,
 		tickInterval: tickInterval,
-		stop:         make(chan struct{}),
-		done:         make(chan struct{}),
 	}
 }
 
@@ -60,13 +60,15 @@ func (r *Runner) Start() {
 		return
 	}
 	r.running = true
+	r.ctx, r.cancel = context.WithCancel(context.Background())
 	r.mu.Unlock()
 
+	r.wg.Add(1)
 	go r.loop()
 }
 
-// Stop signals the runner to exit and waits for the loop goroutine to
-// drain. Safe to call from a signal handler.
+// Stop cancels in-flight runs and waits for the loop and all run
+// goroutines to drain. Safe to call from a signal handler.
 func (r *Runner) Stop() {
 	r.mu.Lock()
 	if !r.running {
@@ -74,14 +76,17 @@ func (r *Runner) Stop() {
 		return
 	}
 	r.running = false
+	cancel := r.cancel
 	r.mu.Unlock()
 
-	close(r.stop)
-	<-r.done
+	if cancel != nil {
+		cancel()
+	}
+	r.wg.Wait()
 }
 
 func (r *Runner) loop() {
-	defer close(r.done)
+	defer r.wg.Done()
 	ticker := time.NewTicker(r.tickInterval)
 	defer ticker.Stop()
 
@@ -91,7 +96,7 @@ func (r *Runner) loop() {
 
 	for {
 		select {
-		case <-r.stop:
+		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
 			r.tick()
@@ -102,7 +107,11 @@ func (r *Runner) loop() {
 func (r *Runner) tick() {
 	due := r.store.dueSchedules(time.Now())
 	for _, sched := range due {
-		r.execute(sched)
+		r.wg.Add(1)
+		go func(s Schedule) {
+			defer r.wg.Done()
+			r.execute(s)
+		}(sched)
 	}
 }
 
@@ -110,7 +119,7 @@ func (r *Runner) execute(sched Schedule) {
 	logger.Info(fmt.Sprintf("schedule: running %s", sched.Name))
 	ranAt := time.Now()
 
-	ctx, cancel := context.WithTimeout(context.Background(), RunTimeout)
+	ctx, cancel := context.WithTimeout(r.ctx, RunTimeout)
 	defer cancel()
 
 	userID := "scheduler:" + sched.ID
