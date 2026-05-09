@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -27,13 +26,11 @@ const (
 const maxMessageLen = 2000
 
 type Bot struct {
-	session       *discordgo.Session
-	ownerID       string
-	agent         *agent.Agent
-	cfg           *config.Config
-	cmds          []*discordgo.ApplicationCommand
-	lastEventUnix atomic.Int64
-	stopHealth    chan struct{}
+	session *discordgo.Session
+	ownerID string
+	agent   *agent.Agent
+	cfg     *config.Config
+	cmds    []*discordgo.ApplicationCommand
 }
 
 func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error) {
@@ -53,13 +50,11 @@ func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error
 	session.StateEnabled = false
 
 	bot := &Bot{
-		session:    session,
-		ownerID:    ownerID,
-		agent:      a,
-		cfg:        cfg,
-		stopHealth: make(chan struct{}),
+		session: session,
+		ownerID: ownerID,
+		agent:   a,
+		cfg:     cfg,
 	}
-	bot.lastEventUnix.Store(time.Now().UnixNano())
 
 	session.AddHandler(bot.onMessage)
 	session.AddHandler(bot.onInteraction)
@@ -72,34 +67,12 @@ func (b *Bot) Start() error {
 		return err
 	}
 	b.registerCommands()
-	go b.healthCheck()
 	return nil
 }
 
 func (b *Bot) Stop() {
-	close(b.stopHealth)
 	b.removeCommands()
 	b.session.Close()
-}
-
-func (b *Bot) healthCheck() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-b.stopHealth:
-			return
-		case <-ticker.C:
-			last := time.Unix(0, b.lastEventUnix.Load())
-			if time.Since(last) > 2*time.Minute {
-				log.Println("no events for 2+ minutes, reconnecting...")
-				b.session.Close()
-				if err := b.session.Open(); err != nil {
-					log.Printf("reconnect failed: %v", err)
-				}
-			}
-		}
-	}
 }
 
 var slashCommands = []*discordgo.ApplicationCommand{
@@ -196,7 +169,6 @@ func (b *Bot) removeCommands() {
 }
 
 func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	b.lastEventUnix.Store(time.Now().UnixNano())
 	userID := ""
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -291,7 +263,6 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	b.lastEventUnix.Store(time.Now().UnixNano())
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("panic in onMessage: %v", r)
