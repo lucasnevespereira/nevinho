@@ -234,6 +234,19 @@ func (b *Bot) handleTextCommand(s *discordgo.Session, m *discordgo.MessageCreate
 	case lower == "/paths clear":
 		b.agent.ClearApprovedPaths()
 		s.ChannelMessageSend(m.ChannelID, "All path permissions cleared.")
+	case lower == "/schedules":
+		s.ChannelMessageSend(m.ChannelID, b.scheduleAction("", ""))
+	case strings.HasPrefix(lower, "/schedules "):
+		parts := strings.Fields(text[11:])
+		action := ""
+		name := ""
+		if len(parts) > 0 {
+			action = parts[0]
+		}
+		if len(parts) > 1 {
+			name = strings.Join(parts[1:], " ")
+		}
+		s.ChannelMessageSend(m.ChannelID, b.scheduleAction(action, name))
 	case strings.HasPrefix(lower, "/model "):
 		name := strings.TrimSpace(text[7:])
 		if err := b.agent.SwitchModel(name); err != nil {

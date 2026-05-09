@@ -7,6 +7,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
 const (
@@ -16,11 +17,19 @@ const (
 )
 
 type Bot struct {
-	session *discordgo.Session
-	ownerID string
-	agent   *agent.Agent
-	cfg     *config.Config
-	cmds    []*discordgo.ApplicationCommand
+	session   *discordgo.Session
+	ownerID   string
+	agent     *agent.Agent
+	cfg       *config.Config
+	cmds      []*discordgo.ApplicationCommand
+	schedules *schedule.Store
+}
+
+// SetScheduleStore wires the schedule store so the /schedules command
+// can query and mutate schedules without going through the agent loop.
+// Optional. When nil, /schedules replies that scheduling is disabled.
+func (b *Bot) SetScheduleStore(s *schedule.Store) {
+	b.schedules = s
 }
 
 func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error) {

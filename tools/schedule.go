@@ -48,8 +48,20 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 			return fmt.Sprintf("no schedule named %q", in.Name)
 		}
 		return fmt.Sprintf("deleted %q", in.Name)
+	case "pause":
+		s, err := store.SetEnabled(in.Name, false)
+		if err != nil {
+			return "failed: " + err.Error()
+		}
+		return fmt.Sprintf("paused %q", s.Name)
+	case "resume":
+		s, err := store.SetEnabled(in.Name, true)
+		if err != nil {
+			return "failed: " + err.Error()
+		}
+		return fmt.Sprintf("resumed %q. Next run: %s", s.Name, formatTime(s.NextRun))
 	default:
-		return fmt.Sprintf("unknown action %q. Use list, create, or delete.", in.Action)
+		return fmt.Sprintf("unknown action %q. Use list, create, delete, pause, or resume.", in.Action)
 	}
 }
 
