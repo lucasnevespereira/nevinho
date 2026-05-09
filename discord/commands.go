@@ -295,23 +295,39 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 
 	if pc.AnthropicKey != "" {
 		for _, name := range llm.KnownModels["anthropic"] {
-			options = append(options, discordgo.SelectMenuOption{
-				Label:   name,
-				Value:   name,
-				Default: name == current,
-			})
+			options = append(options, modelOption(name, current))
 		}
 	}
 	if pc.OpenAIKey != "" {
 		for _, name := range llm.KnownModels["openai"] {
-			options = append(options, discordgo.SelectMenuOption{
-				Label:   name,
-				Value:   name,
-				Default: name == current,
-			})
+			options = append(options, modelOption(name, current))
 		}
 	}
 	return options
+}
+
+// modelOption builds a Discord select menu option, tagging vision capable
+// models so the operator can see at selection time which ones accept images.
+func modelOption(name, current string) discordgo.SelectMenuOption {
+	desc := ""
+	if llm.ModelSupportsVision(name) {
+		desc = "vision"
+	}
+	return discordgo.SelectMenuOption{
+		Label:       name,
+		Value:       name,
+		Description: desc,
+		Default:     name == current,
+	}
+}
+
+// visionTag returns " (vision)" when the model supports image input, or
+// empty string otherwise. Used in plain-text model listings.
+func visionTag(name string) string {
+	if llm.ModelSupportsVision(name) {
+		return " (vision)"
+	}
+	return ""
 }
 
 func (b *Bot) modelStatus() string {
@@ -324,14 +340,14 @@ func (b *Bot) modelStatus() string {
 	if pc.AnthropicKey != "" {
 		sb.WriteString("**Anthropic**\n")
 		for _, m := range llm.KnownModels["anthropic"] {
-			fmt.Fprintf(&sb, "• `%s`\n", m)
+			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
 		for _, m := range llm.KnownModels["openai"] {
-			fmt.Fprintf(&sb, "• `%s`\n", m)
+			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
