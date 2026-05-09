@@ -91,6 +91,10 @@ func printConfigUsage(w *os.File) {
 func printConfigList(cfg *config.Config) {
 	keys := cfg.Keys()
 	for _, k := range keys {
+		if def, ok := defaultedToggle(k.Name); ok && !k.Set {
+			fmt.Printf("  %-22s  %s (default)\n", k.Name, def)
+			continue
+		}
 		if !k.Set {
 			fmt.Printf("  %-22s  not set\n", k.Name)
 			continue
@@ -104,6 +108,20 @@ func printConfigList(cfg *config.Config) {
 	}
 }
 
+// defaultedToggle returns the effective default value for keys whose
+// semantics treat unset as "use the default". Lets `nevinho config`
+// show CAVEMAN/ELEPHANT as "on (default)" or "off (default)" instead
+// of the misleading "not set".
+func defaultedToggle(key string) (string, bool) {
+	switch key {
+	case "ELEPHANT":
+		return "on", true
+	case "CAVEMAN":
+		return "off", true
+	}
+	return "", false
+}
+
 func printConfigValue(cfg *config.Config, key string, reveal bool) {
 	val, err := cfg.Get(key)
 	if err != nil {
@@ -111,6 +129,10 @@ func printConfigValue(cfg *config.Config, key string, reveal bool) {
 		os.Exit(1)
 	}
 	if val == "" {
+		if def, ok := defaultedToggle(strings.ToUpper(key)); ok {
+			fmt.Printf("%s (default)\n", def)
+			return
+		}
 		fmt.Println("(unset)")
 		return
 	}
