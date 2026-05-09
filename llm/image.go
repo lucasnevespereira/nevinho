@@ -10,10 +10,14 @@ type Image struct {
 }
 
 // ModelSupportsVision reports whether the given model accepts image input.
-// Conservative. Returns true only for known good model families.
+// Updated as new vision capable model families ship. When in doubt, prefer
+// false so the bot rejects the upload with a clear message rather than
+// silently dropping the image and producing a confusing model reply.
 func ModelSupportsVision(name string) bool {
 	switch {
 	case strings.HasPrefix(name, "claude"):
+		return true
+	case strings.HasPrefix(name, "gpt-5"):
 		return true
 	case strings.HasPrefix(name, "gpt-4o"):
 		return true
