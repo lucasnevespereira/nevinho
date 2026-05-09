@@ -14,6 +14,7 @@ import (
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 	"github.com/lucasnevespereira/nevinho/memory"
+	"github.com/lucasnevespereira/nevinho/schedule"
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
@@ -26,7 +27,7 @@ const (
 
 	systemPrompt = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
-Tools: bash, web_search, web_read, file_list, file_read, file_edit, file_write, grep, find. Each tool's description spells out what it returns and how failures look. Read those formats literally. Do not guess or paraphrase.
+Tools: bash, web_search, web_read, file_list, file_read, file_edit, file_write, grep, find, schedule. Each tool's description spells out what it returns and how failures look. Read those formats literally. Do not guess or paraphrase.
 
 Acting:
 - Act without asking on read-only or reversible work. Ask only when credentials are missing, an action is destructive and not clearly requested, or the intent is genuinely ambiguous.
@@ -74,6 +75,13 @@ type Agent struct {
 	startTime     time.Time
 	tokensIn      int
 	tokensOut     int
+}
+
+// SetScheduleStore wires the schedule store into the underlying tool
+// registry. Optional. When unset, the agent's schedule tool reports
+// scheduling as unavailable.
+func (a *Agent) SetScheduleStore(s *schedule.Store) {
+	a.tools.SetScheduleStore(s)
 }
 
 func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Agent {

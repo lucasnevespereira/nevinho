@@ -95,6 +95,14 @@ Attach images to a Discord message and nevinho passes them straight to a vision 
 
 If the current model can't read images, nevinho replies with a hint to switch via `/model` instead of dropping the message silently.
 
+## Scheduled tasks
+
+Tell nevinho "every morning at 9, summarize the top 5 Hacker News stories" and it sets up a cron schedule. The runner ticks once a minute, fires anything due, and DMs you the result.
+
+Limits: 10 schedules total, 5 minute minimum interval, 5 minute per-run timeout. Scheduled prompts run without the interactive approval flow, so don't ask schedules to do destructive things.
+
+Cron accepts standard 5-field expressions (`0 9 * * *`), descriptors (`@daily`, `@hourly`, `@weekly`), and durations (`@every 30m`, `@every 6h`).
+
 ## Commands
 
 | Command             | What it does                              |
