@@ -107,24 +107,14 @@ func (c *Config) Get(key string) (string, error) {
 
 func (c *Config) Set(key, value string) error {
 	key = strings.ToUpper(key)
-	if key == "CAVEMAN" {
+	if key == "CAVEMAN" || key == "ELEPHANT" {
 		switch strings.ToLower(value) {
-		case "", "off":
-			value = ""
 		case "on":
 			value = "on"
-		default:
-			return fmt.Errorf("CAVEMAN must be on or off")
-		}
-	}
-	if key == "ELEPHANT" {
-		switch strings.ToLower(value) {
-		case "", "on":
-			value = ""
 		case "off":
 			value = "off"
 		default:
-			return fmt.Errorf("ELEPHANT must be on or off")
+			return fmt.Errorf("%s must be on or off", key)
 		}
 	}
 	c.mu.Lock()
