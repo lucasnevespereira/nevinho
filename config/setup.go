@@ -70,6 +70,18 @@ func RunSetup(configDir string) error {
 		fmt.Println("  Warning: no LLM provider configured. nevinho needs at least one.")
 	}
 
+	// Default model. Suggest one based on the first configured provider so
+	// reinstall does not carry over a stale or invalid saved name.
+	if cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OllamaModel != "" {
+		fmt.Println()
+		fmt.Println("Default model")
+		suggested := cfg.Model
+		if suggested == "" {
+			suggested = suggestDefaultModel(cfg)
+		}
+		cfg.Model = prompt("Model name", suggested)
+	}
+
 	// Optional
 	fmt.Println()
 	fmt.Println("Optional")
@@ -101,11 +113,29 @@ func RunSetup(configDir string) error {
 	printStatus("  Ollama", cfg.OllamaModel != "")
 	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))
+	if cfg.Model != "" {
+		fmt.Printf("  Model: %s\n", cfg.Model)
+	}
 
 	fmt.Println()
 	fmt.Printf("Saved to %s\n", configDir)
 	fmt.Println("Run 'nevinho start' to start.")
 	return nil
+}
+
+// suggestDefaultModel picks a sensible model name from the providers the
+// user just configured. Anthropic is preferred for cost and quality on the
+// default tier, then OpenAI, then whatever Ollama model was named.
+func suggestDefaultModel(cfg *Config) string {
+	switch {
+	case cfg.AnthropicAPIKey != "":
+		return "claude-haiku-4-5"
+	case cfg.OpenAIAPIKey != "":
+		return "gpt-4o-mini"
+	case cfg.OllamaModel != "":
+		return cfg.OllamaModel
+	}
+	return ""
 }
 
 func maskSecret(s string) string {
