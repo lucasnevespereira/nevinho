@@ -75,8 +75,8 @@ type Schedule struct {
 	Cron    string    `json:"cron"`
 	Prompt  string    `json:"prompt"`
 	Enabled bool      `json:"enabled"`
-	LastRun time.Time `json:"last_run,omitempty"`
-	NextRun time.Time `json:"next_run,omitempty"`
+	LastRun time.Time `json:"last_run"`
+	NextRun time.Time `json:"next_run"`
 	Created time.Time `json:"created"`
 
 	// Timezone is the IANA name (e.g. "Europe/Paris") used to evaluate
@@ -85,6 +85,19 @@ type Schedule struct {
 
 	// Runs is the inline run history. Newest first.
 	Runs []RunLog `json:"runs,omitempty"`
+}
+
+// NextRunIn returns NextRun rendered in the schedule's timezone when set,
+// falling back to the server's local time. Used by display layers so the
+// operator reads the next fire in the zone they configured.
+func (s Schedule) NextRunIn() time.Time {
+	if s.Timezone == "" || s.NextRun.IsZero() {
+		return s.NextRun
+	}
+	if loc, err := time.LoadLocation(s.Timezone); err == nil {
+		return s.NextRun.In(loc)
+	}
+	return s.NextRun
 }
 
 // Store loads, mutates, and persists schedules atomically. Safe for
@@ -255,11 +268,16 @@ func (s *Store) SetEnabled(key string, enabled bool) (Schedule, error) {
 	return Schedule{}, fmt.Errorf("schedule %q not found", key)
 }
 
-// recordRun appends a RunLog (capped at MaxRunsKept), updates LastRun
-// and NextRun, then saves. On save failure the in-memory state is
-// rolled back so the next tick retries the run instead of silently
-// skipping it.
-func (s *Store) recordRun(id string, log RunLog) error {
+// claimNextRun advances LastRun and NextRun for the given schedule and
+// persists the change. The runner calls this BEFORE firing the prompt so
+// that, if the disk write fails, the run does not happen and the next
+// tick retries cleanly. If the write succeeds and the run later fails or
+// crashes, the schedule still does not double fire because NextRun has
+// already advanced.
+//
+// Returns the schedule snapshot (with the new NextRun) for the runner to
+// use, or an error if persistence fails.
+func (s *Store) claimNextRun(id string, ranAt time.Time) (Schedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, sc := range s.list {
@@ -268,22 +286,39 @@ func (s *Store) recordRun(id string, log RunLog) error {
 		}
 		parsed, err := parseCronInTimezone(sc.Cron, sc.Timezone)
 		if err != nil {
-			return err
+			return Schedule{}, err
 		}
 
-		oldRuns := sc.Runs
-		oldLastRun := sc.LastRun
-		oldNextRun := sc.NextRun
-
-		sc.Runs = prependCapped(sc.Runs, log, MaxRunsKept)
-		sc.LastRun = log.StartedAt
-		sc.NextRun = parsed.Next(log.StartedAt)
+		oldLast, oldNext := sc.LastRun, sc.NextRun
+		sc.LastRun = ranAt
+		sc.NextRun = parsed.Next(ranAt)
 		s.list[i] = sc
 
 		if err := s.save(); err != nil {
+			s.list[i].LastRun = oldLast
+			s.list[i].NextRun = oldNext
+			return Schedule{}, err
+		}
+		return sc, nil
+	}
+	return Schedule{}, fmt.Errorf("schedule %q not found", id)
+}
+
+// appendRunLog stores the outcome of a completed run. Called AFTER the
+// run, after claimNextRun has already advanced NextRun. A failure here
+// only loses the log entry, the schedule does not double fire.
+func (s *Store) appendRunLog(id string, log RunLog) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, sc := range s.list {
+		if sc.ID != id {
+			continue
+		}
+		oldRuns := sc.Runs
+		sc.Runs = prependCapped(sc.Runs, log, MaxRunsKept)
+		s.list[i] = sc
+		if err := s.save(); err != nil {
 			s.list[i].Runs = oldRuns
-			s.list[i].LastRun = oldLastRun
-			s.list[i].NextRun = oldNextRun
 			return err
 		}
 		return nil

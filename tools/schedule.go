@@ -95,20 +95,13 @@ func formatScheduleList(list []schedule.Schedule) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// formatScheduledTime renders the schedule's NextRun in its own timezone
-// when one is set, falling back to server local time. Helps the operator
-// read the next fire in the time zone they configured the schedule for.
+// formatScheduledTime renders NextRun in the schedule's timezone for the
+// agent's text reply.
 func formatScheduledTime(s schedule.Schedule) string {
 	if s.NextRun.IsZero() {
 		return "never"
 	}
-	t := s.NextRun
-	if s.Timezone != "" {
-		if loc, err := time.LoadLocation(s.Timezone); err == nil {
-			t = t.In(loc)
-		}
-	}
-	return t.Format("2006-01-02 15:04 MST")
+	return s.NextRunIn().Format("2006-01-02 15:04 MST")
 }
 
 // tzSuffix renders " (Europe/Paris)" when set, empty otherwise.
