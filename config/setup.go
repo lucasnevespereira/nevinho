@@ -59,20 +59,24 @@ func RunSetup(configDir string) error {
 
 	// LLM providers
 	fmt.Println()
-	fmt.Println("LLM providers")
+	fmt.Println("LLM providers (configure at least one)")
 	cfg.AnthropicAPIKey = prompt("Anthropic API key", cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = prompt("OpenAI API key", cfg.OpenAIAPIKey)
+	cfg.GroqAPIKey = prompt("Groq API key", cfg.GroqAPIKey)
+	cfg.OpenRouterAPIKey = prompt("OpenRouter API key", cfg.OpenRouterAPIKey)
 	cfg.OllamaModel = prompt("Ollama model (e.g. llama3)", cfg.OllamaModel)
 
-	// Warn if no provider
-	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OllamaModel == "" {
+	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OllamaModel == "" &&
+		cfg.GroqAPIKey == "" && cfg.OpenRouterAPIKey == "" {
 		fmt.Println()
 		fmt.Println("  Warning: no LLM provider configured. nevinho needs at least one.")
+		fmt.Println("  See README for signup URLs.")
 	}
 
 	// Default model. Suggest one based on the first configured provider so
 	// reinstall does not carry over a stale or invalid saved name.
-	if cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OllamaModel != "" {
+	if cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OllamaModel != "" ||
+		cfg.GroqAPIKey != "" || cfg.OpenRouterAPIKey != "" {
 		fmt.Println()
 		fmt.Println("Default model")
 		suggested := cfg.Model
@@ -110,6 +114,8 @@ func RunSetup(configDir string) error {
 	printStatus("  Discord", cfg.DiscordBotToken != "" && cfg.DiscordOwnerID != "")
 	printStatus("  Anthropic", cfg.AnthropicAPIKey != "")
 	printStatus("  OpenAI", cfg.OpenAIAPIKey != "")
+	printStatus("  Groq", cfg.GroqAPIKey != "")
+	printStatus("  OpenRouter", cfg.OpenRouterAPIKey != "")
 	printStatus("  Ollama", cfg.OllamaModel != "")
 	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))
@@ -124,14 +130,19 @@ func RunSetup(configDir string) error {
 }
 
 // suggestDefaultModel picks a sensible model name from the providers the
-// user just configured. Anthropic is preferred for cost and quality on the
-// default tier, then OpenAI, then whatever Ollama model was named.
+// user just configured. Free providers come first when no paid key is
+// set so the bot starts on a no cost path. Order beyond that is
+// preference for general quality at a reasonable price.
 func suggestDefaultModel(cfg *Config) string {
 	switch {
 	case cfg.AnthropicAPIKey != "":
 		return "claude-haiku-4-5"
 	case cfg.OpenAIAPIKey != "":
 		return "gpt-4o-mini"
+	case cfg.GroqAPIKey != "":
+		return "groq:llama-3.3-70b-versatile"
+	case cfg.OpenRouterAPIKey != "":
+		return "openrouter:meta-llama/llama-3.3-70b-instruct:free"
 	case cfg.OllamaModel != "":
 		return cfg.OllamaModel
 	}

@@ -18,29 +18,33 @@ type Config struct {
 	key      [32]byte
 	filePath string
 
-	DiscordBotToken string `json:"discord_bot_token"`
-	DiscordOwnerID  string `json:"discord_owner_id"`
-	AnthropicAPIKey string `json:"anthropic_api_key"`
-	OpenAIAPIKey    string `json:"openai_api_key"`
-	OllamaModel     string `json:"ollama_model"`
-	TavilyAPIKey    string `json:"tavily_api_key"`
-	Model           string `json:"model"`
-	Caveman         string `json:"caveman"`
-	Elephant        string `json:"elephant"`
+	DiscordBotToken  string `json:"discord_bot_token"`
+	DiscordOwnerID   string `json:"discord_owner_id"`
+	AnthropicAPIKey  string `json:"anthropic_api_key"`
+	OpenAIAPIKey     string `json:"openai_api_key"`
+	GroqAPIKey       string `json:"groq_api_key"`
+	OpenRouterAPIKey string `json:"openrouter_api_key"`
+	OllamaModel      string `json:"ollama_model"`
+	TavilyAPIKey     string `json:"tavily_api_key"`
+	Model            string `json:"model"`
+	Caveman          string `json:"caveman"`
+	Elephant         string `json:"elephant"`
 }
 
 // keymap maps user-facing key names to struct field pointers.
 func (c *Config) keymap() map[string]*string {
 	return map[string]*string{
-		"DISCORD_BOT_TOKEN": &c.DiscordBotToken,
-		"DISCORD_OWNER_ID":  &c.DiscordOwnerID,
-		"ANTHROPIC_API_KEY": &c.AnthropicAPIKey,
-		"OPENAI_API_KEY":    &c.OpenAIAPIKey,
-		"OLLAMA_MODEL":      &c.OllamaModel,
-		"TAVILY_API_KEY":    &c.TavilyAPIKey,
-		"MODEL":             &c.Model,
-		"CAVEMAN":           &c.Caveman,
-		"ELEPHANT":          &c.Elephant,
+		"DISCORD_BOT_TOKEN":  &c.DiscordBotToken,
+		"DISCORD_OWNER_ID":   &c.DiscordOwnerID,
+		"ANTHROPIC_API_KEY":  &c.AnthropicAPIKey,
+		"OPENAI_API_KEY":     &c.OpenAIAPIKey,
+		"GROQ_API_KEY":       &c.GroqAPIKey,
+		"OPENROUTER_API_KEY": &c.OpenRouterAPIKey,
+		"OLLAMA_MODEL":       &c.OllamaModel,
+		"TAVILY_API_KEY":     &c.TavilyAPIKey,
+		"MODEL":              &c.Model,
+		"CAVEMAN":            &c.Caveman,
+		"ELEPHANT":           &c.Elephant,
 	}
 }
 
@@ -193,17 +197,21 @@ Examples:
 }
 
 type ProviderConfig struct {
-	AnthropicKey string
-	OpenAIKey    string
-	OllamaURL    string
+	AnthropicKey  string
+	OpenAIKey     string
+	GroqKey       string
+	OpenRouterKey string
+	OllamaURL     string
 }
 
 func (c *Config) ProviderConfig() ProviderConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	pc := ProviderConfig{
-		AnthropicKey: c.AnthropicAPIKey,
-		OpenAIKey:    c.OpenAIAPIKey,
+		AnthropicKey:  c.AnthropicAPIKey,
+		OpenAIKey:     c.OpenAIAPIKey,
+		GroqKey:       c.GroqAPIKey,
+		OpenRouterKey: c.OpenRouterAPIKey,
 	}
 	if c.OllamaModel != "" {
 		pc.OllamaURL = "http://localhost:11434"

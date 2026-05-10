@@ -88,6 +88,25 @@ var KnownModels = map[string][]string{
 		"o3-mini",
 		"o4-mini",
 	},
+	// Groq's free tier covers all listed models within rate limits
+	// (~14k req/day at writing). Names are passed through to Groq's
+	// OpenAI compatible endpoint with the "groq:" prefix stripped.
+	"groq": {
+		"groq:llama-3.3-70b-versatile",
+		"groq:llama-3.1-8b-instant",
+		"groq:mixtral-8x7b-32768",
+		"groq:gemma2-9b-it",
+		"groq:llama-3.2-90b-vision-preview",
+	},
+	// OpenRouter routes named with a ":free" suffix run on free tier
+	// quotas (~200 req/day at writing). Curated list of useful free
+	// routes. Users can also pass any other openrouter:<route> name.
+	"openrouter": {
+		"openrouter:meta-llama/llama-3.3-70b-instruct:free",
+		"openrouter:google/gemini-2.5-flash-exp:free",
+		"openrouter:qwen/qwen-2.5-72b-instruct:free",
+		"openrouter:nousresearch/hermes-3-llama-3.1-405b:free",
+	},
 }
 
 // isDatedVariant reports whether name looks like a friendly model with a
@@ -124,9 +143,20 @@ func IsKnownModel(name string) bool {
 
 // Resolve maps a model name to the correct provider using the given config.
 // For Anthropic and OpenAI, the model must be in KnownModels or Resolve errors.
-// Ollama accepts any name since users pull arbitrary local models.
+// Groq and OpenRouter accept any model name after the prefix since their
+// catalogs are large and change frequently. Ollama accepts any local name.
 func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 	switch {
+	case strings.HasPrefix(name, "groq:"):
+		if pc.GroqKey == "" {
+			return nil, fmt.Errorf("GROQ_API_KEY not configured")
+		}
+		return NewOpenAI(pc.GroqKey, "https://api.groq.com/openai/v1", strings.TrimPrefix(name, "groq:")), nil
+	case strings.HasPrefix(name, "openrouter:"):
+		if pc.OpenRouterKey == "" {
+			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
+		}
+		return NewOpenAI(pc.OpenRouterKey, "https://openrouter.ai/api/v1", strings.TrimPrefix(name, "openrouter:")), nil
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
 		if pc.OpenAIKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY not configured")
@@ -152,4 +182,17 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		}
 		return nil, fmt.Errorf("unknown model: %s", name)
 	}
+}
+
+// IsFreeModel reports whether running the given model is free at time of
+// writing. Conservative: only marks names known to map to free quotas.
+// Used by display layers to tag dropdown entries.
+func IsFreeModel(name string) bool {
+	if strings.HasPrefix(name, "groq:") {
+		return true
+	}
+	if strings.HasPrefix(name, "openrouter:") && strings.HasSuffix(name, ":free") {
+		return true
+	}
+	return false
 }
