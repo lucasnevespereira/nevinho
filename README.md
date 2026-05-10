@@ -103,7 +103,7 @@ Limits: 10 schedules total, 5 minute minimum interval, 5 minute per-run timeout.
 
 Cron accepts standard 5-field expressions (`0 9 * * *`), descriptors (`@daily`, `@hourly`, `@weekly`), and durations (`@every 30m`, `@every 6h`).
 
-> **Time zone**: schedules use the VPS's local time. If your host runs UTC, `0 9 * * *` fires at 9am UTC. Tell the agent the timezone you want ("every day at 9am Paris time") so it picks the right hour, or check `date` on the server first.
+> **Time zone**: schedules accept an IANA timezone (e.g. `Europe/Paris`, `America/New_York`). The agent picks one up from natural language ("every day at 9am Paris time"). Without one, the cron is evaluated in the VPS's local time.
 
 ## Commands
 

@@ -10,10 +10,11 @@ import (
 )
 
 type scheduleInput struct {
-	Action string `json:"action"`
-	Name   string `json:"name"`
-	Cron   string `json:"cron"`
-	Prompt string `json:"prompt"`
+	Action   string `json:"action"`
+	Name     string `json:"name"`
+	Cron     string `json:"cron"`
+	Prompt   string `json:"prompt"`
+	Timezone string `json:"timezone"`
 }
 
 func (r *Registry) scheduleTool(input json.RawMessage) string {
@@ -34,11 +35,11 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 	case "", "list":
 		return formatScheduleList(store.All())
 	case "create":
-		s, err := store.Create(in.Name, in.Cron, in.Prompt)
+		s, err := store.Create(in.Name, in.Cron, in.Prompt, in.Timezone)
 		if err != nil {
 			return "failed: " + err.Error()
 		}
-		return fmt.Sprintf("created %q. Next run: %s", s.Name, formatTime(s.NextRun))
+		return fmt.Sprintf("created %q. Next run: %s", s.Name, formatScheduledTime(s))
 	case "delete":
 		ok, err := store.Delete(in.Name)
 		if err != nil {
@@ -59,7 +60,7 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 		if err != nil {
 			return "failed: " + err.Error()
 		}
-		return fmt.Sprintf("resumed %q. Next run: %s", s.Name, formatTime(s.NextRun))
+		return fmt.Sprintf("resumed %q. Next run: %s", s.Name, formatScheduledTime(s))
 	case "logs":
 		s, ok := store.Find(in.Name)
 		if !ok {
@@ -81,13 +82,41 @@ func formatScheduleList(list []schedule.Schedule) string {
 		if !s.Enabled {
 			state = "paused"
 		}
-		fmt.Fprintf(&sb, "%s [%s] %s\n  cron: %s\n  next: %s\n  prompt: %s\n",
-			s.Name, state, s.ID, s.Cron, formatTime(s.NextRun), truncate(s.Prompt, 80))
+		fmt.Fprintf(&sb, "%s [%s] %s\n  cron: %s%s\n  next: %s\n  prompt: %s\n",
+			s.Name, state, s.ID,
+			s.Cron, tzSuffix(s.Timezone),
+			formatScheduledTime(s),
+			truncate(s.Prompt, 80),
+		)
 		if last := lastRun(s); last != nil {
 			fmt.Fprintf(&sb, "  last: %s\n", formatLastRun(*last))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// formatScheduledTime renders the schedule's NextRun in its own timezone
+// when one is set, falling back to server local time. Helps the operator
+// read the next fire in the time zone they configured the schedule for.
+func formatScheduledTime(s schedule.Schedule) string {
+	if s.NextRun.IsZero() {
+		return "never"
+	}
+	t := s.NextRun
+	if s.Timezone != "" {
+		if loc, err := time.LoadLocation(s.Timezone); err == nil {
+			t = t.In(loc)
+		}
+	}
+	return t.Format("2006-01-02 15:04 MST")
+}
+
+// tzSuffix renders " (Europe/Paris)" when set, empty otherwise.
+func tzSuffix(tz string) string {
+	if tz == "" {
+		return ""
+	}
+	return " (" + tz + ")"
 }
 
 func formatScheduleLogs(s schedule.Schedule) string {
@@ -141,13 +170,6 @@ func formatLastRun(r schedule.RunLog) string {
 		mark,
 		tail,
 	)
-}
-
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return "never"
-	}
-	return t.Format("2006-01-02 15:04 MST")
 }
 
 func truncate(s string, n int) string {

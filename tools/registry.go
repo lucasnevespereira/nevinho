@@ -246,6 +246,7 @@ Use to set up "every morning at 9 summarize hacker news", "every Monday list my 
 Translate the user's natural language into a cron expression yourself. Do not ask the user to write cron.
 Schedules run without an interactive approval prompt, so refuse to create schedules whose prompts would normally need approval (destructive bash, file writes outside approved paths). Suggest a safer prompt instead.
 Cron accepts standard 5-field expressions ("0 9 * * *"), descriptors (@daily, @hourly, @weekly), and durations (@every 30m, @every 6h). Minimum interval is 5 minutes. Maximum 10 schedules total.
+Timezones: pass an IANA name (e.g. "Europe/Paris", "America/New_York") via the timezone argument when the user mentions a city or zone. The cron expression is then evaluated in that timezone. Without a timezone, the server's local time is used.
 Actions:
 - list: returns every schedule with its cron, next run, and current state. Default action when "action" is omitted.
 - create: requires name, cron, and prompt. Returns the new entry with its first NextRun.
@@ -254,7 +255,7 @@ Actions:
 - resume: requires name. Re-enables a paused schedule and recomputes NextRun.
 - logs: requires name. Returns the last 10 runs (timestamp, duration, status, preview or error).
 Output: human readable text. Errors are prefixed with "failed: " or "invalid input:".`,
-			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume","logs"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, resume, and logs."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."}},"required":["action"]}`,
+			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume","logs"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, resume, and logs."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."},"timezone":{"type":"string","description":"Optional IANA timezone (e.g. \"Europe/Paris\"). When set, the cron is evaluated in this zone."}},"required":["action"]}`,
 		},
 	}
 }
