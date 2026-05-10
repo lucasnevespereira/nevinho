@@ -79,6 +79,10 @@ type Schedule struct {
 	NextRun time.Time `json:"next_run,omitempty"`
 	Created time.Time `json:"created"`
 
+	// Timezone is the IANA name (e.g. "Europe/Paris") used to evaluate
+	// the cron expression. Empty means the server's local time.
+	Timezone string `json:"timezone,omitempty"`
+
 	// Runs is the inline run history. Newest first.
 	Runs []RunLog `json:"runs,omitempty"`
 }
@@ -162,16 +166,20 @@ func (s *Store) Find(key string) (Schedule, bool) {
 // Create validates and persists a new schedule. Names must be unique.
 // The cron expression is parsed and the first NextRun is computed before
 // storing so the runner does not need to revalidate on every tick.
-func (s *Store) Create(name, cronExpr, prompt string) (Schedule, error) {
+//
+// Pass tz as an IANA timezone name (e.g. "Europe/Paris") to evaluate
+// the cron in that location. Empty tz uses the server's local time.
+func (s *Store) Create(name, cronExpr, prompt, tz string) (Schedule, error) {
 	name = trim(name)
 	cronExpr = trim(cronExpr)
 	prompt = trim(prompt)
+	tz = trim(tz)
 
 	if name == "" || cronExpr == "" || prompt == "" {
 		return Schedule{}, fmt.Errorf("name, cron, and prompt are required")
 	}
 
-	sched, err := parseCron(cronExpr)
+	sched, err := parseCronInTimezone(cronExpr, tz)
 	if err != nil {
 		return Schedule{}, fmt.Errorf("invalid cron %q: %w", cronExpr, err)
 	}
@@ -193,13 +201,14 @@ func (s *Store) Create(name, cronExpr, prompt string) (Schedule, error) {
 
 	now := time.Now()
 	entry := Schedule{
-		ID:      newID(),
-		Name:    name,
-		Cron:    cronExpr,
-		Prompt:  prompt,
-		Enabled: true,
-		NextRun: sched.Next(now),
-		Created: now,
+		ID:       newID(),
+		Name:     name,
+		Cron:     cronExpr,
+		Prompt:   prompt,
+		Enabled:  true,
+		NextRun:  sched.Next(now),
+		Created:  now,
+		Timezone: tz,
 	}
 	s.list = append(s.list, entry)
 	if err := s.save(); err != nil {
@@ -234,7 +243,7 @@ func (s *Store) SetEnabled(key string, enabled bool) (Schedule, error) {
 		}
 		sc.Enabled = enabled
 		if enabled {
-			parsed, err := parseCron(sc.Cron)
+			parsed, err := parseCronInTimezone(sc.Cron, sc.Timezone)
 			if err != nil {
 				return Schedule{}, err
 			}
@@ -257,7 +266,7 @@ func (s *Store) recordRun(id string, log RunLog) error {
 		if sc.ID != id {
 			continue
 		}
-		parsed, err := parseCron(sc.Cron)
+		parsed, err := parseCronInTimezone(sc.Cron, sc.Timezone)
 		if err != nil {
 			return err
 		}
@@ -314,7 +323,7 @@ func (s *Store) dueSchedules(now time.Time) []Schedule {
 		if sc.NextRun.After(now) {
 			continue
 		}
-		parsed, err := parseCron(sc.Cron)
+		parsed, err := parseCronInTimezone(sc.Cron, sc.Timezone)
 		if err != nil {
 			continue
 		}

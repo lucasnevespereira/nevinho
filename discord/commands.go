@@ -524,7 +524,7 @@ func (b *Bot) scheduleAction(action, name string) string {
 		if action == "pause" {
 			return fmt.Sprintf("Paused `%s`.", s.Name)
 		}
-		return fmt.Sprintf("Resumed `%s`. Next run: %s", s.Name, formatScheduleTime(s.NextRun))
+		return fmt.Sprintf("Resumed `%s`. Next run: %s", s.Name, formatScheduleNext(s))
 	case "delete":
 		if name == "" {
 			return "Usage: `/schedules delete NAME`"
@@ -563,8 +563,8 @@ func formatSchedules(list []schedule.Schedule) string {
 			state = "⏸"
 		}
 		fmt.Fprintf(&sb, "\n%s `%s`\n", state, s.Name)
-		fmt.Fprintf(&sb, "  cron: `%s`\n", s.Cron)
-		fmt.Fprintf(&sb, "  next: %s\n", formatScheduleTime(s.NextRun))
+		fmt.Fprintf(&sb, "  cron: `%s`%s\n", s.Cron, formatTzSuffix(s.Timezone))
+		fmt.Fprintf(&sb, "  next: %s\n", formatScheduleNext(s))
 		fmt.Fprintf(&sb, "  prompt: %s\n", s.Prompt)
 		if len(s.Runs) > 0 {
 			fmt.Fprintf(&sb, "  last: %s\n", formatLastRunInline(s.Runs[0]))
@@ -572,6 +572,28 @@ func formatSchedules(list []schedule.Schedule) string {
 	}
 	sb.WriteString("\nManage with `/schedules pause|resume|delete|logs NAME`.")
 	return sb.String()
+}
+
+func formatTzSuffix(tz string) string {
+	if tz == "" {
+		return ""
+	}
+	return " (" + tz + ")"
+}
+
+// formatScheduleNext renders NextRun in the schedule's own timezone when set,
+// so the operator reads the time in the zone they configured.
+func formatScheduleNext(s schedule.Schedule) string {
+	if s.NextRun.IsZero() {
+		return "never"
+	}
+	t := s.NextRun
+	if s.Timezone != "" {
+		if loc, err := time.LoadLocation(s.Timezone); err == nil {
+			t = t.In(loc)
+		}
+	}
+	return t.Format("Mon 2006-01-02 15:04 MST")
 }
 
 func formatScheduleLogs(s schedule.Schedule) string {
@@ -613,13 +635,6 @@ func formatLastRunInline(r schedule.RunLog) string {
 		tail = " " + truncateText(r.Preview, 80)
 	}
 	return fmt.Sprintf("%s %s%s", mark, when, tail)
-}
-
-func formatScheduleTime(t time.Time) string {
-	if t.IsZero() {
-		return "never"
-	}
-	return t.Format("Mon 2006-01-02 15:04 MST")
 }
 
 func truncateText(s string, n int) string {

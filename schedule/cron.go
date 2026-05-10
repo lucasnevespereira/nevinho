@@ -17,7 +17,20 @@ import (
 var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 func parseCron(expr string) (cron.Schedule, error) {
+	return parseCronInTimezone(expr, "")
+}
+
+// parseCronInTimezone parses a cron expression in the given IANA timezone.
+// An empty timezone falls back to the server's local time. Wires the
+// timezone into robfig/cron via its CRON_TZ= prefix syntax.
+func parseCronInTimezone(expr, tz string) (cron.Schedule, error) {
 	expr = strings.TrimSpace(expr)
+	if tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return nil, fmt.Errorf("invalid timezone %q", tz)
+		}
+		expr = "CRON_TZ=" + tz + " " + expr
+	}
 	return parser.Parse(expr)
 }
 

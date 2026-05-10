@@ -18,7 +18,7 @@ func newTestStore(t *testing.T) *Store {
 
 func TestCreateAndList(t *testing.T) {
 	s := newTestStore(t)
-	got, err := s.Create("morning-hn", "@daily", "summarize HN")
+	got, err := s.Create("morning-hn", "@daily", "summarize HN", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -38,38 +38,66 @@ func TestCreateAndList(t *testing.T) {
 
 func TestCreateRejectsDuplicateName(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create("daily", "@daily", "x"); err != nil {
+	if _, err := s.Create("daily", "@daily", "x", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Create("daily", "@hourly", "y"); err == nil {
+	if _, err := s.Create("daily", "@hourly", "y", ""); err == nil {
 		t.Fatal("expected duplicate-name error")
 	}
 }
 
 func TestCreateRejectsTooFrequent(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.Create("spam", "@every 1m", "x")
+	_, err := s.Create("spam", "@every 1m", "x", "")
 	if err == nil || !strings.Contains(err.Error(), "minimum") {
 		t.Errorf("expected min-interval error, got %v", err)
 	}
 }
 
+func TestCreateWithTimezone(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.Create("paris-morning", "0 9 * * *", "summarize", "Europe/Paris")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Timezone != "Europe/Paris" {
+		t.Errorf("Timezone = %q, want Europe/Paris", got.Timezone)
+	}
+
+	// Reload to confirm persistence.
+	loaded, err := LoadStore(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := loaded.Find("paris-morning")
+	if got2.Timezone != "Europe/Paris" {
+		t.Errorf("after reload Timezone = %q, want Europe/Paris", got2.Timezone)
+	}
+}
+
+func TestCreateRejectsInvalidTimezone(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.Create("bad-tz", "0 9 * * *", "x", "Europe/Pariss"); err == nil {
+		t.Error("expected invalid timezone to error")
+	}
+}
+
 func TestCreateRejectsBadCron(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create("bad", "every monday", "x"); err == nil {
+	if _, err := s.Create("bad", "every monday", "x", ""); err == nil {
 		t.Fatal("expected parse error")
 	}
 }
 
 func TestCreateRejectsMissingFields(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create("", "@daily", "x"); err == nil {
+	if _, err := s.Create("", "@daily", "x", ""); err == nil {
 		t.Error("missing name should error")
 	}
-	if _, err := s.Create("a", "", "x"); err == nil {
+	if _, err := s.Create("a", "", "x", ""); err == nil {
 		t.Error("missing cron should error")
 	}
-	if _, err := s.Create("a", "@daily", ""); err == nil {
+	if _, err := s.Create("a", "@daily", "", ""); err == nil {
 		t.Error("missing prompt should error")
 	}
 }
@@ -78,18 +106,18 @@ func TestCreateEnforcesMaxSchedules(t *testing.T) {
 	s := newTestStore(t)
 	for i := range MaxSchedules {
 		name := "s" + string(rune('A'+i))
-		if _, err := s.Create(name, "@daily", "x"); err != nil {
+		if _, err := s.Create(name, "@daily", "x", ""); err != nil {
 			t.Fatalf("Create %s: %v", name, err)
 		}
 	}
-	if _, err := s.Create("overflow", "@daily", "x"); err == nil {
+	if _, err := s.Create("overflow", "@daily", "x", ""); err == nil {
 		t.Error("expected max-schedules error")
 	}
 }
 
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create("doomed", "@daily", "x"); err != nil {
+	if _, err := s.Create("doomed", "@daily", "x", ""); err != nil {
 		t.Fatal(err)
 	}
 	ok, err := s.Delete("doomed")
@@ -117,7 +145,7 @@ func TestDeleteMissing(t *testing.T) {
 
 func TestSetEnabledTogglesAndRefreshesNextRun(t *testing.T) {
 	s := newTestStore(t)
-	created, err := s.Create("toggleable", "@daily", "x")
+	created, err := s.Create("toggleable", "@daily", "x", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +177,7 @@ func TestPersistsAcrossLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s1.Create("persist-me", "@daily", "x"); err != nil {
+	if _, err := s1.Create("persist-me", "@daily", "x", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +193,7 @@ func TestPersistsAcrossLoads(t *testing.T) {
 
 func TestDueSchedulesSkipsMissedRunsAfterDowntime(t *testing.T) {
 	s := newTestStore(t)
-	created, err := s.Create("hourly", "@every 1h", "x")
+	created, err := s.Create("hourly", "@every 1h", "x", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +222,7 @@ func TestDueSchedulesSkipsMissedRunsAfterDowntime(t *testing.T) {
 
 func TestRecordRunAppendsAndCaps(t *testing.T) {
 	s := newTestStore(t)
-	created, err := s.Create("trace", "@daily", "x")
+	created, err := s.Create("trace", "@daily", "x", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +251,7 @@ func TestRecordRunAppendsAndCaps(t *testing.T) {
 
 func TestRecordRunUpdatesNextAndLast(t *testing.T) {
 	s := newTestStore(t)
-	created, err := s.Create("ticker", "@every 1h", "x")
+	created, err := s.Create("ticker", "@every 1h", "x", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,8 +305,8 @@ func TestPrependCappedTrims(t *testing.T) {
 
 func TestDueSchedulesReturnsOnlyEnabledAndPastDue(t *testing.T) {
 	s := newTestStore(t)
-	a, _ := s.Create("a", "@daily", "x")
-	_, _ = s.Create("b", "@daily", "x")
+	a, _ := s.Create("a", "@daily", "x", "")
+	_, _ = s.Create("b", "@daily", "x", "")
 	_, _ = s.SetEnabled("b", false)
 
 	// Force a's NextRun to the past.
