@@ -581,19 +581,13 @@ func formatTzSuffix(tz string) string {
 	return " (" + tz + ")"
 }
 
-// formatScheduleNext renders NextRun in the schedule's own timezone when set,
-// so the operator reads the time in the zone they configured.
+// formatScheduleNext renders NextRun in the schedule's own timezone for
+// the Discord listing.
 func formatScheduleNext(s schedule.Schedule) string {
 	if s.NextRun.IsZero() {
 		return "never"
 	}
-	t := s.NextRun
-	if s.Timezone != "" {
-		if loc, err := time.LoadLocation(s.Timezone); err == nil {
-			t = t.In(loc)
-		}
-	}
-	return t.Format("Mon 2006-01-02 15:04 MST")
+	return s.NextRunIn().Format("Mon 2006-01-02 15:04 MST")
 }
 
 func formatScheduleLogs(s schedule.Schedule) string {

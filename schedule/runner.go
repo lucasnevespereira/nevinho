@@ -120,6 +120,15 @@ func (r *Runner) execute(sched Schedule) {
 	logger.Info(fmt.Sprintf("schedule: running %s", sched.Name))
 	ranAt := time.Now()
 
+	// Advance NextRun and persist BEFORE running. If the disk write fails,
+	// we abort the run so the next tick retries cleanly. If it succeeds
+	// and the run later panics or crashes, NextRun has already moved so
+	// the schedule will not double fire.
+	if _, err := r.store.claimNextRun(sched.ID, ranAt); err != nil {
+		logger.Err(fmt.Errorf("schedule %s: claim next run: %w", sched.Name, err))
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.ctx, RunTimeout)
 	defer cancel()
 
@@ -137,8 +146,10 @@ func (r *Runner) execute(sched Schedule) {
 		log.Preview = truncatePreview(result, PreviewMaxLen)
 	}
 
-	if updateErr := r.store.recordRun(sched.ID, log); updateErr != nil {
-		logger.Err(fmt.Errorf("schedule %s: persist run: %w", sched.Name, updateErr))
+	if logErr := r.store.appendRunLog(sched.ID, log); logErr != nil {
+		// Log entry lost. The run already happened and will not double
+		// fire because NextRun was advanced before the run.
+		logger.Err(fmt.Errorf("schedule %s: append log: %w", sched.Name, logErr))
 	}
 
 	if r.notify != nil {

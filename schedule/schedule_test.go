@@ -220,7 +220,7 @@ func TestDueSchedulesSkipsMissedRunsAfterDowntime(t *testing.T) {
 	}
 }
 
-func TestRecordRunAppendsAndCaps(t *testing.T) {
+func TestAppendRunLogCapsAt10(t *testing.T) {
 	s := newTestStore(t)
 	created, err := s.Create("trace", "@daily", "x", "")
 	if err != nil {
@@ -234,7 +234,7 @@ func TestRecordRunAppendsAndCaps(t *testing.T) {
 			Success:   true,
 			Preview:   "run " + string(rune('a'+i)),
 		}
-		if err := s.recordRun(created.ID, log); err != nil {
+		if err := s.appendRunLog(created.ID, log); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -249,7 +249,7 @@ func TestRecordRunAppendsAndCaps(t *testing.T) {
 	}
 }
 
-func TestRecordRunUpdatesNextAndLast(t *testing.T) {
+func TestClaimNextRunAdvancesBeforeRun(t *testing.T) {
 	s := newTestStore(t)
 	created, err := s.Create("ticker", "@every 1h", "x", "")
 	if err != nil {
@@ -257,22 +257,49 @@ func TestRecordRunUpdatesNextAndLast(t *testing.T) {
 	}
 
 	ranAt := created.NextRun.Add(2 * time.Minute)
+	claimed, err := s.claimNextRun(created.ID, ranAt)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	if err := s.recordRun(created.ID, RunLog{
-		StartedAt: ranAt,
+	if !claimed.LastRun.Equal(ranAt) {
+		t.Errorf("claimed LastRun = %s, want %s", claimed.LastRun, ranAt)
+	}
+	wantNext := ranAt.Add(time.Hour)
+	if !claimed.NextRun.Equal(wantNext) {
+		t.Errorf("claimed NextRun = %s, want %s (ranAt + 1h)", claimed.NextRun, wantNext)
+	}
+
+	stored, _ := s.Find("ticker")
+	if !stored.NextRun.Equal(wantNext) {
+		t.Errorf("stored NextRun = %s, want %s (persisted)", stored.NextRun, wantNext)
+	}
+}
+
+func TestAppendRunLogDoesNotAffectNextRun(t *testing.T) {
+	s := newTestStore(t)
+	created, err := s.Create("ticker", "@every 1h", "x", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	beforeNext := created.NextRun
+
+	err = s.appendRunLog(created.ID, RunLog{
+		StartedAt: time.Now(),
 		Duration:  500 * time.Millisecond,
 		Success:   true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	got, _ := s.Find("ticker")
-	if !got.LastRun.Equal(ranAt) {
-		t.Errorf("LastRun = %s, want %s", got.LastRun, ranAt)
+	if !got.NextRun.Equal(beforeNext) {
+		t.Errorf("appendRunLog should not move NextRun, got %s, want %s", got.NextRun, beforeNext)
 	}
-	wantNext := ranAt.Add(time.Hour)
-	if !got.NextRun.Equal(wantNext) {
-		t.Errorf("NextRun = %s, want %s (ranAt + 1h)", got.NextRun, wantNext)
+	if len(got.Runs) != 1 {
+		t.Errorf("Runs len = %d, want 1", len(got.Runs))
 	}
 }
 
