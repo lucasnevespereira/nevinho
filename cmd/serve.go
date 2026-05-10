@@ -90,11 +90,15 @@ func startScheduler(a *agent.Agent, bot *discord.Bot, configDir string) (*schedu
 	a.SetScheduleStore(store)
 	bot.SetScheduleStore(store)
 
-	runFn := func(ctx context.Context, userID, prompt string) (string, error) {
+	runFn := func(ctx context.Context, userID, prompt, model string) (string, error) {
 		// Chat manages its own per-call timeout. The ctx here is the
 		// runner's deadline, used by future agent paths that accept it.
 		_ = ctx
-		return a.Chat(userID, prompt, false, nil)
+		return a.Chat(agent.ChatRequest{
+			UserID: userID,
+			Text:   prompt,
+			Model:  model,
+		})
 	}
 
 	notifyFn := func(s schedule.Schedule, result string, err error) {

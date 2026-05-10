@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/schedule"
 )
@@ -273,7 +274,10 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	indicator := newActivityIndicator(s, channelID)
 	b.agent.SetToolCallback(userID, indicator.onEvent)
 
-	response, err := b.agent.Chat(userID, "yes", false, nil)
+	response, err := b.agent.Chat(agent.ChatRequest{
+		UserID: userID,
+		Text:   "yes",
+	})
 	b.agent.SetToolCallback(userID, nil)
 	indicator.Close()
 	stopTyping()
@@ -565,6 +569,9 @@ func formatSchedules(list []schedule.Schedule) string {
 		fmt.Fprintf(&sb, "\n%s `%s`\n", state, s.Name)
 		fmt.Fprintf(&sb, "  cron: `%s`%s\n", s.Cron, formatTzSuffix(s.Timezone))
 		fmt.Fprintf(&sb, "  next: %s\n", formatScheduleNext(s))
+		if s.Model != "" {
+			fmt.Fprintf(&sb, "  model: `%s`\n", s.Model)
+		}
 		fmt.Fprintf(&sb, "  prompt: %s\n", s.Prompt)
 		if len(s.Runs) > 0 {
 			fmt.Fprintf(&sb, "  last: %s\n", formatLastRunInline(s.Runs[0]))

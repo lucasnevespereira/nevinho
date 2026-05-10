@@ -60,7 +60,10 @@ func Chat(configDir, version, selfDoc string) {
 			continue
 		}
 
-		response, err := a.Chat(chatUserID, text, false, nil)
+		response, err := a.Chat(agent.ChatRequest{
+			UserID: chatUserID,
+			Text:   text,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue

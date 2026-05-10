@@ -105,6 +105,8 @@ Cron accepts standard 5-field expressions (`0 9 * * *`), descriptors (`@daily`, 
 
 > **Time zone**: schedules accept an IANA timezone (e.g. `Europe/Paris`, `America/New_York`). The agent picks one up from natural language ("every day at 9am Paris time"). Without one, the cron is evaluated in the VPS's local time.
 
+> **Model**: schedules can pin a specific model ("use Haiku, it's enough"). Useful when most schedules can run cheap (Haiku) while interactive chat stays on Sonnet. Without one, the agent's currently selected model is used at run time.
+
 ## Commands
 
 | Command             | What it does                              |

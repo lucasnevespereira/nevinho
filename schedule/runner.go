@@ -10,10 +10,12 @@ import (
 	"github.com/lucasnevespereira/nevinho/logger"
 )
 
-// RunFunc executes a schedule prompt and returns the agent's reply, or an
-// error. It receives a derived context with RunTimeout and a userID
+// RunFunc executes a schedule prompt and returns the agent's reply, or
+// an error. It receives a derived context with RunTimeout and a userID
 // namespace ("scheduler:<id>") so manual chat history is not polluted.
-type RunFunc func(ctx context.Context, userID, prompt string) (string, error)
+// model is empty when the schedule does not pin one, in which case the
+// agent uses its currently selected provider.
+type RunFunc func(ctx context.Context, userID, prompt, model string) (string, error)
 
 // NotifyFunc delivers a run result to the user. The runner calls it after
 // each completion (success or error). Errors arrive with err set and a
@@ -124,7 +126,7 @@ func (r *Runner) execute(sched Schedule) {
 	defer cancel()
 
 	userID := "scheduler:" + sched.ID
-	result, err := safeRun(ctx, r.run, userID, sched.Prompt)
+	result, err := safeRun(ctx, r.run, userID, sched.Prompt, sched.Model)
 
 	log := RunLog{
 		StartedAt: ranAt,
@@ -158,11 +160,11 @@ func truncatePreview(text string, max int) string {
 
 // safeRun calls the agent and recovers from any panic so a single bad
 // scheduled prompt cannot take down the runner.
-func safeRun(ctx context.Context, run RunFunc, userID, prompt string) (result string, err error) {
+func safeRun(ctx context.Context, run RunFunc, userID, prompt, model string) (result string, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = fmt.Errorf("scheduled run panicked: %v", rec)
 		}
 	}()
-	return run(ctx, userID, prompt)
+	return run(ctx, userID, prompt, model)
 }
