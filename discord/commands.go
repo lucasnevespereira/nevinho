@@ -47,23 +47,24 @@ var slashCommands = []*discordgo.ApplicationCommand{
 	{Name: "help", Description: "Show available commands and capabilities"},
 	{
 		Name:        "schedules",
-		Description: "List, pause, resume, or delete scheduled tasks",
+		Description: "List scheduled tasks, view their run history, or manage them",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "action",
-				Description: "Action: pause, resume, or delete. Omit to list.",
+				Description: "Action: pause, resume, delete, or logs. Omit to list.",
 				Required:    false,
 				Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "pause", Value: "pause"},
 					{Name: "resume", Value: "resume"},
 					{Name: "delete", Value: "delete"},
+					{Name: "logs", Value: "logs"},
 				},
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "name",
-				Description: "Schedule name. Required for pause, resume, delete.",
+				Description: "Schedule name. Required for pause, resume, delete, logs.",
 				Required:    false,
 			},
 		},
@@ -277,7 +278,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	indicator.Close()
 	stopTyping()
 	if err != nil {
-		s.ChannelMessageSend(channelID, friendlyError(err))
+		s.ChannelMessageSend(channelID, FriendlyError(err))
 		return
 	}
 	if response == "" {
@@ -536,8 +537,17 @@ func (b *Bot) scheduleAction(action, name string) string {
 			return fmt.Sprintf("No schedule named `%s`.", name)
 		}
 		return fmt.Sprintf("Deleted `%s`.", name)
+	case "logs":
+		if name == "" {
+			return "Usage: `/schedules logs NAME`"
+		}
+		s, ok := b.schedules.Find(name)
+		if !ok {
+			return fmt.Sprintf("No schedule named `%s`.", name)
+		}
+		return formatScheduleLogs(s)
 	default:
-		return "Unknown action. Use list, pause, resume, or delete."
+		return "Unknown action. Use list, pause, resume, delete, or logs."
 	}
 }
 
@@ -556,9 +566,53 @@ func formatSchedules(list []schedule.Schedule) string {
 		fmt.Fprintf(&sb, "  cron: `%s`\n", s.Cron)
 		fmt.Fprintf(&sb, "  next: %s\n", formatScheduleTime(s.NextRun))
 		fmt.Fprintf(&sb, "  prompt: %s\n", s.Prompt)
+		if len(s.Runs) > 0 {
+			fmt.Fprintf(&sb, "  last: %s\n", formatLastRunInline(s.Runs[0]))
+		}
 	}
-	sb.WriteString("\nManage with `/schedules pause|resume|delete NAME`.")
+	sb.WriteString("\nManage with `/schedules pause|resume|delete|logs NAME`.")
 	return sb.String()
+}
+
+func formatScheduleLogs(s schedule.Schedule) string {
+	if len(s.Runs) == 0 {
+		return fmt.Sprintf("`%s` has no recorded runs yet.", s.Name)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "**Run history for `%s`** (last %d)\n", s.Name, len(s.Runs))
+	for _, r := range s.Runs {
+		mark := "✅"
+		if !r.Success {
+			mark = "❌"
+		}
+		fmt.Fprintf(&sb, "\n%s `%s`  %s",
+			mark,
+			r.StartedAt.Format("2006-01-02 15:04:05"),
+			r.Duration.Truncate(time.Millisecond),
+		)
+		switch {
+		case r.Error != "":
+			fmt.Fprintf(&sb, "\n   %s", truncateText(r.Error, 200))
+		case r.Preview != "":
+			fmt.Fprintf(&sb, "\n   %s", truncateText(r.Preview, 200))
+		}
+	}
+	return sb.String()
+}
+
+func formatLastRunInline(r schedule.RunLog) string {
+	mark := "✅"
+	if !r.Success {
+		mark = "❌"
+	}
+	when := r.StartedAt.Format("Mon 15:04")
+	tail := ""
+	if r.Error != "" {
+		tail = " " + truncateText(r.Error, 80)
+	} else if r.Preview != "" {
+		tail = " " + truncateText(r.Preview, 80)
+	}
+	return fmt.Sprintf("%s %s%s", mark, when, tail)
 }
 
 func formatScheduleTime(t time.Time) string {
@@ -566,4 +620,11 @@ func formatScheduleTime(t time.Time) string {
 		return "never"
 	}
 	return t.Format("Mon 2006-01-02 15:04 MST")
+}
+
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }

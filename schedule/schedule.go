@@ -49,8 +49,24 @@ const (
 	// interactive cancel path, so the timeout is the safety net.
 	RunTimeout = 5 * time.Minute
 
+	// MaxRunsKept limits the inline run history per schedule.
+	// journalctl stays the source for older history.
+	MaxRunsKept = 10
+
+	// PreviewMaxLen caps the length of a result preview stored in a RunLog.
+	PreviewMaxLen = 200
+
 	storeFile = "schedules.enc"
 )
+
+// RunLog records the outcome of one scheduled run.
+type RunLog struct {
+	StartedAt time.Time     `json:"started_at"`
+	Duration  time.Duration `json:"duration"`
+	Success   bool          `json:"success"`
+	Error     string        `json:"error,omitempty"`
+	Preview   string        `json:"preview,omitempty"`
+}
 
 // Schedule is a saved prompt that runs on a cron timetable.
 type Schedule struct {
@@ -62,6 +78,9 @@ type Schedule struct {
 	LastRun time.Time `json:"last_run,omitempty"`
 	NextRun time.Time `json:"next_run,omitempty"`
 	Created time.Time `json:"created"`
+
+	// Runs is the inline run history. Newest first.
+	Runs []RunLog `json:"runs,omitempty"`
 }
 
 // Store loads, mutates, and persists schedules atomically. Safe for
@@ -227,9 +246,11 @@ func (s *Store) SetEnabled(key string, enabled bool) (Schedule, error) {
 	return Schedule{}, fmt.Errorf("schedule %q not found", key)
 }
 
-// recordRun updates LastRun and NextRun after a run completes. Caller is
-// expected to hold no locks (this acquires the write lock internally).
-func (s *Store) recordRun(id string, ranAt time.Time) error {
+// recordRun appends a RunLog (capped at MaxRunsKept), updates LastRun
+// and NextRun, then saves. On save failure the in-memory state is
+// rolled back so the next tick retries the run instead of silently
+// skipping it.
+func (s *Store) recordRun(id string, log RunLog) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, sc := range s.list {
@@ -240,12 +261,35 @@ func (s *Store) recordRun(id string, ranAt time.Time) error {
 		if err != nil {
 			return err
 		}
-		sc.LastRun = ranAt
-		sc.NextRun = parsed.Next(ranAt)
+
+		oldRuns := sc.Runs
+		oldLastRun := sc.LastRun
+		oldNextRun := sc.NextRun
+
+		sc.Runs = prependCapped(sc.Runs, log, MaxRunsKept)
+		sc.LastRun = log.StartedAt
+		sc.NextRun = parsed.Next(log.StartedAt)
 		s.list[i] = sc
-		return s.save()
+
+		if err := s.save(); err != nil {
+			s.list[i].Runs = oldRuns
+			s.list[i].LastRun = oldLastRun
+			s.list[i].NextRun = oldNextRun
+			return err
+		}
+		return nil
 	}
 	return nil
+}
+
+// prependCapped puts log at the head of runs and trims to max entries.
+func prependCapped(runs []RunLog, log RunLog, max int) []RunLog {
+	out := make([]RunLog, 0, max)
+	out = append(out, log)
+	for i := 0; i < len(runs) && len(out) < max; i++ {
+		out = append(out, runs[i])
+	}
+	return out
 }
 
 // dueSchedules returns enabled schedules whose NextRun is at or before

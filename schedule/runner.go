@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,13 +126,34 @@ func (r *Runner) execute(sched Schedule) {
 	userID := "scheduler:" + sched.ID
 	result, err := safeRun(ctx, r.run, userID, sched.Prompt)
 
-	if updateErr := r.store.recordRun(sched.ID, ranAt); updateErr != nil {
+	log := RunLog{
+		StartedAt: ranAt,
+		Duration:  time.Since(ranAt),
+		Success:   err == nil,
+	}
+	if err != nil {
+		log.Error = err.Error()
+	} else {
+		log.Preview = truncatePreview(result, PreviewMaxLen)
+	}
+
+	if updateErr := r.store.recordRun(sched.ID, log); updateErr != nil {
 		logger.Err(fmt.Errorf("schedule %s: persist run: %w", sched.Name, updateErr))
 	}
 
 	if r.notify != nil {
 		r.notify(sched, result, err)
 	}
+}
+
+// truncatePreview shortens text for inline storage. Returns text unchanged
+// when already within max.
+func truncatePreview(text string, max int) string {
+	text = strings.TrimSpace(text)
+	if len(text) <= max {
+		return text
+	}
+	return text[:max-1] + "…"
 }
 
 // safeRun calls the agent and recovers from any panic so a single bad
