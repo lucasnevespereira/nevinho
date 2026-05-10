@@ -60,8 +60,14 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 			return "failed: " + err.Error()
 		}
 		return fmt.Sprintf("resumed %q. Next run: %s", s.Name, formatTime(s.NextRun))
+	case "logs":
+		s, ok := store.Find(in.Name)
+		if !ok {
+			return fmt.Sprintf("no schedule named %q", in.Name)
+		}
+		return formatScheduleLogs(s)
 	default:
-		return fmt.Sprintf("unknown action %q. Use list, create, delete, pause, or resume.", in.Action)
+		return fmt.Sprintf("unknown action %q. Use list, create, delete, pause, resume, or logs.", in.Action)
 	}
 }
 
@@ -77,8 +83,64 @@ func formatScheduleList(list []schedule.Schedule) string {
 		}
 		fmt.Fprintf(&sb, "%s [%s] %s\n  cron: %s\n  next: %s\n  prompt: %s\n",
 			s.Name, state, s.ID, s.Cron, formatTime(s.NextRun), truncate(s.Prompt, 80))
+		if last := lastRun(s); last != nil {
+			fmt.Fprintf(&sb, "  last: %s\n", formatLastRun(*last))
+		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+func formatScheduleLogs(s schedule.Schedule) string {
+	if len(s.Runs) == 0 {
+		return fmt.Sprintf("%s has no recorded runs yet", s.Name)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s last %d run(s):\n", s.Name, len(s.Runs))
+	for _, r := range s.Runs {
+		mark := "ok"
+		if !r.Success {
+			mark = "fail"
+		}
+		fmt.Fprintf(&sb, "  %s  %s  %s",
+			r.StartedAt.Format("2006-01-02 15:04:05"),
+			r.Duration.Truncate(time.Millisecond),
+			mark,
+		)
+		if r.Error != "" {
+			fmt.Fprintf(&sb, "  %s", truncate(r.Error, 120))
+		} else if r.Preview != "" {
+			fmt.Fprintf(&sb, "  %s", truncate(r.Preview, 120))
+		}
+		sb.WriteString("\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// lastRun returns the most recent run, or nil if none.
+func lastRun(s schedule.Schedule) *schedule.RunLog {
+	if len(s.Runs) == 0 {
+		return nil
+	}
+	r := s.Runs[0]
+	return &r
+}
+
+func formatLastRun(r schedule.RunLog) string {
+	mark := "ok"
+	if !r.Success {
+		mark = "fail"
+	}
+	tail := ""
+	if r.Error != "" {
+		tail = " " + truncate(r.Error, 80)
+	} else if r.Preview != "" {
+		tail = " " + truncate(r.Preview, 80)
+	}
+	return fmt.Sprintf("%s %s%s",
+		r.StartedAt.Format("2006-01-02 15:04"),
+		mark,
+		tail,
+	)
 }
 
 func formatTime(t time.Time) string {

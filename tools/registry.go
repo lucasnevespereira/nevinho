@@ -252,8 +252,9 @@ Actions:
 - delete: requires name. Removes the schedule.
 - pause: requires name. Disables firing without removing the entry.
 - resume: requires name. Re-enables a paused schedule and recomputes NextRun.
+- logs: requires name. Returns the last 10 runs (timestamp, duration, status, preview or error).
 Output: human readable text. Errors are prefixed with "failed: " or "invalid input:".`,
-			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, and resume."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."}},"required":["action"]}`,
+			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume","logs"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, resume, and logs."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."}},"required":["action"]}`,
 		},
 	}
 }

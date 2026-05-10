@@ -192,6 +192,89 @@ func TestDueSchedulesSkipsMissedRunsAfterDowntime(t *testing.T) {
 	}
 }
 
+func TestRecordRunAppendsAndCaps(t *testing.T) {
+	s := newTestStore(t)
+	created, err := s.Create("trace", "@daily", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range MaxRunsKept + 5 {
+		log := RunLog{
+			StartedAt: time.Now().Add(time.Duration(i) * time.Minute),
+			Duration:  time.Second,
+			Success:   true,
+			Preview:   "run " + string(rune('a'+i)),
+		}
+		if err := s.recordRun(created.ID, log); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, _ := s.Find("trace")
+	if len(got.Runs) != MaxRunsKept {
+		t.Errorf("Runs len = %d, want %d", len(got.Runs), MaxRunsKept)
+	}
+	expectNewest := "run " + string(rune('a'+MaxRunsKept+4))
+	if got.Runs[0].Preview != expectNewest {
+		t.Errorf("expected newest first %q, got %q", expectNewest, got.Runs[0].Preview)
+	}
+}
+
+func TestRecordRunUpdatesNextAndLast(t *testing.T) {
+	s := newTestStore(t)
+	created, err := s.Create("ticker", "@every 1h", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ranAt := created.NextRun.Add(2 * time.Minute)
+
+	if err := s.recordRun(created.ID, RunLog{
+		StartedAt: ranAt,
+		Duration:  500 * time.Millisecond,
+		Success:   true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.Find("ticker")
+	if !got.LastRun.Equal(ranAt) {
+		t.Errorf("LastRun = %s, want %s", got.LastRun, ranAt)
+	}
+	wantNext := ranAt.Add(time.Hour)
+	if !got.NextRun.Equal(wantNext) {
+		t.Errorf("NextRun = %s, want %s (ranAt + 1h)", got.NextRun, wantNext)
+	}
+}
+
+func TestPrependCappedKeepsNewestFirst(t *testing.T) {
+	older := []RunLog{{Preview: "b"}, {Preview: "c"}}
+	got := prependCapped(older, RunLog{Preview: "a"}, 3)
+
+	want := []string{"a", "b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Preview != w {
+			t.Errorf("got[%d] = %q, want %q", i, got[i].Preview, w)
+		}
+	}
+}
+
+func TestPrependCappedTrims(t *testing.T) {
+	older := []RunLog{{Preview: "b"}, {Preview: "c"}, {Preview: "d"}}
+	got := prependCapped(older, RunLog{Preview: "a"}, 2)
+
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Preview != "a" || got[1].Preview != "b" {
+		t.Errorf("got = %+v, want [a b]", got)
+	}
+}
+
 func TestDueSchedulesReturnsOnlyEnabledAndPastDue(t *testing.T) {
 	s := newTestStore(t)
 	a, _ := s.Create("a", "@daily", "x")

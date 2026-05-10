@@ -128,7 +128,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	stopTyping()
 	if err != nil {
 		log.Printf("agent error for user %s: %v", m.Author.ID, err)
-		s.ChannelMessageSend(m.ChannelID, friendlyError(err))
+		s.ChannelMessageSend(m.ChannelID, FriendlyError(err))
 		return
 	}
 

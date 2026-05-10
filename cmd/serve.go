@@ -101,7 +101,7 @@ func startScheduler(a *agent.Agent, bot *discord.Bot, configDir string) (*schedu
 		var msg string
 		switch {
 		case err != nil:
-			msg = fmt.Sprintf("**Schedule `%s` failed**\n%v", s.Name, err)
+			msg = fmt.Sprintf("**Schedule `%s` failed**\n%s", s.Name, discord.FriendlyError(err))
 		case result == "":
 			msg = fmt.Sprintf("**Schedule `%s` ran** (no output)", s.Name)
 		default:
