@@ -98,14 +98,19 @@ var KnownModels = map[string][]string{
 		"groq:gemma2-9b-it",
 		"groq:llama-3.2-90b-vision-preview",
 	},
-	// OpenRouter routes named with a ":free" suffix run on free tier
-	// quotas (~200 req/day at writing). Curated list of useful free
-	// routes. Users can also pass any other openrouter:<route> name.
+	// OpenRouter is a router across many providers. Routes ending in
+	// ":free" run on free tier quotas (~200 req/day at writing). Routes
+	// without ":free" are paid per token. Curated list mixes both. Users
+	// can also pass any other openrouter:<route> name.
 	"openrouter": {
-		"openrouter:meta-llama/llama-3.3-70b-instruct:free",
-		"openrouter:google/gemini-2.5-flash-exp:free",
-		"openrouter:qwen/qwen-2.5-72b-instruct:free",
-		"openrouter:nousresearch/hermes-3-llama-3.1-405b:free",
+		"openrouter:nvidia/nemotron-3-super-120b-a12b:free",
+		"openrouter:openai/gpt-oss-120b:free",
+		"openrouter:openai/gpt-oss-20b:free",
+		"openrouter:inclusionai/ring-2.6-1t:free",
+		"openrouter:z-ai/glm-4.5-air:free",
+		"openrouter:minimax/minimax-m2.5:free",
+		"openrouter:google/gemma-4-31b-it:free",
+		"openrouter:moonshotai/kimi-k2",
 	},
 }
 
