@@ -83,6 +83,10 @@ type Schedule struct {
 	// the cron expression. Empty means the server's local time.
 	Timezone string `json:"timezone,omitempty"`
 
+	// Model pins the LLM provider for this schedule's runs. Empty means
+	// the agent's currently selected model is used at run time.
+	Model string `json:"model,omitempty"`
+
 	// Runs is the inline run history. Newest first.
 	Runs []RunLog `json:"runs,omitempty"`
 }
@@ -169,11 +173,17 @@ func (s *Store) Find(key string) (Schedule, bool) {
 //
 // Pass tz as an IANA timezone name (e.g. "Europe/Paris") to evaluate
 // the cron in that location. Empty tz uses the server's local time.
-func (s *Store) Create(name, cronExpr, prompt, tz string) (Schedule, error) {
+//
+// Pass model to pin a specific LLM provider for this schedule's runs.
+// The caller is responsible for validating the name against any catalog
+// before calling Create. Empty model means the agent's selected model is
+// used at run time.
+func (s *Store) Create(name, cronExpr, prompt, tz, model string) (Schedule, error) {
 	name = trim(name)
 	cronExpr = trim(cronExpr)
 	prompt = trim(prompt)
 	tz = trim(tz)
+	model = trim(model)
 
 	if name == "" || cronExpr == "" || prompt == "" {
 		return Schedule{}, fmt.Errorf("name, cron, and prompt are required")
@@ -209,6 +219,7 @@ func (s *Store) Create(name, cronExpr, prompt, tz string) (Schedule, error) {
 		NextRun:  sched.Next(now),
 		Created:  now,
 		Timezone: tz,
+		Model:    model,
 	}
 	s.list = append(s.list, entry)
 	if err := s.save(); err != nil {

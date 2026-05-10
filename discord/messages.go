@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 )
@@ -122,7 +123,12 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	indicator := newActivityIndicator(s, m.ChannelID)
 	b.agent.SetToolCallback(m.Author.ID, indicator.onEvent)
 
-	response, err := b.agent.Chat(m.Author.ID, text, isVoice, images)
+	response, err := b.agent.Chat(agent.ChatRequest{
+		UserID:  m.Author.ID,
+		Text:    text,
+		IsVoice: isVoice,
+		Images:  images,
+	})
 	b.agent.SetToolCallback(m.Author.ID, nil)
 	indicator.Close()
 	stopTyping()

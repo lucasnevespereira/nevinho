@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/schedule"
 )
 
@@ -15,6 +16,7 @@ type scheduleInput struct {
 	Cron     string `json:"cron"`
 	Prompt   string `json:"prompt"`
 	Timezone string `json:"timezone"`
+	Model    string `json:"model"`
 }
 
 func (r *Registry) scheduleTool(input json.RawMessage) string {
@@ -35,7 +37,10 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 	case "", "list":
 		return formatScheduleList(store.All())
 	case "create":
-		s, err := store.Create(in.Name, in.Cron, in.Prompt, in.Timezone)
+		if in.Model != "" && !llm.IsKnownModel(in.Model) {
+			return fmt.Sprintf("failed: unknown model %q. Use a model from the catalog or omit to follow the agent's current selection.", in.Model)
+		}
+		s, err := store.Create(in.Name, in.Cron, in.Prompt, in.Timezone, in.Model)
 		if err != nil {
 			return "failed: " + err.Error()
 		}
@@ -88,6 +93,9 @@ func formatScheduleList(list []schedule.Schedule) string {
 			formatScheduledTime(s),
 			truncate(s.Prompt, 80),
 		)
+		if s.Model != "" {
+			fmt.Fprintf(&sb, "  model: %s\n", s.Model)
+		}
 		if last := lastRun(s); last != nil {
 			fmt.Fprintf(&sb, "  last: %s\n", formatLastRun(*last))
 		}

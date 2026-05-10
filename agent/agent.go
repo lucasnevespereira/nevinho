@@ -137,7 +137,37 @@ func (a *Agent) Cancel(userID string) bool {
 	return false
 }
 
-func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
+// ChatRequest carries the inputs of one chat turn. Optional fields can
+// override the agent's defaults for that turn only without mutating the
+// agent's state. Future options (max tokens, temperature, system prompt
+// override) belong here too.
+type ChatRequest struct {
+	UserID  string
+	Text    string
+	IsVoice bool
+	Images  []llm.Image
+
+	// Model, when set, overrides the agent's selected provider for this
+	// call only. Useful for scheduled runs that pin a specific model
+	// regardless of what the operator currently chats with.
+	Model string
+}
+
+func (a *Agent) Chat(req ChatRequest) (string, error) {
+	provider := a.llm
+	if req.Model != "" {
+		p, err := llm.Resolve(req.Model, a.cfg.ProviderConfig())
+		if err != nil {
+			return "", fmt.Errorf("resolve model %q: %w", req.Model, err)
+		}
+		provider = p
+	}
+
+	userID := req.UserID
+	text := req.Text
+	isVoice := req.IsVoice
+	images := req.Images
+
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -208,7 +238,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 
 	a.maybeLoadSummary(userID)
 
-	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text, images)); len(evicted) > 2 {
+	if evicted := a.appendHistory(userID, provider.FormatUserMessage(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
 
@@ -216,7 +246,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 		if ctx.Err() != nil {
 			return "Cancelled.", nil
 		}
-		resp, err := a.llm.Complete(ctx, &llm.Request{
+		resp, err := provider.Complete(ctx, &llm.Request{
 			SystemPrompt: prompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.Defs(),
@@ -234,7 +264,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 
 		if len(resp.ToolCalls) == 0 {
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(provider.Model(), usage.In, usage.Out))
 			logger.Nevinho(resp.Text)
 			return resp.Text, nil
 		}
@@ -262,13 +292,13 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 			}
 		}
 
-		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
+		a.appendHistory(userID, provider.FormatToolResults(results)...)
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
 			reply := approvalMessage(p)
 			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
+			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(provider.Model(), usage.In, usage.Out))
 			logger.Nevinho(reply)
 			return reply, nil
 		}
@@ -276,7 +306,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 
 	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
 	a.addTokens(usage.In, usage.Out)
-	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
+	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(provider.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
 	return reply, nil
 }
