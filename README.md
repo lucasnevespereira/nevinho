@@ -5,7 +5,7 @@
 # nevinho
 
 A minimal personal AI harness that runs in your Discord DMs.
-Supports Anthropic, OpenAI, and Ollama.
+Supports Anthropic, OpenAI, Groq, OpenRouter, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
 ## Install
@@ -57,13 +57,19 @@ See [setup.md](setup.md) for Discord bot creation steps.
 
 Configure one or more LLM backends during setup:
 
-| Provider  | Env var               | Default model    |
-| --------- | --------------------- | ---------------- |
-| Anthropic | `ANTHROPIC_API_KEY`   | claude-haiku-4-5 |
-| OpenAI    | `OPENAI_API_KEY`      | gpt-4o-mini      |
-| Ollama    | `OLLAMA_MODEL=llama3` | any local model  |
+| Provider   | Env var                  | Default model                                          | Get a key                                       |
+| ---------- | ------------------------ | ------------------------------------------------------ | ----------------------------------------------- |
+| Anthropic  | `ANTHROPIC_API_KEY`      | claude-haiku-4-5                                       | https://console.anthropic.com                   |
+| OpenAI     | `OPENAI_API_KEY`         | gpt-4o-mini                                            | https://platform.openai.com/api-keys            |
+| Groq       | `GROQ_API_KEY`           | groq:llama-3.3-70b-versatile                           | https://console.groq.com/keys                   |
+| OpenRouter | `OPENROUTER_API_KEY`     | openrouter:meta-llama/llama-3.3-70b-instruct:free      | https://openrouter.ai/keys                      |
+| Ollama     | `OLLAMA_MODEL=llama3`    | any local model                                        | run locally                                     |
 
-On startup, nevinho uses your last selected model. If none is saved, it picks the first available: Ollama > Anthropic > OpenAI.
+Groq and OpenRouter both offer a free tier with daily request quotas. Useful for testing or low volume personal use without burning API credits.
+
+Groq model names are prefixed with `groq:` (e.g. `groq:llama-3.3-70b-versatile`). OpenRouter routes are prefixed with `openrouter:` (e.g. `openrouter:meta-llama/llama-3.3-70b-instruct:free`). Both providers accept any model name in their catalog after the prefix.
+
+On startup, nevinho uses your last selected model. If none is saved, it picks the first available: Anthropic > OpenAI > Groq > OpenRouter > Ollama.
 
 Switch models at runtime with `/model` (dropdown selector) or `/model <name>`.
 
@@ -161,7 +167,7 @@ upgrade.go   self-update from GitHub releases
 agent/       chat loop, tool orchestration, approval flow
 config/      encrypted configuration management
 crypto/      shared AES-256-GCM encryption
-llm/         provider interface (Anthropic, OpenAI, Ollama)
+llm/         provider interface (Anthropic, OpenAI, Groq, OpenRouter, Ollama)
 memory/      harness-level preference learning
 tools/       bash, grep, find, web search, file I/O
 voice/       local Whisper transcription for voice messages

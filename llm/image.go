@@ -25,7 +25,7 @@ func ModelSupportsVision(name string) bool {
 		return true
 	}
 	lower := strings.ToLower(name)
-	for _, marker := range []string{"llava", "vision", "qwen2-vl", "bakllava", "moondream"} {
+	for _, marker := range []string{"llava", "vision", "qwen2-vl", "bakllava", "moondream", "gemini"} {
 		if strings.Contains(lower, marker) {
 			return true
 		}

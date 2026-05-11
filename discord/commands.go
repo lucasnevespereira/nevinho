@@ -341,6 +341,16 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 			options = append(options, modelOption(name, current))
 		}
 	}
+	if pc.GroqKey != "" {
+		for _, name := range llm.KnownModels["groq"] {
+			options = append(options, modelOption(name, current))
+		}
+	}
+	if pc.OpenRouterKey != "" {
+		for _, name := range llm.KnownModels["openrouter"] {
+			options = append(options, modelOption(name, current))
+		}
+	}
 	return options
 }
 
@@ -385,6 +395,20 @@ func (b *Bot) modelStatus() string {
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
 		for _, m := range llm.KnownModels["openai"] {
+			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
+		}
+		sb.WriteString("\n")
+	}
+	if pc.GroqKey != "" {
+		sb.WriteString("**Groq**\n")
+		for _, m := range llm.KnownModels["groq"] {
+			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
+		}
+		sb.WriteString("\n")
+	}
+	if pc.OpenRouterKey != "" {
+		sb.WriteString("**OpenRouter**\n")
+		for _, m := range llm.KnownModels["openrouter"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")

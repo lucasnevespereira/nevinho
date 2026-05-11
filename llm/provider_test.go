@@ -70,3 +70,61 @@ func TestResolveAllowsAnyOllamaModel(t *testing.T) {
 		t.Fatal("expected provider, got nil")
 	}
 }
+
+func TestResolveGroqRoutesAnyModelAfterPrefix(t *testing.T) {
+	p, err := Resolve("groq:llama-3.3-70b-versatile", config.ProviderConfig{GroqKey: "k"})
+	if err != nil {
+		t.Fatalf("expected groq route, got: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
+	}
+
+	// Any name after the prefix should resolve. The Groq catalog is large.
+	if _, err := Resolve("groq:something-new-tomorrow", config.ProviderConfig{GroqKey: "k"}); err != nil {
+		t.Errorf("groq prefix should accept any name, got: %v", err)
+	}
+}
+
+func TestResolveGroqRequiresKey(t *testing.T) {
+	_, err := Resolve("groq:llama-3.3-70b-versatile", config.ProviderConfig{})
+	if err == nil || !strings.Contains(err.Error(), "GROQ_API_KEY") {
+		t.Errorf("expected GROQ_API_KEY error, got: %v", err)
+	}
+}
+
+func TestResolveOpenRouterRoutesAnyModelAfterPrefix(t *testing.T) {
+	p, err := Resolve("openrouter:meta-llama/llama-3.3-70b-instruct:free", config.ProviderConfig{OpenRouterKey: "k"})
+	if err != nil {
+		t.Fatalf("expected openrouter route, got: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
+	}
+}
+
+func TestResolveOpenRouterRequiresKey(t *testing.T) {
+	_, err := Resolve("openrouter:meta-llama/llama-3.3-70b-instruct:free", config.ProviderConfig{})
+	if err == nil || !strings.Contains(err.Error(), "OPENROUTER_API_KEY") {
+		t.Errorf("expected OPENROUTER_API_KEY error, got: %v", err)
+	}
+}
+
+func TestIsFreeModel(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"groq:llama-3.3-70b-versatile", true},
+		{"openrouter:meta-llama/llama-3.3-70b-instruct:free", true},
+		{"openrouter:anthropic/claude-3.5-sonnet", false},
+		{"claude-haiku-4-5", false},
+		{"gpt-4o-mini", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := IsFreeModel(c.name); got != c.want {
+			t.Errorf("IsFreeModel(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
