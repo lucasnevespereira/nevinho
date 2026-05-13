@@ -156,12 +156,12 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		if pc.GroqKey == "" {
 			return nil, fmt.Errorf("GROQ_API_KEY not configured")
 		}
-		return NewOpenAI(pc.GroqKey, "https://api.groq.com/openai/v1", strings.TrimPrefix(name, "groq:")), nil
+		return NewOpenAI(pc.GroqKey, "https://api.groq.com/openai", strings.TrimPrefix(name, "groq:")), nil
 	case strings.HasPrefix(name, "openrouter:"):
 		if pc.OpenRouterKey == "" {
 			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
 		}
-		return NewOpenAI(pc.OpenRouterKey, "https://openrouter.ai/api/v1", strings.TrimPrefix(name, "openrouter:")), nil
+		return NewOpenAI(pc.OpenRouterKey, "https://openrouter.ai/api", strings.TrimPrefix(name, "openrouter:")), nil
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
 		if pc.OpenAIKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY not configured")
