@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -140,21 +141,43 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 			return a.finish(start, usage, cacheRead, toolsUsed, reply)
 		}
 
-		var results []llm.ToolResult
-		needsApproval := false
+		// Announce the whole batch before running any, so the activity
+		// indicator shows every tool starting together.
 		for _, tc := range resp.ToolCalls {
 			toolsUsed = append(toolsUsed, tc.Name)
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
 			a.emitToolEvent(userID, tc.Name, detail)
-			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
-			if len(output) > maxToolResult {
-				output = output[:maxToolResult] + "\n...(truncated)"
+		}
+
+		// Run the calls, keeping their emitted order. A run of consecutive
+		// read-only tools goes concurrently; an effectful tool runs alone
+		// so anything before it finishes first and anything after sees its
+		// result. Same outcome as running everything serially, just faster
+		// when the model batches reads.
+		outputs := make([]string, len(resp.ToolCalls))
+		for i := 0; i < len(resp.ToolCalls); {
+			if !isReadOnlyTool(resp.ToolCalls[i].Name) {
+				outputs[i] = a.runTool(ctx, resp.ToolCalls[i], userID)
+				i++
+				continue
 			}
+			var wg sync.WaitGroup
+			for i < len(resp.ToolCalls) && isReadOnlyTool(resp.ToolCalls[i].Name) {
+				idx, tc := i, resp.ToolCalls[i]
+				wg.Go(func() { outputs[idx] = a.runTool(ctx, tc, userID) })
+				i++
+			}
+			wg.Wait()
+		}
+
+		var results []llm.ToolResult
+		needsApproval := false
+		for i, tc := range resp.ToolCalls {
+			output := outputs[i]
 			errored := isToolError(output)
 			logger.ToolResult(tc.Name, output, errored)
-			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
-			results = append(results, result)
+			results = append(results, llm.ToolResult{ID: tc.ID, Output: output, IsError: errored})
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
 				needsApproval = true
 				a.mu.Lock()
@@ -231,6 +254,30 @@ func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMess
 		}
 	}()
 	return a.tools.Execute(ctx, name, input, userID)
+}
+
+// runTool executes one tool call and caps its output. Safe to call from a
+// goroutine: executeTool recovers its own panics and the tools registry
+// guards its own state.
+func (a *Agent) runTool(ctx context.Context, tc llm.ToolCall, userID string) string {
+	out := a.executeTool(ctx, tc.Name, tc.Input, userID)
+	if len(out) > maxToolResult {
+		out = out[:maxToolResult] + "\n...(truncated)"
+	}
+	return out
+}
+
+// isReadOnlyTool reports whether a tool only reads state. Read-only calls
+// have no side effects, so a run of them can execute concurrently without
+// changing the result. Effectful tools (bash, file writes, schedule) stay
+// serial to keep their ordering.
+func isReadOnlyTool(name string) bool {
+	switch name {
+	case "web_search", "web_read", "file_read", "file_list", "grep", "find":
+		return true
+	default:
+		return false
+	}
 }
 
 func isToolError(output string) bool {
