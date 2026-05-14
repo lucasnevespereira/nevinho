@@ -279,7 +279,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
 	indicator.Close()
 	stopTyping()
 	if err != nil {
-		s.ChannelMessageSend(channelID, FriendlyError(err))
+		s.ChannelMessageSend(channelID, llm.FriendlyError(err))
 		return
 	}
 	if response == "" {
