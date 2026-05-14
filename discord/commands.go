@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/schedule"
 )
@@ -332,27 +333,27 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 	var options []discordgo.SelectMenuOption
 
 	if pc.AnthropicKey != "" {
-		for _, name := range llm.KnownModels["anthropic"] {
+		for _, name := range config.KnownModels["anthropic"] {
 			options = append(options, modelOption(name, current))
 		}
 	}
 	if pc.OpenAIKey != "" {
-		for _, name := range llm.KnownModels["openai"] {
+		for _, name := range config.KnownModels["openai"] {
 			options = append(options, modelOption(name, current))
 		}
 	}
 	if pc.GeminiKey != "" {
-		for _, name := range llm.KnownModels["gemini"] {
+		for _, name := range config.KnownModels["gemini"] {
 			options = append(options, modelOption(name, current))
 		}
 	}
 	if pc.GroqKey != "" {
-		for _, name := range llm.KnownModels["groq"] {
+		for _, name := range config.KnownModels["groq"] {
 			options = append(options, modelOption(name, current))
 		}
 	}
 	if pc.OpenRouterKey != "" {
-		for _, name := range llm.KnownModels["openrouter"] {
+		for _, name := range config.KnownModels["openrouter"] {
 			options = append(options, modelOption(name, current))
 		}
 	}
@@ -392,35 +393,35 @@ func (b *Bot) modelStatus() string {
 
 	if pc.AnthropicKey != "" {
 		sb.WriteString("**Anthropic**\n")
-		for _, m := range llm.KnownModels["anthropic"] {
+		for _, m := range config.KnownModels["anthropic"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
-		for _, m := range llm.KnownModels["openai"] {
+		for _, m := range config.KnownModels["openai"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
 	if pc.GeminiKey != "" {
 		sb.WriteString("**Gemini**\n")
-		for _, m := range llm.KnownModels["gemini"] {
+		for _, m := range config.KnownModels["gemini"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
 	if pc.GroqKey != "" {
 		sb.WriteString("**Groq**\n")
-		for _, m := range llm.KnownModels["groq"] {
+		for _, m := range config.KnownModels["groq"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
 	}
 	if pc.OpenRouterKey != "" {
 		sb.WriteString("**OpenRouter**\n")
-		for _, m := range llm.KnownModels["openrouter"] {
+		for _, m := range config.KnownModels["openrouter"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
@@ -535,7 +536,12 @@ func (b *Bot) reloadProvider() {
 }
 
 func isLLMKey(key string) bool {
-	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "GEMINI_API_KEY" || key == "OLLAMA_MODEL"
+	switch key {
+	case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+		"GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_MODEL":
+		return true
+	}
+	return false
 }
 
 // scheduleAction handles /schedules: list (default), pause, resume, delete.
