@@ -28,8 +28,12 @@ func Chat(configDir, version, selfDoc string) {
 	}
 	provider := detectProvider(cfg)
 	a := agent.New(provider, cfg, version, selfDoc)
+	// Local chat runs on the user's own machine, so gate every bash command
+	// behind approval rather than just the ones the heuristic flags.
+	a.SetStrictTools(true)
 
 	fmt.Printf("nevinho %s — chatting with %s\n", version, a.Model())
+	fmt.Println("strict mode: every command asks first. reply yes to approve.")
 	fmt.Println("type /quit to exit, /forget to wipe history, /help for more")
 	fmt.Println()
 

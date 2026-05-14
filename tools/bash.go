@@ -96,7 +96,10 @@ func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID st
 		return fmt.Sprintf("invalid input: %v", err)
 	}
 
-	if reason := isDangerous(in.Command); reason != "" {
+	// On a VPS only commands that trip the dangerous-pattern heuristic need
+	// approval. In strict mode (running on the user's own machine) every
+	// command does, since the heuristic cannot catch everything.
+	if r.isStrict() || isDangerous(in.Command) != "" {
 		if err := r.checkCodePermission(userID, in.Command, input); err != nil {
 			return err.Error()
 		}

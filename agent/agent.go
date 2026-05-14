@@ -97,6 +97,13 @@ func (a *Agent) SetScheduleStore(s *schedule.Store) {
 	a.tools.SetScheduleStore(s)
 }
 
+// SetStrictTools turns on strict tool permissions, used when nevinho runs
+// on the user's own machine. In strict mode every bash command needs
+// approval. Off by default, which is the VPS posture.
+func (a *Agent) SetStrictTools(strict bool) {
+	a.tools.SetStrict(strict)
+}
+
 // SetToolCallback registers a per-user callback fired when a tool call starts.
 // Pass nil to clear. Callers should set before Chat and clear in a defer.
 func (a *Agent) SetToolCallback(userID string, cb ToolCallback) {
