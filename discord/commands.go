@@ -341,6 +341,11 @@ func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
 			options = append(options, modelOption(name, current))
 		}
 	}
+	if pc.GeminiKey != "" {
+		for _, name := range llm.KnownModels["gemini"] {
+			options = append(options, modelOption(name, current))
+		}
+	}
 	if pc.GroqKey != "" {
 		for _, name := range llm.KnownModels["groq"] {
 			options = append(options, modelOption(name, current))
@@ -395,6 +400,13 @@ func (b *Bot) modelStatus() string {
 	if pc.OpenAIKey != "" {
 		sb.WriteString("**OpenAI**\n")
 		for _, m := range llm.KnownModels["openai"] {
+			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
+		}
+		sb.WriteString("\n")
+	}
+	if pc.GeminiKey != "" {
+		sb.WriteString("**Gemini**\n")
+		for _, m := range llm.KnownModels["gemini"] {
 			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
 		}
 		sb.WriteString("\n")
@@ -489,7 +501,7 @@ func (b *Bot) configStatus() string {
 
 func isSecretKey(key string) bool {
 	switch key {
-	case "DISCORD_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+	case "DISCORD_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
 		"GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY":
 		return true
 	}
@@ -523,7 +535,7 @@ func (b *Bot) reloadProvider() {
 }
 
 func isLLMKey(key string) bool {
-	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "OLLAMA_MODEL"
+	return key == "ANTHROPIC_API_KEY" || key == "OPENAI_API_KEY" || key == "GEMINI_API_KEY" || key == "OLLAMA_MODEL"
 }
 
 // scheduleAction handles /schedules: list (default), pause, resume, delete.
