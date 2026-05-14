@@ -32,7 +32,7 @@ func Chat(configDir, version, selfDoc string) {
 	a.SetStrictTools(true)
 
 	cwd, _ := os.Getwd()
-	if err := tui.Run(a, cwd); err != nil {
+	if err := tui.Run(a, cwd, configDir); err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}

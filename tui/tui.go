@@ -1,8 +1,10 @@
 // Package tui is the local terminal client for nevinho. It drives the same
-// agent core the Discord transport does, just rendered in the terminal.
+// agent core the Discord transport does, rendered in the terminal.
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -12,25 +14,40 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/llm"
 )
 
-// userID namespaces this session's history in the agent. It matches the
-// plain REPL so a user dropping between the two shares one conversation.
+// userID namespaces this session's history in the agent.
 const userID = "cli-local"
 
 var (
-	userStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	toolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7")).Background(lipgloss.Color("236"))
+	colAccent = lipgloss.Color("12")
+	colDim    = lipgloss.Color("244")
+	colErr    = lipgloss.Color("9")
+	colBar    = lipgloss.Color("236")
+	colBarFg  = lipgloss.Color("250")
+
+	styleYou    = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	styleTool   = lipgloss.NewStyle().Foreground(colDim)
+	styleErr    = lipgloss.NewStyle().Foreground(colErr)
+	styleHint   = lipgloss.NewStyle().Foreground(colDim)
+	styleInput  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
+	styleStatus = lipgloss.NewStyle().Foreground(colBarFg).Background(colBar)
+	styleSpin   = lipgloss.NewStyle().Foreground(colAccent)
 )
 
-// Run starts the terminal UI against the agent and blocks until the user
-// quits. cwd is shown in the status bar.
-func Run(a *agent.Agent, cwd string) error {
+// Run starts the terminal UI and blocks until the user quits. cwd shows in
+// the status bar; configDir is where the agent's log file is written.
+func Run(a *agent.Agent, cwd, configDir string) error {
+	// The agent logs through the stdlib logger, which writes to stderr and
+	// would shred the alt screen. Send it to a file so the terminal stays
+	// clean; tail ~/.nevinho/chat.log to see it.
+	if f, err := tea.LogToFile(filepath.Join(configDir, "chat.log"), ""); err == nil {
+		defer f.Close()
+	}
+
 	// Buffered so the agent's tool callback never blocks on a slow UI; a
-	// full buffer just drops an event, which only costs a missed log line.
+	// full buffer just drops an event, which only costs a missed line.
 	events := make(chan agent.ToolEvent, 64)
 	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
 		select {
@@ -40,7 +57,8 @@ func Run(a *agent.Agent, cwd string) error {
 	})
 	defer a.SetToolCallback(userID, nil)
 
-	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen())
+	p := tea.NewProgram(newModel(a, events, cwd),
+		tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -64,7 +82,7 @@ type model struct {
 	input textarea.Model
 	spin  spinner.Model
 
-	transcript string
+	transcript string // raw, re-wrapped to width on render
 	busy       bool
 	width      int
 	height     int
@@ -73,21 +91,28 @@ type model struct {
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	ta := textarea.New()
-	ta.Placeholder = "Message nevinho..."
-	ta.Prompt = "▌ "
+	ta.Placeholder = "Ask nevinho anything…"
+	ta.Prompt = ""
 	ta.ShowLineNumbers = false
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.Focus()
+	// Drop the default cursor-line background; it reads as an ugly block.
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
+	sp.Style = styleSpin
+
+	greeting := styleHint.Render("nevinho · "+a.Model()) + "\n" +
+		styleHint.Render("type a message · /help for commands · ctrl+c to quit") + "\n\n"
 
 	return model{
-		agent:  a,
-		events: events,
-		cwd:    cwd,
-		input:  ta,
-		spin:   sp,
+		agent:      a,
+		events:     events,
+		cwd:        cwd,
+		input:      ta,
+		spin:       sp,
+		transcript: greeting,
 	}
 }
 
@@ -127,40 +152,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "pgup", "pgdown", "ctrl+u", "ctrl+d", "home", "end":
+			var cmd tea.Cmd
+			m.vp, cmd = m.vp.Update(msg)
+			return m, cmd
 		case "enter":
-			if m.busy {
-				return m, nil
-			}
-			text := strings.TrimSpace(m.input.Value())
-			if text == "" {
-				return m, nil
-			}
-			if cmd, handled := m.handleSlash(text); handled {
-				m.input.Reset()
-				return m, cmd
-			}
-			m.addBlock(userStyle.Render("you") + "\n" + text + "\n\n")
-			m.input.Reset()
-			m.busy = true
-			return m, tea.Batch(m.send(text), m.spin.Tick)
+			return m.submit()
 		}
+
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
 
 	case responseMsg:
 		m.busy = false
 		if msg.err != nil {
-			m.addBlock(errStyle.Render("error: "+msg.err.Error()) + "\n\n")
+			m.addError(msg.err)
 		} else {
-			m.addBlock(msg.text + "\n\n")
+			m.addAgent(msg.text)
 		}
 		return m, nil
 
 	case toolEventMsg:
-		ev := agent.ToolEvent(msg)
-		line := "  " + ev.Name
-		if ev.Detail != "" {
-			line += " " + ev.Detail
-		}
-		m.addBlock(toolStyle.Render(line) + "\n")
+		m.addTool(agent.ToolEvent(msg))
 		return m, m.listen()
 
 	case spinner.TickMsg:
@@ -177,12 +192,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
-	if !m.ready {
-		return "starting nevinho..."
+// submit sends the current input to the agent, or runs it as a slash command.
+func (m model) submit() (tea.Model, tea.Cmd) {
+	if m.busy {
+		return m, nil
 	}
-	sep := hintStyle.Render(strings.Repeat("─", m.width))
-	return m.vp.View() + "\n" + sep + "\n" + m.input.View() + "\n" + m.statusBar()
+	text := strings.TrimSpace(m.input.Value())
+	if text == "" {
+		return m, nil
+	}
+	m.input.Reset()
+	if cmd, handled := m.handleSlash(text); handled {
+		return m, cmd
+	}
+	m.addUser(text)
+	m.busy = true
+	return m, tea.Batch(m.send(text), m.spin.Tick)
 }
 
 // handleSlash runs the in-TUI slash commands. The bool reports whether the
@@ -193,50 +218,92 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 		return tea.Quit, true
 	case "/forget":
 		m.agent.ClearHistory(userID)
-		m.addBlock(hintStyle.Render("(history cleared)") + "\n\n")
+		m.addHint("history cleared")
 		return nil, true
 	case "/help":
-		m.addBlock(hintStyle.Render("/quit leave  ·  /forget wipe history  ·  /help this  ·  ctrl+c quit") + "\n\n")
+		m.addHint("/forget  wipe this session's history\n/quit    leave (or ctrl+c)\n/help    this")
 		return nil, true
 	}
 	return nil, false
 }
 
-// addBlock appends rendered text to the transcript and scrolls to it.
-func (m *model) addBlock(s string) {
-	m.transcript += s
-	m.vp.SetContent(m.transcript)
-	m.vp.GotoBottom()
-}
-
-// layout sizes the viewport and input to the current terminal size.
-func (m *model) layout() {
-	statusH := 1
-	sepH := 1
-	inputH := m.input.Height()
-	vpH := m.height - inputH - sepH - statusH
-	if vpH < 1 {
-		vpH = 1
+func (m model) View() string {
+	if !m.ready {
+		return "starting nevinho…"
 	}
-	m.vp = viewport.New(m.width, vpH)
-	m.input.SetWidth(m.width)
-	m.vp.SetContent(m.transcript)
-	m.vp.GotoBottom()
+	input := styleInput.Width(m.width - 2).Render(m.input.View())
+	return lipgloss.JoinVertical(lipgloss.Left, m.vp.View(), input, m.statusBar())
 }
 
 // statusBar renders the bottom bar: working directory on the left, the
 // active model on the right, a spinner in the middle while a turn runs.
 func (m model) statusBar() string {
-	left := " " + m.cwd
+	left := " " + shortenHome(m.cwd)
 	right := m.agent.Model() + " "
 	mid := ""
 	if m.busy {
-		mid = m.spin.View() + " working"
+		mid = m.spin.View() + " working…"
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(mid) - lipgloss.Width(right)
-	if gap < 2 {
-		gap = 2
-	}
+	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(mid)-lipgloss.Width(right), 2)
 	bar := left + strings.Repeat(" ", gap/2) + mid + strings.Repeat(" ", gap-gap/2) + right
-	return statusStyle.Width(m.width).Render(bar)
+	return styleStatus.Width(m.width).Render(bar)
+}
+
+// layout sizes the viewport and input to the current terminal size.
+func (m *model) layout() {
+	inputH := m.input.Height() + 2 // textarea plus its rounded border
+	statusH := 1
+	vpH := max(m.height-inputH-statusH, 1)
+
+	m.vp = viewport.New(m.width, vpH)
+	m.input.SetWidth(m.width - 2) // inside the border
+	m.setContent()
+}
+
+// setContent re-wraps the transcript to the viewport width and scrolls down.
+// The viewport does not soft-wrap, so wrapping happens here.
+func (m *model) setContent() {
+	if m.vp.Width == 0 {
+		return
+	}
+	wrapped := lipgloss.NewStyle().Width(m.vp.Width).Render(m.transcript)
+	m.vp.SetContent(wrapped)
+	m.vp.GotoBottom()
+}
+
+func (m *model) addUser(text string) {
+	m.transcript += styleYou.Render("› you") + "\n" + text + "\n\n"
+	m.setContent()
+}
+
+func (m *model) addAgent(text string) {
+	m.transcript += strings.TrimRight(text, "\n") + "\n\n"
+	m.setContent()
+}
+
+func (m *model) addTool(ev agent.ToolEvent) {
+	line := "  ⋮ " + ev.Name
+	if ev.Detail != "" {
+		line += " " + ev.Detail
+	}
+	m.transcript += styleTool.Render(line) + "\n"
+	m.setContent()
+}
+
+func (m *model) addError(err error) {
+	m.transcript += styleErr.Render("⚠ "+llm.FriendlyError(err)) + "\n\n"
+	m.setContent()
+}
+
+func (m *model) addHint(s string) {
+	m.transcript += styleHint.Render(s) + "\n\n"
+	m.setContent()
+}
+
+// shortenHome swaps the home directory prefix for ~ so the status bar stays short.
+func shortenHome(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
+		return "~" + p[len(home):]
+	}
+	return p
 }
