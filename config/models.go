@@ -16,7 +16,6 @@ var KnownModels = map[string][]string{
 	"anthropic": {
 		"claude-haiku-4-5",
 		"claude-sonnet-4-6",
-		"claude-sonnet-4-7",
 		"claude-opus-4-6",
 		"claude-opus-4-7",
 	},
@@ -42,9 +41,12 @@ var KnownModels = map[string][]string{
 	"groq": {
 		"groq:llama-3.3-70b-versatile",
 		"groq:llama-3.1-8b-instant",
-		"groq:mixtral-8x7b-32768",
-		"groq:gemma2-9b-it",
-		"groq:llama-3.2-90b-vision-preview",
+		"groq:meta-llama/llama-4-scout-17b-16e-instruct",
+		"groq:meta-llama/llama-4-maverick-17b-128e-instruct",
+		"groq:openai/gpt-oss-120b",
+		"groq:openai/gpt-oss-20b",
+		"groq:qwen/qwen3-32b",
+		"groq:moonshotai/kimi-k2-instruct-0905",
 	},
 	// OpenRouter is a router across many providers. Routes ending in
 	// ":free" run on free tier quotas (~200 req/day at writing). Routes
@@ -52,12 +54,14 @@ var KnownModels = map[string][]string{
 	// can also pass any other openrouter:<route> name.
 	"openrouter": {
 		"openrouter:nvidia/nemotron-3-super-120b-a12b:free",
-		"openrouter:openai/gpt-oss-120b:free",
-		"openrouter:openai/gpt-oss-20b:free",
-		"openrouter:inclusionai/ring-2.6-1t:free",
-		"openrouter:z-ai/glm-4.5-air:free",
-		"openrouter:minimax/minimax-m2.5:free",
 		"openrouter:google/gemma-4-31b-it:free",
-		"openrouter:moonshotai/kimi-k2",
+		"openrouter:inclusionai/ring-2.6-1t:free",
+		"openrouter:deepseek/deepseek-v4-flash:free",
+		"openrouter:anthropic/claude-opus-4.7",
+		"openrouter:deepseek/deepseek-v4-pro",
+		"openrouter:moonshotai/kimi-k2.6",
+		"openrouter:minimax/minimax-m2.7",
+		"openrouter:x-ai/grok-4.20",
+		"openrouter:z-ai/glm-5-turbo",
 	},
 }
