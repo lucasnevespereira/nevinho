@@ -212,6 +212,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 		a.summarizeAndPrepend(userID, evicted)
 	}
 
+	var lastText string
 	for range maxLoops {
 		if ctx.Err() != nil {
 			return "Cancelled.", nil
@@ -231,12 +232,34 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 		usage.Out += resp.Usage.Out
 		cacheRead += resp.Usage.CacheRead
 		a.appendHistory(userID, resp.AssistantMessage)
+		if resp.Text != "" {
+			lastText = resp.Text
+		}
 
 		if len(resp.ToolCalls) == 0 {
-			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
-			logger.Nevinho(resp.Text)
-			return resp.Text, nil
+			reply := resp.Text
+			// Empty terminal turn: the model stopped with no tool call
+			// and no text. Gemini does this after a tool loop. One more
+			// pass with tools off forces it to answer in words.
+			if reply == "" {
+				nudged, nudgeUsage := a.nudgeForReply(ctx, userID, prompt)
+				usage.In += nudgeUsage.In
+				usage.Out += nudgeUsage.Out
+				cacheRead += nudgeUsage.CacheRead
+				reply = nudged
+			}
+			if reply == "" {
+				reply = lastText
+			}
+			if reply == "" {
+				reply = "I finished, but could not put a reply together. Ask me to recap."
+			}
+			// Output hit the token cap mid-sentence. Flag it instead of
+			// sending a silently truncated message.
+			if resp.StopReason == llm.StopMaxTokens && reply == resp.Text {
+				reply += "\n\n_(cut off at the length limit. Ask me to continue.)_"
+			}
+			return a.finish(start, usage, cacheRead, toolsUsed, reply)
 		}
 
 		var results []llm.ToolResult
@@ -266,19 +289,41 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
-			reply := approvalMessage(p)
-			a.addTokens(usage.In, usage.Out)
-			logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
-			logger.Nevinho(reply)
-			return reply, nil
+			return a.finish(start, usage, cacheRead, toolsUsed, approvalMessage(p))
 		}
 	}
 
-	reply := "I hit my limit on tool calls. Try breaking it into smaller tasks."
+	return a.finish(start, usage, cacheRead, toolsUsed, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
+}
+
+// finish records token usage, logs the completed turn, and returns the
+// reply. Every terminal path in Chat goes through it so accounting and
+// logging stay identical no matter which exit the loop takes.
+func (a *Agent) finish(start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, reply string) (string, error) {
 	a.addTokens(usage.In, usage.Out)
 	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
 	return reply, nil
+}
+
+// nudgeForReply runs one extra completion with tools disabled, used when
+// the model ends a turn with neither text nor a tool call. With no tools
+// to reach for, it has to answer in plain text. Returns "" if even this
+// comes back empty, leaving the caller to fall back.
+func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (string, llm.Usage) {
+	a.appendHistory(userID, a.llm.FormatUserMessage(
+		"[Your last turn was empty. Reply to the user now in plain text. Summarize what you did and answer them.]", nil))
+	resp, err := a.llm.Complete(ctx, &llm.Request{
+		SystemPrompt: prompt,
+		Messages:     a.history[userID],
+		MaxTokens:    maxOutputTokens,
+	})
+	if err != nil {
+		logger.Err(fmt.Errorf("reply nudge failed: %w", err))
+		return "", llm.Usage{}
+	}
+	a.appendHistory(userID, resp.AssistantMessage)
+	return resp.Text, resp.Usage
 }
 
 // MemoryView returns the user-visible dump of memory.md entries.

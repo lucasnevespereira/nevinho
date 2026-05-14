@@ -77,6 +77,7 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 			CacheRead:  raw.Usage.CacheReadInputTokens,
 			CacheWrite: raw.Usage.CacheCreationInputTokens,
 		},
+		StopReason: anthropicStopReason(raw.StopReason),
 	}
 
 	assistantMsg, _ := json.Marshal(map[string]interface{}{
@@ -106,6 +107,20 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 	resp.Text = strings.Join(textParts, "\n")
 
 	return resp, nil
+}
+
+// anthropicStopReason maps Anthropic's stop_reason onto the normalized set.
+func anthropicStopReason(s string) StopReason {
+	switch s {
+	case "tool_use":
+		return StopToolUse
+	case "max_tokens":
+		return StopMaxTokens
+	case "end_turn", "stop_sequence":
+		return StopEndTurn
+	default:
+		return StopOther
+	}
 }
 
 func (a *Anthropic) FormatUserMessage(text string, images []Image) json.RawMessage {
