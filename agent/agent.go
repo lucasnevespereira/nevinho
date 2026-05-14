@@ -190,6 +190,43 @@ func (a *Agent) SwitchModel(name string) error {
 	return nil
 }
 
+// SetConfig writes or clears a config key; an empty value clears it. When
+// the key authenticates an LLM provider, the provider is reloaded so the
+// change takes effect without a restart.
+func (a *Agent) SetConfig(key, value string) error {
+	var err error
+	if value == "" {
+		err = a.cfg.Delete(key)
+	} else {
+		err = a.cfg.Set(key, value)
+	}
+	if err != nil {
+		return err
+	}
+	if isLLMKey(key) {
+		// Best effort: the key is saved regardless. If the current model
+		// no longer resolves, the caller can switch with /model.
+		_ = a.SwitchModel(a.Model())
+	}
+	return nil
+}
+
+// ConfigKeys reports every config key and whether it is set.
+func (a *Agent) ConfigKeys() []config.KeyStatus {
+	return a.cfg.Keys()
+}
+
+// isLLMKey reports whether a config key authenticates an LLM provider, so a
+// change to it should reload the provider.
+func isLLMKey(key string) bool {
+	switch key {
+	case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+		"GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_MODEL":
+		return true
+	}
+	return false
+}
+
 // AvailableModels lists the catalog models whose provider has a key
 // configured, so a switch menu shows only models that can actually run.
 func (a *Agent) AvailableModels() []string {

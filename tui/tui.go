@@ -234,11 +234,44 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 	case "/model":
 		m.handleModel(arg)
 		return nil, true
+	case "/config":
+		m.handleConfig(arg)
+		return nil, true
 	case "/help":
-		m.add(hintBlock{"/model [name]  list models, or switch to one\n/forget        wipe this session's history\n/quit          leave (or ctrl+c)\n/help          this"})
+		m.add(hintBlock{"/model [name]    list models, or switch to one\n/config [k v]    list config, set a key, or clear it (no value)\n/forget          wipe this session's history\n/quit            leave (or ctrl+c)\n/help            this"})
 		return nil, true
 	}
 	return nil, false
+}
+
+// handleConfig lists config when called bare, sets a key when given a key
+// and value, or clears a key when given just a key.
+func (m *model) handleConfig(arg string) {
+	if arg == "" {
+		var b strings.Builder
+		b.WriteString("config — set with /config KEY value, clear with /config KEY\n\n")
+		for _, k := range m.agent.ConfigKeys() {
+			status := "not set"
+			if k.Set {
+				status = "set"
+			}
+			b.WriteString(k.Name + "  " + status + "\n")
+		}
+		m.add(hintBlock{strings.TrimRight(b.String(), "\n")})
+		return
+	}
+	key, value, _ := strings.Cut(arg, " ")
+	key = strings.ToUpper(strings.TrimSpace(key))
+	value = strings.TrimSpace(value)
+	if err := m.agent.SetConfig(key, value); err != nil {
+		m.add(errorBlock{err.Error()})
+		return
+	}
+	if value == "" {
+		m.add(hintBlock{"cleared " + key})
+	} else {
+		m.add(hintBlock{"set " + key})
+	}
 }
 
 // handleModel lists the available models when called bare, or switches to
