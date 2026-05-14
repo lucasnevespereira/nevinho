@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,20 +21,23 @@ import (
 // userID namespaces this session's history in the agent.
 const userID = "cli-local"
 
+// cardPreviewLines caps how many lines of tool output a card shows.
+const cardPreviewLines = 12
+
 var (
 	colAccent = lipgloss.Color("12")
 	colDim    = lipgloss.Color("244")
 	colErr    = lipgloss.Color("9")
-	colBar    = lipgloss.Color("236")
-	colBarFg  = lipgloss.Color("250")
 
-	styleYou    = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
-	styleTool   = lipgloss.NewStyle().Foreground(colDim)
-	styleErr    = lipgloss.NewStyle().Foreground(colErr)
-	styleHint   = lipgloss.NewStyle().Foreground(colDim)
-	styleInput  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
-	styleStatus = lipgloss.NewStyle().Foreground(colBarFg).Background(colBar)
-	styleSpin   = lipgloss.NewStyle().Foreground(colAccent)
+	styleHint     = lipgloss.NewStyle().Foreground(colDim)
+	styleErr      = lipgloss.NewStyle().Foreground(colErr)
+	styleInput    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
+	styleStatus   = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
+	styleSpin     = lipgloss.NewStyle().Foreground(colAccent)
+	styleUser     = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	styleToolHead = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleCard     = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
+	styleCardErr  = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 )
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
@@ -47,7 +51,7 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	}
 
 	// Buffered so the agent's tool callback never blocks on a slow UI; a
-	// full buffer just drops an event, which only costs a missed line.
+	// full buffer just drops an event, which only costs a missed card.
 	events := make(chan agent.ToolEvent, 64)
 	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
 		select {
@@ -73,6 +77,97 @@ type responseMsg struct {
 // channel into the Bubble Tea message loop.
 type toolEventMsg agent.ToolEvent
 
+// block is one rendered unit of the transcript. Each renders itself to the
+// given width, so a terminal resize just re-renders every block.
+type block interface {
+	render(width int) string
+}
+
+// userBlock is a message the user sent: a full-width tinted bar, no label.
+type userBlock struct{ text string }
+
+func (b userBlock) render(w int) string {
+	return styleUser.Width(w).Render(b.text)
+}
+
+// agentBlock is the agent's reply: plain wrapped text.
+type agentBlock struct{ text string }
+
+func (b agentBlock) render(w int) string {
+	return lipgloss.NewStyle().Width(w).Render(strings.TrimRight(b.text, "\n"))
+}
+
+// hintBlock is dim helper text (the greeting, slash-command output).
+type hintBlock struct{ text string }
+
+func (b hintBlock) render(w int) string {
+	return styleHint.Width(w).Render(b.text)
+}
+
+// errorBlock is a failed turn, already run through llm.FriendlyError.
+type errorBlock struct{ msg string }
+
+func (b errorBlock) render(w int) string {
+	return styleErr.Width(w).Render("⚠ " + b.msg)
+}
+
+// toolBlock is a finished tool call: a header line plus a boxed preview of
+// the output, tinted red when the tool errored.
+type toolBlock struct {
+	name, detail, output string
+	isError              bool
+}
+
+func (b toolBlock) render(w int) string {
+	card := styleCard
+	if b.isError {
+		card = styleCardErr
+	}
+	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolPreview(b.output))
+}
+
+// toolHeader renders the one-line title of a tool card: a verb plus its
+// target. bash shows the command itself.
+func toolHeader(name, detail string) string {
+	if name == "bash" {
+		return styleToolHead.Render("$ ") + styleHint.Render(detail)
+	}
+	verb := name
+	switch name {
+	case "file_read":
+		verb = "read"
+	case "file_write":
+		verb = "write"
+	case "file_edit":
+		verb = "edit"
+	case "file_list":
+		verb = "list"
+	case "web_search":
+		verb = "search"
+	case "web_read":
+		verb = "fetch"
+	}
+	head := styleToolHead.Render(verb)
+	if detail != "" {
+		head += " " + styleHint.Render(detail)
+	}
+	return head
+}
+
+// toolPreview trims tool output to a previewable size with a "more" hint.
+func toolPreview(output string) string {
+	output = strings.TrimRight(output, "\n")
+	if output == "" {
+		return styleHint.Render("(no output)")
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) <= cardPreviewLines {
+		return output
+	}
+	shown := strings.Join(lines[:cardPreviewLines], "\n")
+	return shown + "\n" + styleHint.Render(fmt.Sprintf("… %d more lines", len(lines)-cardPreviewLines))
+}
+
 type model struct {
 	agent  *agent.Agent
 	events chan agent.ToolEvent
@@ -82,11 +177,11 @@ type model struct {
 	input textarea.Model
 	spin  spinner.Model
 
-	transcript string // raw, re-wrapped to width on render
-	busy       bool
-	width      int
-	height     int
-	ready      bool
+	blocks []block
+	busy   bool
+	width  int
+	height int
+	ready  bool
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -103,16 +198,15 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	sp.Spinner = spinner.Dot
 	sp.Style = styleSpin
 
-	greeting := styleHint.Render("nevinho · "+a.Model()) + "\n" +
-		styleHint.Render("type a message · /help for commands · ctrl+c to quit") + "\n\n"
+	greeting := hintBlock{"nevinho · " + a.Model() + "\ntype a message · /help for commands · ctrl+c to quit"}
 
 	return model{
-		agent:      a,
-		events:     events,
-		cwd:        cwd,
-		input:      ta,
-		spin:       sp,
-		transcript: greeting,
+		agent:  a,
+		events: events,
+		cwd:    cwd,
+		input:  ta,
+		spin:   sp,
+		blocks: []block{greeting},
 	}
 }
 
@@ -168,14 +262,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.busy = false
 		if msg.err != nil {
-			m.addError(msg.err)
+			m.add(errorBlock{llm.FriendlyError(msg.err)})
 		} else {
-			m.addAgent(msg.text)
+			m.add(agentBlock{msg.text})
 		}
 		return m, nil
 
 	case toolEventMsg:
-		m.addTool(agent.ToolEvent(msg))
+		ev := agent.ToolEvent(msg)
+		// A card is the result of a finished tool. NEEDS_APPROVAL is the
+		// approval handshake, not a real result, so skip it; the agent's
+		// reply carries the approval prompt instead.
+		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
+			m.add(toolBlock{name: ev.Name, detail: ev.Detail, output: ev.Output, isError: ev.IsError})
+		}
 		return m, m.listen()
 
 	case spinner.TickMsg:
@@ -205,7 +305,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleSlash(text); handled {
 		return m, cmd
 	}
-	m.addUser(text)
+	m.add(userBlock{text})
 	m.busy = true
 	return m, tea.Batch(m.send(text), m.spin.Tick)
 }
@@ -218,10 +318,10 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 		return tea.Quit, true
 	case "/forget":
 		m.agent.ClearHistory(userID)
-		m.addHint("history cleared")
+		m.add(hintBlock{"history cleared"})
 		return nil, true
 	case "/help":
-		m.addHint("/forget  wipe this session's history\n/quit    leave (or ctrl+c)\n/help    this")
+		m.add(hintBlock{"/forget  wipe this session's history\n/quit    leave (or ctrl+c)\n/help    this"})
 		return nil, true
 	}
 	return nil, false
@@ -232,72 +332,64 @@ func (m model) View() string {
 		return "starting nevinho…"
 	}
 	input := styleInput.Width(m.width - 2).Render(m.input.View())
-	return lipgloss.JoinVertical(lipgloss.Left, m.vp.View(), input, m.statusBar())
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.vp.View(),
+		m.workingLine(),
+		input,
+		m.statusBar(),
+	)
+}
+
+// workingLine is the spinner row shown just above the input while a turn
+// runs. It always occupies one row so the layout never jumps.
+func (m model) workingLine() string {
+	if !m.busy {
+		return ""
+	}
+	return " " + m.spin.View() + " " + styleHint.Render("working…")
 }
 
 // statusBar renders the bottom bar: working directory on the left, the
-// active model on the right, a spinner in the middle while a turn runs.
+// active model on the right.
 func (m model) statusBar() string {
 	left := " " + shortenHome(m.cwd)
 	right := m.agent.Model() + " "
-	mid := ""
-	if m.busy {
-		mid = m.spin.View() + " working…"
-	}
-	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(mid)-lipgloss.Width(right), 2)
-	bar := left + strings.Repeat(" ", gap/2) + mid + strings.Repeat(" ", gap-gap/2) + right
+	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
+	bar := left + strings.Repeat(" ", gap) + right
 	return styleStatus.Width(m.width).Render(bar)
 }
 
-// layout sizes the viewport and input to the current terminal size.
+// layout sizes the viewport and input to the current terminal size. It
+// reserves a row for the working line so the layout is stable busy or idle.
 func (m *model) layout() {
+	workingH := 1
 	inputH := m.input.Height() + 2 // textarea plus its rounded border
 	statusH := 1
-	vpH := max(m.height-inputH-statusH, 1)
+	vpH := max(m.height-workingH-inputH-statusH, 1)
 
 	m.vp = viewport.New(m.width, vpH)
 	m.input.SetWidth(m.width - 2) // inside the border
 	m.setContent()
 }
 
-// setContent re-wraps the transcript to the viewport width and scrolls down.
-// The viewport does not soft-wrap, so wrapping happens here.
+// add appends a block to the transcript and scrolls to it.
+func (m *model) add(b block) {
+	m.blocks = append(m.blocks, b)
+	m.setContent()
+}
+
+// setContent re-renders every block to the viewport width and scrolls down.
+// The viewport does not soft-wrap, so each block wraps itself here.
 func (m *model) setContent() {
 	if m.vp.Width == 0 {
 		return
 	}
-	wrapped := lipgloss.NewStyle().Width(m.vp.Width).Render(m.transcript)
-	m.vp.SetContent(wrapped)
-	m.vp.GotoBottom()
-}
-
-func (m *model) addUser(text string) {
-	m.transcript += styleYou.Render("› you") + "\n" + text + "\n\n"
-	m.setContent()
-}
-
-func (m *model) addAgent(text string) {
-	m.transcript += strings.TrimRight(text, "\n") + "\n\n"
-	m.setContent()
-}
-
-func (m *model) addTool(ev agent.ToolEvent) {
-	line := "  ⋮ " + ev.Name
-	if ev.Detail != "" {
-		line += " " + ev.Detail
+	parts := make([]string, len(m.blocks))
+	for i, b := range m.blocks {
+		parts[i] = b.render(m.vp.Width)
 	}
-	m.transcript += styleTool.Render(line) + "\n"
-	m.setContent()
-}
-
-func (m *model) addError(err error) {
-	m.transcript += styleErr.Render("⚠ "+llm.FriendlyError(err)) + "\n\n"
-	m.setContent()
-}
-
-func (m *model) addHint(s string) {
-	m.transcript += styleHint.Render(s) + "\n\n"
-	m.setContent()
+	m.vp.SetContent(strings.Join(parts, "\n\n"))
+	m.vp.GotoBottom()
 }
 
 // shortenHome swaps the home directory prefix for ~ so the status bar stays short.
