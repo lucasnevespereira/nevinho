@@ -45,12 +45,23 @@ Project scaffolding:
 - For multi-file projects (10+ files or multi-hour work), write a plan.md first and check it between steps. Skip plan.md for single-file edits, one-off scripts, or questions.`
 )
 
-// ToolEvent fires when the agent begins executing a tool call. Consumers
-// (Discord bot, CLI) use it to render a live activity indicator so the user
-// sees what the agent is doing instead of staring at a typing indicator.
+// ToolPhase marks whether a ToolEvent fires as a tool starts or finishes.
+type ToolPhase string
+
+const (
+	ToolStart ToolPhase = "start"
+	ToolDone  ToolPhase = "done"
+)
+
+// ToolEvent fires as the agent runs a tool call: once when it starts, once
+// when it finishes. Consumers render live activity from start events and
+// the result preview from done events.
 type ToolEvent struct {
-	Name   string
-	Detail string
+	Phase   ToolPhase
+	Name    string
+	Detail  string
+	Output  string // set on ToolDone
+	IsError bool   // set on ToolDone
 }
 
 // ToolCallback receives ToolEvent values for a specific user.
@@ -116,7 +127,7 @@ func (a *Agent) SetToolCallback(userID string, cb ToolCallback) {
 	a.toolCb[userID] = cb
 }
 
-func (a *Agent) emitToolEvent(userID, name, detail string) {
+func (a *Agent) emitToolEvent(userID string, ev ToolEvent) {
 	a.mu.Lock()
 	cb := a.toolCb[userID]
 	a.mu.Unlock()
@@ -127,7 +138,7 @@ func (a *Agent) emitToolEvent(userID, name, detail string) {
 		// Never let a buggy consumer callback take down the agent loop.
 		_ = recover()
 	}()
-	cb(ToolEvent{Name: name, Detail: detail})
+	cb(ev)
 }
 
 func (a *Agent) Cancel(userID string) bool {
