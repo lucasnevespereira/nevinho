@@ -88,6 +88,12 @@ var KnownModels = map[string][]string{
 		"o3-mini",
 		"o4-mini",
 	},
+	"gemini": {
+		"gemini-2.0-flash",
+		"gemini-2.0-flash-lite",
+		"gemini-1.5-pro",
+		"gemini-1.5-flash",
+	},
 	// Groq's free tier covers all listed models within rate limits
 	// (~14k req/day at writing). Names are passed through to Groq's
 	// OpenAI compatible endpoint with the "groq:" prefix stripped.
@@ -178,6 +184,14 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 			return nil, fmt.Errorf("unknown Anthropic model %q (not in catalog)", name)
 		}
 		return NewAnthropic(pc.AnthropicKey, "", name), nil
+	case strings.HasPrefix(name, "gemini-"):
+		if pc.GeminiKey == "" {
+			return nil, fmt.Errorf("GEMINI_API_KEY not configured")
+		}
+		if !IsKnownModel(name) {
+			return nil, fmt.Errorf("unknown Gemini model %q (not in catalog)", name)
+		}
+		return NewGemini(pc.GeminiKey, "", name), nil
 	default:
 		if pc.OllamaURL != "" {
 			return NewOpenAI("", pc.OllamaURL, name), nil
