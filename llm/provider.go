@@ -34,7 +34,20 @@ type Response struct {
 	ToolCalls        []ToolCall
 	Usage            Usage
 	AssistantMessage json.RawMessage
+	StopReason       StopReason
 }
+
+// StopReason is the normalized reason a provider stopped generating. Each
+// provider maps its own native reason onto these so the agent loop can read
+// the model's intent instead of guessing it from the shape of the output.
+type StopReason string
+
+const (
+	StopEndTurn   StopReason = "end_turn"   // finished a complete reply
+	StopToolUse   StopReason = "tool_use"   // wants tool results before continuing
+	StopMaxTokens StopReason = "max_tokens" // hit the output token cap, truncated
+	StopOther     StopReason = "other"      // safety filter, unknown, or unset
+)
 
 type ToolCall struct {
 	ID    string

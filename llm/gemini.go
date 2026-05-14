@@ -113,7 +113,25 @@ func (g *Gemini) Complete(ctx context.Context, req *Request) (*Response, error) 
 		}
 	}
 
+	resp.StopReason = geminiStopReason(cand.FinishReason, len(resp.ToolCalls) > 0)
 	return resp, nil
+}
+
+// geminiStopReason maps Gemini's finishReason onto the normalized set.
+// Gemini keeps finishReason as "STOP" even when the turn carries function
+// calls, so tool use is detected from the parsed parts, not the reason.
+func geminiStopReason(s string, hasToolCalls bool) StopReason {
+	if hasToolCalls {
+		return StopToolUse
+	}
+	switch s {
+	case "STOP":
+		return StopEndTurn
+	case "MAX_TOKENS":
+		return StopMaxTokens
+	default:
+		return StopOther
+	}
 }
 
 func (g *Gemini) FormatUserMessage(text string, images []Image) json.RawMessage {

@@ -32,10 +32,10 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 	messages := append([]json.RawMessage{sysMsg}, ensureSlice(req.Messages)...)
 
 	body := map[string]interface{}{
-		"model":      o.model,
+		"model":                 o.model,
 		"max_completion_tokens": req.MaxTokens,
-		"messages":   messages,
-		"tools":      o.formatTools(req.Tools),
+		"messages":              messages,
+		"tools":                 o.formatTools(req.Tools),
 	}
 
 	data, err := doHTTP(ctx, o.baseURL+"/v1/chat/completions", body, map[string]string{
@@ -49,8 +49,8 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 	var raw struct {
 		Choices []struct {
 			Message struct {
-				Role      string          `json:"role"`
-				Content   *string         `json:"content"`
+				Role      string           `json:"role"`
+				Content   *string          `json:"content"`
 				ToolCalls []openAIToolCall `json:"tool_calls"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
@@ -70,7 +70,8 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 
 	choice := raw.Choices[0]
 	resp := &Response{
-		Usage: Usage{In: raw.Usage.PromptTokens, Out: raw.Usage.CompletionTokens},
+		Usage:      Usage{In: raw.Usage.PromptTokens, Out: raw.Usage.CompletionTokens},
+		StopReason: openAIStopReason(choice.FinishReason),
 	}
 
 	assistantMsg, _ := json.Marshal(choice.Message)
@@ -89,6 +90,21 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 	}
 
 	return resp, nil
+}
+
+// openAIStopReason maps the OpenAI-style finish_reason onto the normalized
+// set. Groq, OpenRouter, and Ollama all speak this same dialect.
+func openAIStopReason(s string) StopReason {
+	switch s {
+	case "tool_calls", "function_call":
+		return StopToolUse
+	case "length":
+		return StopMaxTokens
+	case "stop":
+		return StopEndTurn
+	default:
+		return StopOther
+	}
 }
 
 func (o *OpenAI) FormatUserMessage(text string, images []Image) json.RawMessage {
