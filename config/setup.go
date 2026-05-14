@@ -62,12 +62,13 @@ func RunSetup(configDir string) error {
 	fmt.Println("LLM providers (configure at least one)")
 	cfg.AnthropicAPIKey = prompt("Anthropic API key", cfg.AnthropicAPIKey)
 	cfg.OpenAIAPIKey = prompt("OpenAI API key", cfg.OpenAIAPIKey)
+	cfg.GeminiAPIKey = prompt("Gemini API key", cfg.GeminiAPIKey)
 	cfg.GroqAPIKey = prompt("Groq API key", cfg.GroqAPIKey)
 	cfg.OpenRouterAPIKey = prompt("OpenRouter API key", cfg.OpenRouterAPIKey)
 	cfg.OllamaModel = prompt("Ollama model (e.g. llama3)", cfg.OllamaModel)
 
 	if cfg.AnthropicAPIKey == "" && cfg.OpenAIAPIKey == "" && cfg.OllamaModel == "" &&
-		cfg.GroqAPIKey == "" && cfg.OpenRouterAPIKey == "" {
+		cfg.GeminiAPIKey == "" && cfg.GroqAPIKey == "" && cfg.OpenRouterAPIKey == "" {
 		fmt.Println()
 		fmt.Println("  Warning: no LLM provider configured. nevinho needs at least one.")
 		fmt.Println("  See README for signup URLs.")
@@ -76,7 +77,7 @@ func RunSetup(configDir string) error {
 	// Default model. Suggest one based on the first configured provider so
 	// reinstall does not carry over a stale or invalid saved name.
 	if cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OllamaModel != "" ||
-		cfg.GroqAPIKey != "" || cfg.OpenRouterAPIKey != "" {
+		cfg.GeminiAPIKey != "" || cfg.GroqAPIKey != "" || cfg.OpenRouterAPIKey != "" {
 		fmt.Println()
 		fmt.Println("Default model")
 		suggested := cfg.Model
@@ -114,6 +115,7 @@ func RunSetup(configDir string) error {
 	printStatus("  Discord", cfg.DiscordBotToken != "" && cfg.DiscordOwnerID != "")
 	printStatus("  Anthropic", cfg.AnthropicAPIKey != "")
 	printStatus("  OpenAI", cfg.OpenAIAPIKey != "")
+	printStatus("  Gemini", cfg.GeminiAPIKey != "")
 	printStatus("  Groq", cfg.GroqAPIKey != "")
 	printStatus("  OpenRouter", cfg.OpenRouterAPIKey != "")
 	printStatus("  Ollama", cfg.OllamaModel != "")
@@ -139,6 +141,8 @@ func suggestDefaultModel(cfg *Config) string {
 		return "claude-haiku-4-5"
 	case cfg.OpenAIAPIKey != "":
 		return "gpt-4o-mini"
+	case cfg.GeminiAPIKey != "":
+		return "gemini-2.0-flash"
 	case cfg.GroqAPIKey != "":
 		return "groq:llama-3.3-70b-versatile"
 	case cfg.OpenRouterAPIKey != "":
