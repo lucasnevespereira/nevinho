@@ -19,8 +19,8 @@ func TestIsKnownModel(t *testing.T) {
 		{"gpt-4o-mini", true},
 		{"gpt-4o", true},
 		{"o4-mini", true},
-		{"gemini-2.0-flash", true},
-		{"gemini-1.5-pro", true},
+		{"gemini-2.5-flash", true},
+		{"gemini-2.5-pro", true},
 		{"gpt-5.4-mini", false},
 		{"claude-haiku-9000", false},
 		{"gemini-3.0-ultra", false},
@@ -45,14 +45,14 @@ func TestResolveRejectsBogusGemini(t *testing.T) {
 }
 
 func TestResolveGeminiRequiresKey(t *testing.T) {
-	_, err := Resolve("gemini-2.0-flash", config.ProviderConfig{})
+	_, err := Resolve("gemini-2.5-flash", config.ProviderConfig{})
 	if err == nil || !strings.Contains(err.Error(), "GEMINI_API_KEY") {
 		t.Errorf("expected GEMINI_API_KEY error, got: %v", err)
 	}
 }
 
 func TestResolveAllowsKnownGemini(t *testing.T) {
-	p, err := Resolve("gemini-2.0-flash", config.ProviderConfig{GeminiKey: "k"})
+	p, err := Resolve("gemini-2.5-flash", config.ProviderConfig{GeminiKey: "k"})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

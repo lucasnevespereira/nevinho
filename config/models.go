@@ -32,10 +32,9 @@ var KnownModels = map[string][]string{
 		"o4-mini",
 	},
 	"gemini": {
-		"gemini-2.0-flash",
-		"gemini-2.0-flash-lite",
-		"gemini-1.5-pro",
-		"gemini-1.5-flash",
+		"gemini-2.5-flash",
+		"gemini-2.5-pro",
+		"gemini-3.1-flash-lite",
 	},
 	// Groq's free tier covers all listed models within rate limits
 	// (~14k req/day at writing). Names are passed through to Groq's

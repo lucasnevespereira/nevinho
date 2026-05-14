@@ -36,7 +36,7 @@ func TestGemini_Complete(t *testing.T) {
 	}))
 	defer server.Close()
 
-	g := NewGemini("test-key", server.URL, "gemini-2.0-flash")
+	g := NewGemini("test-key", server.URL, "gemini-2.5-flash")
 	req := &Request{
 		SystemPrompt: "You are a helpful assistant.",
 		Messages:     []json.RawMessage{json.RawMessage(`{"role":"user","parts":[{"text":"Hi"}]}`)},
@@ -57,7 +57,7 @@ func TestGemini_Complete(t *testing.T) {
 }
 
 func TestGemini_FormatUserMessage(t *testing.T) {
-	g := NewGemini("test-key", "", "gemini-2.0-flash")
+	g := NewGemini("test-key", "", "gemini-2.5-flash")
 	msg := g.FormatUserMessage("Hello", []Image{
 		{Data: []byte("fake-image"), MediaType: "image/png"},
 	})

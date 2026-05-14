@@ -18,7 +18,7 @@ func NewGemini(apiKey, baseURL, model string) *Gemini {
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
 	if model == "" {
-		model = "gemini-2.0-flash"
+		model = "gemini-2.5-flash"
 	}
 	return &Gemini{apiKey: apiKey, baseURL: baseURL, model: model}
 }
