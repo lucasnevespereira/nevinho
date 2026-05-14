@@ -3,7 +3,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,9 +19,6 @@ import (
 
 // userID namespaces this session's history in the agent.
 const userID = "cli-local"
-
-// cardPreviewLines caps how many lines of tool output a card shows.
-const cardPreviewLines = 12
 
 var (
 	colAccent = lipgloss.Color("12")
@@ -76,97 +72,6 @@ type responseMsg struct {
 // toolEventMsg is one tool-call event lifted from the agent's callback
 // channel into the Bubble Tea message loop.
 type toolEventMsg agent.ToolEvent
-
-// block is one rendered unit of the transcript. Each renders itself to the
-// given width, so a terminal resize just re-renders every block.
-type block interface {
-	render(width int) string
-}
-
-// userBlock is a message the user sent: a full-width tinted bar, no label.
-type userBlock struct{ text string }
-
-func (b userBlock) render(w int) string {
-	return styleUser.Width(w).Render(b.text)
-}
-
-// agentBlock is the agent's reply: plain wrapped text.
-type agentBlock struct{ text string }
-
-func (b agentBlock) render(w int) string {
-	return lipgloss.NewStyle().Width(w).Render(strings.TrimRight(b.text, "\n"))
-}
-
-// hintBlock is dim helper text (the greeting, slash-command output).
-type hintBlock struct{ text string }
-
-func (b hintBlock) render(w int) string {
-	return styleHint.Width(w).Render(b.text)
-}
-
-// errorBlock is a failed turn, already run through llm.FriendlyError.
-type errorBlock struct{ msg string }
-
-func (b errorBlock) render(w int) string {
-	return styleErr.Width(w).Render("⚠ " + b.msg)
-}
-
-// toolBlock is a finished tool call: a header line plus a boxed preview of
-// the output, tinted red when the tool errored.
-type toolBlock struct {
-	name, detail, output string
-	isError              bool
-}
-
-func (b toolBlock) render(w int) string {
-	card := styleCard
-	if b.isError {
-		card = styleCardErr
-	}
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolPreview(b.output))
-}
-
-// toolHeader renders the one-line title of a tool card: a verb plus its
-// target. bash shows the command itself.
-func toolHeader(name, detail string) string {
-	if name == "bash" {
-		return styleToolHead.Render("$ ") + styleHint.Render(detail)
-	}
-	verb := name
-	switch name {
-	case "file_read":
-		verb = "read"
-	case "file_write":
-		verb = "write"
-	case "file_edit":
-		verb = "edit"
-	case "file_list":
-		verb = "list"
-	case "web_search":
-		verb = "search"
-	case "web_read":
-		verb = "fetch"
-	}
-	head := styleToolHead.Render(verb)
-	if detail != "" {
-		head += " " + styleHint.Render(detail)
-	}
-	return head
-}
-
-// toolPreview trims tool output to a previewable size with a "more" hint.
-func toolPreview(output string) string {
-	output = strings.TrimRight(output, "\n")
-	if output == "" {
-		return styleHint.Render("(no output)")
-	}
-	lines := strings.Split(output, "\n")
-	if len(lines) <= cardPreviewLines {
-		return output
-	}
-	shown := strings.Join(lines[:cardPreviewLines], "\n")
-	return shown + "\n" + styleHint.Render(fmt.Sprintf("… %d more lines", len(lines)-cardPreviewLines))
-}
 
 type model struct {
 	agent  *agent.Agent
