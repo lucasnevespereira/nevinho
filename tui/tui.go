@@ -82,11 +82,12 @@ type model struct {
 	input textarea.Model
 	spin  spinner.Model
 
-	blocks []block
-	busy   bool
-	width  int
-	height int
-	ready  bool
+	blocks   []block
+	busy     bool
+	expanded bool // ctrl+o: show full tool output instead of previews
+	width    int
+	height   int
+	ready    bool
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -155,6 +156,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.vp, cmd = m.vp.Update(msg)
 			return m, cmd
+		case "ctrl+o":
+			m.toggleExpand()
+			return m, nil
 		case "enter":
 			return m.submit()
 		}
@@ -179,7 +183,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// approval handshake, not a real result, so skip it; the agent's
 		// reply carries the approval prompt instead.
 		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
-			m.add(toolBlock{name: ev.Name, detail: ev.Detail, output: ev.Output, isError: ev.IsError})
+			m.add(toolBlock{name: ev.Name, detail: ev.Detail, output: ev.Output, isError: ev.IsError, expanded: m.expanded})
 		}
 		return m, m.listen()
 
@@ -218,18 +222,42 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 // handleSlash runs the in-TUI slash commands. The bool reports whether the
 // input was a slash command and should not go to the agent.
 func (m *model) handleSlash(text string) (tea.Cmd, bool) {
-	switch text {
+	cmd, arg, _ := strings.Cut(text, " ")
+	arg = strings.TrimSpace(arg)
+	switch cmd {
 	case "/quit", "/q":
 		return tea.Quit, true
 	case "/forget":
 		m.agent.ClearHistory(userID)
 		m.add(hintBlock{"history cleared"})
 		return nil, true
+	case "/model":
+		m.handleModel(arg)
+		return nil, true
 	case "/help":
-		m.add(hintBlock{"/forget  wipe this session's history\n/quit    leave (or ctrl+c)\n/help    this"})
+		m.add(hintBlock{"/model [name]  list models, or switch to one\n/forget        wipe this session's history\n/quit          leave (or ctrl+c)\n/help          this"})
 		return nil, true
 	}
 	return nil, false
+}
+
+// handleModel lists the available models when called bare, or switches to
+// the named one.
+func (m *model) handleModel(name string) {
+	if name == "" {
+		models := m.agent.AvailableModels()
+		if len(models) == 0 {
+			m.add(hintBlock{"no models available — configure a provider with `nevinho config`"})
+			return
+		}
+		m.add(hintBlock{"current: " + m.agent.Model() + "\n\n" + strings.Join(models, "\n") + "\n\nswitch with /model <name>"})
+		return
+	}
+	if err := m.agent.SwitchModel(name); err != nil {
+		m.add(errorBlock{err.Error()})
+		return
+	}
+	m.add(hintBlock{"switched to " + name})
 }
 
 func (m model) View() string {
@@ -280,6 +308,18 @@ func (m *model) layout() {
 // add appends a block to the transcript and scrolls to it.
 func (m *model) add(b block) {
 	m.blocks = append(m.blocks, b)
+	m.setContent()
+}
+
+// toggleExpand flips every tool card between its preview and full output.
+func (m *model) toggleExpand() {
+	m.expanded = !m.expanded
+	for i, b := range m.blocks {
+		if tb, ok := b.(toolBlock); ok {
+			tb.expanded = m.expanded
+			m.blocks[i] = tb
+		}
+	}
 	m.setContent()
 }
 

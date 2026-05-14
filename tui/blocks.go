@@ -45,10 +45,12 @@ func (b errorBlock) render(w int) string {
 }
 
 // toolBlock is a finished tool call: a header line plus a boxed preview of
-// the output, tinted red when the tool errored.
+// the output, tinted red when the tool errored. expanded shows the full
+// output instead of the preview; ctrl+o toggles it.
 type toolBlock struct {
 	name, detail, output string
 	isError              bool
+	expanded             bool
 }
 
 func (b toolBlock) render(w int) string {
@@ -56,7 +58,7 @@ func (b toolBlock) render(w int) string {
 	if b.isError {
 		card = styleCardErr
 	}
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolPreview(b.output))
+	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolBody(b.output, b.expanded))
 }
 
 // toolHeader renders the one-line title of a tool card: a verb plus its
@@ -87,18 +89,19 @@ func toolHeader(name, detail string) string {
 	return head
 }
 
-// toolPreview trims tool output to a previewable size with a "more" hint.
-func toolPreview(output string) string {
+// toolBody renders a tool card's output: the full text when expanded,
+// otherwise a capped preview with a "more" hint.
+func toolBody(output string, expanded bool) string {
 	output = strings.TrimRight(output, "\n")
 	if output == "" {
 		return styleHint.Render("(no output)")
 	}
 	lines := strings.Split(output, "\n")
-	if len(lines) <= cardPreviewLines {
+	if expanded || len(lines) <= cardPreviewLines {
 		return output
 	}
 	shown := strings.Join(lines[:cardPreviewLines], "\n")
-	return shown + "\n" + styleHint.Render(fmt.Sprintf("… %d more lines", len(lines)-cardPreviewLines))
+	return shown + "\n" + styleHint.Render(fmt.Sprintf("… %d more lines  (ctrl+o)", len(lines)-cardPreviewLines))
 }
 
 // mdRenderer is cached across blocks and rebuilt only when the width changes.

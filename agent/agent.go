@@ -190,6 +190,28 @@ func (a *Agent) SwitchModel(name string) error {
 	return nil
 }
 
+// AvailableModels lists the catalog models whose provider has a key
+// configured, so a switch menu shows only models that can actually run.
+func (a *Agent) AvailableModels() []string {
+	pc := a.cfg.ProviderConfig()
+	var out []string
+	for _, p := range []struct {
+		name string
+		set  bool
+	}{
+		{"anthropic", pc.AnthropicKey != ""},
+		{"openai", pc.OpenAIKey != ""},
+		{"gemini", pc.GeminiKey != ""},
+		{"groq", pc.GroqKey != ""},
+		{"openrouter", pc.OpenRouterKey != ""},
+	} {
+		if p.set {
+			out = append(out, config.KnownModels[p.name]...)
+		}
+	}
+	return out
+}
+
 func (a *Agent) Status() string {
 	a.mu.Lock()
 	in, out := a.tokensIn, a.tokensOut
