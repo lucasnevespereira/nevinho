@@ -82,14 +82,6 @@ Local REPL over the same agent core. Terminal streaming is free.
 - [ ] Session JSONL in `~/.nevinho/sessions/cli.jsonl`. `nevinho chat --new` starts fresh.
 - [ ] `nevinho setup --cli` skips Discord prompts. `nevinho setup --discord` wires Discord later.
 
-### Google Gemini provider
-
-Native integration for 1M context and Gemini-specific features.
-
-- [ ] `llm/gemini.go`.
-- [ ] Implicit caching support.
-- [ ] Setup integration.
-
 ### Scheduled tasks: follow-ups
 
 Foundation shipped. Remaining work:
@@ -135,3 +127,4 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Conversation persistence (ELEPHANT).** On shutdown, summarize each user's history to `~/.nevinho/summaries/{userID}.md`. Reload as `[Previous conversation: ...]` preamble on next start. Default on, toggle via `ELEPHANT=off`. `/forget` wipes both in-memory history and the saved summary.
 - [x] **Self-knowledge.** `NEVINHO.md` at repo root, embedded in the binary via `go:embed` and auto-injected into the system prompt. Covers identity, persistence model, commands, architecture, and source-lookup strategy (local file_read for dev installs, web_read against GitHub raw for binary installs). `/memory` and `/summary` expose persisted state to the user.
 - [x] **Image input.** Discord image attachments (JPEG/PNG/GIF/WebP) routed inline to vision-capable models. 5MB per image, 4 per message. Vision capability checked per model before send. Anthropic and OpenAI both supported.
+- [x] **Google Gemini provider.** Native integration for Gemini models (2.0 and 1.5). Includes support for system instructions, function calling, and image input.

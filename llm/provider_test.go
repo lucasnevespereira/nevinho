@@ -19,8 +19,11 @@ func TestIsKnownModel(t *testing.T) {
 		{"gpt-4o-mini", true},
 		{"gpt-4o", true},
 		{"o4-mini", true},
+		{"gemini-2.0-flash", true},
+		{"gemini-1.5-pro", true},
 		{"gpt-5.4-mini", false},
 		{"claude-haiku-9000", false},
+		{"gemini-3.0-ultra", false},
 		{"llama3", false},
 		{"", false},
 	}
@@ -28,6 +31,33 @@ func TestIsKnownModel(t *testing.T) {
 		if got := IsKnownModel(c.name); got != c.want {
 			t.Errorf("IsKnownModel(%q) = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestResolveRejectsBogusGemini(t *testing.T) {
+	_, err := Resolve("gemini-3.0-ultra", config.ProviderConfig{GeminiKey: "k"})
+	if err == nil {
+		t.Fatal("expected error for unknown gemini model, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown Gemini model") {
+		t.Errorf("error mismatch: %v", err)
+	}
+}
+
+func TestResolveGeminiRequiresKey(t *testing.T) {
+	_, err := Resolve("gemini-2.0-flash", config.ProviderConfig{})
+	if err == nil || !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+		t.Errorf("expected GEMINI_API_KEY error, got: %v", err)
+	}
+}
+
+func TestResolveAllowsKnownGemini(t *testing.T) {
+	p, err := Resolve("gemini-2.0-flash", config.ProviderConfig{GeminiKey: "k"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
 	}
 }
 

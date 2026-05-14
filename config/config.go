@@ -22,6 +22,7 @@ type Config struct {
 	DiscordOwnerID   string `json:"discord_owner_id"`
 	AnthropicAPIKey  string `json:"anthropic_api_key"`
 	OpenAIAPIKey     string `json:"openai_api_key"`
+	GeminiAPIKey     string `json:"gemini_api_key"`
 	GroqAPIKey       string `json:"groq_api_key"`
 	OpenRouterAPIKey string `json:"openrouter_api_key"`
 	OllamaModel      string `json:"ollama_model"`
@@ -38,6 +39,7 @@ func (c *Config) keymap() map[string]*string {
 		"DISCORD_OWNER_ID":   &c.DiscordOwnerID,
 		"ANTHROPIC_API_KEY":  &c.AnthropicAPIKey,
 		"OPENAI_API_KEY":     &c.OpenAIAPIKey,
+		"GEMINI_API_KEY":     &c.GeminiAPIKey,
 		"GROQ_API_KEY":       &c.GroqAPIKey,
 		"OPENROUTER_API_KEY": &c.OpenRouterAPIKey,
 		"OLLAMA_MODEL":       &c.OllamaModel,
@@ -142,7 +144,9 @@ func (c *Config) Keys() []KeyStatus {
 
 	order := []string{
 		"DISCORD_BOT_TOKEN", "DISCORD_OWNER_ID",
-		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_MODEL",
+		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+		"GROQ_API_KEY", "OPENROUTER_API_KEY",
+		"OLLAMA_MODEL",
 		"TAVILY_API_KEY", "MODEL", "CAVEMAN", "ELEPHANT",
 	}
 
@@ -199,6 +203,7 @@ Examples:
 type ProviderConfig struct {
 	AnthropicKey  string
 	OpenAIKey     string
+	GeminiKey     string
 	GroqKey       string
 	OpenRouterKey string
 	OllamaURL     string
@@ -210,6 +215,7 @@ func (c *Config) ProviderConfig() ProviderConfig {
 	pc := ProviderConfig{
 		AnthropicKey:  c.AnthropicAPIKey,
 		OpenAIKey:     c.OpenAIAPIKey,
+		GeminiKey:     c.GeminiAPIKey,
 		GroqKey:       c.GroqAPIKey,
 		OpenRouterKey: c.OpenRouterAPIKey,
 	}

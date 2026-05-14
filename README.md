@@ -5,7 +5,7 @@
 # nevinho
 
 A minimal personal AI harness that runs in your Discord DMs.
-Supports Anthropic, OpenAI, Groq, OpenRouter, and Ollama.
+Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
 Comes with tools for bash, code search, web search, and file management.
 
 ## Install
@@ -61,6 +61,7 @@ Configure one or more LLM backends during setup:
 | ---------- | ------------------------ | ------------------------------------------------------ | ----------------------------------------------- |
 | Anthropic  | `ANTHROPIC_API_KEY`      | claude-haiku-4-5                                       | https://console.anthropic.com                   |
 | OpenAI     | `OPENAI_API_KEY`         | gpt-4o-mini                                            | https://platform.openai.com/api-keys            |
+| Gemini     | `GEMINI_API_KEY`         | gemini-2.0-flash                                       | https://aistudio.google.com/app/apikey          |
 | Groq       | `GROQ_API_KEY`           | groq:llama-3.3-70b-versatile                           | https://console.groq.com/keys                   |
 | OpenRouter | `OPENROUTER_API_KEY`     | openrouter:meta-llama/llama-3.3-70b-instruct:free      | https://openrouter.ai/keys                      |
 | Ollama     | `OLLAMA_MODEL=llama3`    | any local model                                        | run locally                                     |
