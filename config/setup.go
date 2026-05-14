@@ -74,17 +74,10 @@ func RunSetup(configDir string) error {
 		fmt.Println("  See README for signup URLs.")
 	}
 
-	// Default model. Suggest one based on the first configured provider so
-	// reinstall does not carry over a stale or invalid saved name.
-	if cfg.AnthropicAPIKey != "" || cfg.OpenAIAPIKey != "" || cfg.OllamaModel != "" ||
-		cfg.GeminiAPIKey != "" || cfg.GroqAPIKey != "" || cfg.OpenRouterAPIKey != "" {
-		fmt.Println()
-		fmt.Println("Default model")
-		suggested := cfg.Model
-		if suggested == "" {
-			suggested = suggestDefaultModel(cfg)
-		}
-		cfg.Model = prompt("Model name", suggested)
+	// Default model is derived, not prompted. The bot needs one to start on.
+	// Users switch any time in Discord with /model. A saved model is kept.
+	if cfg.Model == "" {
+		cfg.Model = defaultModel(cfg)
 	}
 
 	// Optional
@@ -122,7 +115,7 @@ func RunSetup(configDir string) error {
 	printStatus("  Tavily Search", cfg.TavilyAPIKey != "")
 	printStatus("  Voice", voice.IsAvailable(whisperDir))
 	if cfg.Model != "" {
-		fmt.Printf("  Model: %s\n", cfg.Model)
+		fmt.Printf("  Model: %s  (switch any time with /model in Discord)\n", cfg.Model)
 	}
 
 	fmt.Println()
@@ -131,22 +124,20 @@ func RunSetup(configDir string) error {
 	return nil
 }
 
-// suggestDefaultModel picks a sensible model name from the providers the
-// user just configured. Free providers come first when no paid key is
-// set so the bot starts on a no cost path. Order beyond that is
-// preference for general quality at a reasonable price.
-func suggestDefaultModel(cfg *Config) string {
+// defaultModel picks a starting model from the configured providers in
+// priority order. Ollama has no catalog, so its configured name is used directly.
+func defaultModel(cfg *Config) string {
 	switch {
 	case cfg.AnthropicAPIKey != "":
-		return "claude-haiku-4-5"
+		return KnownModels["anthropic"][0]
 	case cfg.OpenAIAPIKey != "":
-		return "gpt-4o-mini"
+		return KnownModels["openai"][0]
 	case cfg.GeminiAPIKey != "":
-		return "gemini-2.0-flash"
+		return KnownModels["gemini"][0]
 	case cfg.GroqAPIKey != "":
-		return "groq:llama-3.3-70b-versatile"
+		return KnownModels["groq"][0]
 	case cfg.OpenRouterAPIKey != "":
-		return "openrouter:meta-llama/llama-3.3-70b-instruct:free"
+		return KnownModels["openrouter"][0]
 	case cfg.OllamaModel != "":
 		return cfg.OllamaModel
 	}

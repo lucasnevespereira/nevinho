@@ -61,65 +61,6 @@ type ToolDef struct {
 	Schema      string
 }
 
-// KnownModels is the canonical list of friendly model names per provider
-// that nevinho recognizes. Names outside this list resolve only when the
-// provider is Ollama (any local model name allowed) so a typo or stale
-// saved name fails loudly instead of producing 400s at request time.
-//
-// Dated variants like claude-haiku-4-5-20251001 are accepted by the upstream
-// API and used internally as defaults, but are not listed here to keep the
-// user facing menu compact.
-var KnownModels = map[string][]string{
-	"anthropic": {
-		"claude-haiku-4-5",
-		"claude-sonnet-4-6",
-		"claude-sonnet-4-7",
-		"claude-opus-4-6",
-		"claude-opus-4-7",
-	},
-	"openai": {
-		"gpt-5-nano",
-		"gpt-5-mini",
-		"gpt-5",
-		"gpt-4o-mini",
-		"gpt-4o",
-		"gpt-4-turbo",
-		"o1-mini",
-		"o3-mini",
-		"o4-mini",
-	},
-	"gemini": {
-		"gemini-2.0-flash",
-		"gemini-2.0-flash-lite",
-		"gemini-1.5-pro",
-		"gemini-1.5-flash",
-	},
-	// Groq's free tier covers all listed models within rate limits
-	// (~14k req/day at writing). Names are passed through to Groq's
-	// OpenAI compatible endpoint with the "groq:" prefix stripped.
-	"groq": {
-		"groq:llama-3.3-70b-versatile",
-		"groq:llama-3.1-8b-instant",
-		"groq:mixtral-8x7b-32768",
-		"groq:gemma2-9b-it",
-		"groq:llama-3.2-90b-vision-preview",
-	},
-	// OpenRouter is a router across many providers. Routes ending in
-	// ":free" run on free tier quotas (~200 req/day at writing). Routes
-	// without ":free" are paid per token. Curated list mixes both. Users
-	// can also pass any other openrouter:<route> name.
-	"openrouter": {
-		"openrouter:nvidia/nemotron-3-super-120b-a12b:free",
-		"openrouter:openai/gpt-oss-120b:free",
-		"openrouter:openai/gpt-oss-20b:free",
-		"openrouter:inclusionai/ring-2.6-1t:free",
-		"openrouter:z-ai/glm-4.5-air:free",
-		"openrouter:minimax/minimax-m2.5:free",
-		"openrouter:google/gemma-4-31b-it:free",
-		"openrouter:moonshotai/kimi-k2",
-	},
-}
-
 // isDatedVariant reports whether name looks like a friendly model with a
 // trailing date suffix (e.g. claude-haiku-4-5-20251001). Such names route
 // to the same provider as their friendly counterpart.
@@ -139,7 +80,7 @@ func isDatedVariant(name string) bool {
 // IsKnownModel reports whether name appears in any provider's KnownModels
 // list, or is a dated variant of one of those names.
 func IsKnownModel(name string) bool {
-	for _, models := range KnownModels {
+	for _, models := range config.KnownModels {
 		for _, m := range models {
 			if m == name {
 				return true
