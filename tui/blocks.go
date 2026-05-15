@@ -52,14 +52,13 @@ func (b errorBlock) render(w int) string {
 }
 
 // approvalBlock is the agent asking permission for an action. It renders in
-// the warning colour and carries the y/n affordance inline, so the prompt
-// sits with the action instead of pinned to the bottom of the screen.
+// the warning colour; the chooser at the bottom of the screen resolves the
+// yes/no decision.
 type approvalBlock struct{ text string }
 
 func (b approvalBlock) render(w int) string {
 	msg := strings.ReplaceAll(strings.TrimRight(b.text, "\n"), "`", "")
-	prompt := "   y approve   ·   n deny   ·   esc cancel"
-	return styleApproveLn.Width(w).Render("⏸  " + msg + "\n" + prompt)
+	return styleApproveLn.Width(w).Render("⏸  " + msg)
 }
 
 // toolBlock is a finished tool call: a header line plus a boxed preview.
@@ -78,7 +77,10 @@ func (b toolBlock) render(w int) string {
 	if b.isError {
 		card = styleCardErr
 	}
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(b.body())
+	// Header inside the card with a blank row between header and body,
+	// plus the card's vertical padding, gives the pi-style breathing room.
+	content := toolHeader(b.name, b.detail) + "\n\n" + b.body()
+	return card.Width(w).Render(content)
 }
 
 // body picks what the card shows: the written content for file_write, an

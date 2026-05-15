@@ -33,6 +33,7 @@ var (
 	styleHint      = lipgloss.NewStyle().Foreground(colDim)
 	styleErr       = lipgloss.NewStyle().Foreground(colErr)
 	styleInput     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
+	styleApprove   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colWarn)
 	styleApproveLn = lipgloss.NewStyle().Foreground(colWarn)
 	styleStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
@@ -40,8 +41,8 @@ var (
 	styleUser      = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 	styleAgentBar  = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(colAccent).PaddingLeft(1)
 	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
-	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(1, 2)
+	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(1, 2)
 
 	// Fg-only diff colours, like git diff: a calm green/red on the +/- lines
 	// rather than a loud full-line background.
@@ -97,12 +98,13 @@ type model struct {
 	input textarea.Model
 	spin  spinner.Model
 
-	blocks    []block
-	busy      bool
-	expanded  bool // ctrl+o: show full tool output instead of previews
-	selecting bool // a picker (model or config) is open
-	approving bool // a tool action is awaiting y/n
-	sel       selector
+	blocks         []block
+	busy           bool
+	expanded       bool // ctrl+o: show full tool output instead of previews
+	selecting      bool // a picker (model or config) is open
+	approving      bool // a tool action is awaiting yes/no
+	approvalCursor int  // 0 = yes, 1 = no
+	sel            selector
 	selKind   string // "model" or "config": what the open picker resolves to
 	configKey string // non-empty while the input captures a value for this key
 	width     int
@@ -211,11 +213,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.add(errorBlock{llm.FriendlyError(msg.err)})
 		case m.agent.HasPendingApproval(userID):
-			// The reply is the agent asking permission. The approval block
-			// carries the y/n affordance inline; the input goes inert.
+			// The reply is the agent asking permission. The picker at the
+			// bottom resolves the decision; the message block has no keys.
 			m.add(approvalBlock{msg.text})
 			m.approving = true
-			m.input.Placeholder = "answer above — y / n / esc"
+			m.approvalCursor = 0
 		default:
 			m.add(agentBlock{msg.text})
 		}
@@ -274,24 +276,39 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateApproval handles one keypress while a tool action awaits y/n. The
-// decision routes through the agent's existing approval text protocol.
+// updateApproval handles one keypress while a tool action awaits a yes/no
+// decision. Arrow keys move the cursor between yes and no, enter chooses,
+// and y/n/esc are shortcuts. The decision routes through the agent's
+// existing approval text protocol.
 func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "ctrl+c":
 		return m, tea.Quit
+	case "left", "h", "up", "k":
+		m.approvalCursor = 0
+		return m, nil
+	case "right", "l", "down", "j":
+		m.approvalCursor = 1
+		return m, nil
+	case "enter":
+		return m.decideApproval(m.approvalCursor == 0)
 	case "y", "Y":
-		m.approving = false
-		m.input.Placeholder = inputPlaceholder
-		m.busy = true
-		return m, tea.Batch(m.send("yes"), m.spin.Tick)
+		return m.decideApproval(true)
 	case "n", "N", "esc":
-		m.approving = false
-		m.input.Placeholder = inputPlaceholder
-		m.busy = true
-		return m, tea.Batch(m.send("no"), m.spin.Tick)
+		return m.decideApproval(false)
 	}
 	return m, nil // ignore everything else while a decision is pending
+}
+
+// decideApproval exits approval mode and sends the chosen answer.
+func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
+	m.approving = false
+	answer := "no"
+	if approve {
+		answer = "yes"
+	}
+	m.busy = true
+	return m, tea.Batch(m.send(answer), m.spin.Tick)
 }
 
 // submit sends the current input to the agent, or runs it as a slash command.
@@ -454,13 +471,36 @@ func (m model) View() string {
 		body := lipgloss.NewStyle().Height(m.height - 1).Render(m.sel.view())
 		return body + "\n" + m.statusBar()
 	}
-	input := styleInput.Width(m.width - 2).Render(m.input.View())
+	var bottom string
+	if m.approving {
+		bottom = m.approvalPicker()
+	} else {
+		bottom = styleInput.Width(m.width - 2).Render(m.input.View())
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.vp.View(),
 		m.workingLine(),
-		input,
+		bottom,
 		m.statusBar(),
 	)
+}
+
+// approvalPicker renders the yes/no chooser shown in place of the input
+// while a tool action is awaiting a decision. Single-line content so the
+// height matches the input box and the layout does not jump.
+func (m model) approvalPicker() string {
+	yes, no := "yes", "no"
+	if m.approvalCursor == 0 {
+		yes = styleSelected.Render("→ yes")
+		no = "  " + no
+	} else {
+		yes = "  " + yes
+		no = styleSelected.Render("→ no")
+	}
+	hint := styleHint.Render("approve?")
+	keys := styleHint.Render("(↑↓ enter · y / n · esc)")
+	line := hint + "  " + yes + "    " + no + "    " + keys
+	return styleApprove.Width(m.width - 2).Render(line)
 }
 
 // workingLine is the one row above the input: the spinner while a turn
