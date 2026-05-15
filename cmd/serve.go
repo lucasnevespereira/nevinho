@@ -41,7 +41,7 @@ func Serve(configDir, version, selfDoc string) {
 
 	provider := detectProvider(cfg)
 
-	a := agent.New(provider, cfg, version, selfDoc)
+	a := agent.New(provider, cfg, version, selfDoc, agent.ModeDaemon)
 	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)

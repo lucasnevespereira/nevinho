@@ -80,7 +80,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 	if cp := a.cfg.CavemanPrompt(); cp != "" {
 		prompt = cp + "\n\n"
 	}
-	prompt += systemPrompt
+	prompt += a.systemPrompt()
 	if cwd, err := os.Getwd(); err == nil {
 		prompt += "\n\nCurrent working directory: " + cwd
 	}

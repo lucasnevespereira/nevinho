@@ -26,10 +26,10 @@ func Chat(configDir, version, selfDoc string) {
 		os.Exit(1)
 	}
 	provider := detectProvider(cfg)
-	a := agent.New(provider, cfg, version, selfDoc)
-	// Local chat runs on the user's own machine, so gate every bash command
-	// behind approval rather than just the ones the heuristic flags.
-	a.SetStrictTools(true)
+	// Local mode: the agent knows it is in a terminal on the user's own
+	// machine, which sets its prompt and gates every bash command behind
+	// approval.
+	a := agent.New(provider, cfg, version, selfDoc, agent.ModeLocal)
 
 	cwd, _ := os.Getwd()
 	if err := tui.Run(a, cwd, configDir); err != nil {
