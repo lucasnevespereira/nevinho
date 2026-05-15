@@ -17,12 +17,13 @@ type block interface {
 	render(width int) string
 }
 
-// userBlock is a message the user sent: a chevron prefix in the accent
-// colour and the text inline. Minimal — no full-width bar.
+// userBlock is a message the user sent: a subtle full-width tinted bar
+// that gives user turns visual weight, so they stand out from agent text
+// when you scroll back through a session.
 type userBlock struct{ text string }
 
 func (b userBlock) render(w int) string {
-	return styleUserMark.Render("❯") + " " + b.text
+	return styleUser.Width(w).Render(b.text)
 }
 
 // agentBlock is the agent's reply, rendered as markdown. Glamour gives
