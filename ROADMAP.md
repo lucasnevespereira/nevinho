@@ -1,6 +1,6 @@
 # Roadmap
 
-Nevinho is a sharp personal AI harness that runs in your Discord DMs. Tight context, observable, voice-native, self-hostable.
+Nevinho is a sharp personal AI agent you self-host. Reach it from a Discord DM, or run it as a coding agent in your terminal. Tight context, observable, voice-native (Discord), self-hostable.
 
 ## Principles
 
@@ -72,15 +72,14 @@ One file covers Groq, Together, OpenRouter, LM Studio, vLLM, local servers.
 - [ ] `llm/compat.go` pointing at any URL via `OPENAI_COMPAT_URL`, `OPENAI_COMPAT_KEY`, `OPENAI_COMPAT_MODEL`.
 - [ ] `nevinho setup` offers the new provider with presets for Groq, OpenRouter, LM Studio.
 
-### CLI mode (`nevinho chat`)
+### Per-cwd terminal summaries
 
-Local REPL over the same agent core. Terminal streaming is free.
+The terminal client uses one shared summary today, so context from project A leaks into project B when the user hops between repos. Real pain for anyone running `nevinho` in more than one place.
 
-- [ ] `nevinho chat` command. Interactive REPL calling the same `agent.Chat()` Discord uses.
-- [ ] Raw token streaming to stdout.
-- [ ] Markdown rendering via `glamour`, fallback to raw text in non-TTY.
-- [ ] Session JSONL in `~/.nevinho/sessions/cli.jsonl`. `nevinho chat --new` starts fresh.
-- [ ] `nevinho setup --cli` skips Discord prompts. `nevinho setup --discord` wires Discord later.
+- [ ] Derive the terminal userID from the cwd at launch (`terminal:` + short hash of `os.Getwd()`), so each project gets its own summary file.
+- [ ] Cap retained summaries (last N by mtime) so `~/.nevinho/summaries/` does not grow unbounded over the years.
+- [ ] `/forget` clears just the current cwd's summary, not all of them.
+- [ ] `/session` in the terminal mentions which cwd is currently active.
 
 ### Scheduled tasks: follow-ups
 
@@ -128,3 +127,7 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Self-knowledge.** `NEVINHO.md` at repo root, embedded in the binary via `go:embed` and auto-injected into the system prompt. Covers identity, persistence model, commands, architecture, and source-lookup strategy (local file_read for dev installs, web_read against GitHub raw for binary installs). `/memory` and `/summary` expose persisted state to the user.
 - [x] **Image input.** Discord image attachments (JPEG/PNG/GIF/WebP) routed inline to vision-capable models. 5MB per image, 4 per message. Vision capability checked per model before send. Anthropic and OpenAI both supported.
 - [x] **Google Gemini provider.** Native integration for Gemini models (2.0 and 1.5). Includes support for system instructions, function calling, and image input.
+- [x] **Local terminal client.** `nevinho` (no args) launches a Bubble Tea TUI over the same agent core. Inline rendering so the terminal owns scroll, selection, and URL clicks. Slash commands for `/model`, `/config`, `/memory`, `/session`, `/status`, `/paths`, `/forget`, `/help`, `/quit`. Filterable pickers for model and config.
+- [x] **Strict approval mode for the terminal.** Every bash command and every write outside the current directory asks via an inline yes/no picker. Deny path tells the model to stop instead of retrying.
+- [x] **Path management UI.** `/paths` lists approved paths and revokes one at a time. `/paths clear` wipes all. Backed by `tools.Registry.RevokePath`.
+- [x] **Filesystem-aware upgrade and uninstall.** Detect daemon vs terminal use via the presence of the systemd unit file. A terminal-only Linux user never gets a service they did not ask for.

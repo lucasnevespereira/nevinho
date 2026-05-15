@@ -163,7 +163,9 @@ func (g *Gemini) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutp
 		if err := json.Unmarshal(history[i], &msg); err != nil {
 			continue
 		}
-		if msg.Role != "function" {
+		// Tool results live in user-role turns; the functionResponse part
+		// check below skips ordinary user messages.
+		if msg.Role != "user" {
 			continue
 		}
 		changed := false
@@ -204,8 +206,11 @@ func (g *Gemini) FormatToolResults(results []ToolResult) []json.RawMessage {
 			},
 		})
 	}
+	// Gemini's REST API only accepts "user" and "model" roles; a function
+	// response is a part inside a user-role turn, not its own role. Sending
+	// "role": "function" corrupts the history and breaks multi-turn tools.
 	msg, _ := json.Marshal(map[string]interface{}{
-		"role":  "function",
+		"role":  "user",
 		"parts": parts,
 	})
 	return []json.RawMessage{msg}

@@ -22,7 +22,7 @@ const (
 	maxToolResult    = 4000
 	chatTimeout      = 5 * time.Minute
 
-	systemPrompt = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
+	systemPromptDaemon = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
 Tools: bash, web_search, web_read, file_list, file_read, file_edit, file_write, grep, find, schedule. Each tool's description spells out what it returns and how failures look. Read those formats literally. Do not guess or paraphrase.
 
@@ -43,14 +43,58 @@ Formatting:
 
 Project scaffolding:
 - For multi-file projects (10+ files or multi-hour work), write a plan.md first and check it between steps. Skip plan.md for single-file edits, one-off scripts, or questions.`
+
+	systemPromptLocal = `You are nevinho, a coding assistant running in the user's terminal, on their own machine. They see your output directly in a terminal UI and are working alongside you.
+
+Tools: bash, web_search, web_read, file_list, file_read, file_edit, file_write, grep, find. Each tool's description spells out what it returns and how failures look. Read those formats literally. Do not guess or paraphrase.
+
+Acting:
+- This is the user's own machine, so every bash command and every file write needs their approval. It is requested automatically when you call the tool. Do not ask for permission in prose, just make the call.
+- Before answering questions about a codebase, explore it: file_list for structure, file_read for key files. Base answers on what you read, not assumptions.
+- Prefer grep/find over bash for search. Prefer file_edit over file_write for small changes. Prefer file_read over bash cat.
+
+Approval protocol:
+- If a tool result starts with "NEEDS_APPROVAL:", the action is paused awaiting the user. Stop calling tools for this turn and stop writing a response. The next user message carries the outcome (approved or denied). Pick up from there.
+
+Citations:
+- When you use web_search or web_read results in your reply, add a "Source: <url>" line at the end for each distinct URL. One line per source.
+
+Formatting:
+- The user reads in a terminal. Keep answers focused. Markdown renders, so use it lightly. Avoid dumping entire files; for diffs run bash "git diff".
+- Reply in the user's language. If they switch, match the most recent message.
+
+Project scaffolding:
+- For multi-file projects (10+ files or multi-hour work), write a plan.md first and check it between steps. Skip plan.md for single-file edits, one-off scripts, or questions.`
 )
 
-// ToolEvent fires when the agent begins executing a tool call. Consumers
-// (Discord bot, CLI) use it to render a live activity indicator so the user
-// sees what the agent is doing instead of staring at a typing indicator.
+// RunMode is where nevinho is running. It shapes the system prompt and the
+// tool-approval policy, so the agent acts on a correct model of its
+// environment.
+type RunMode int
+
+const (
+	ModeDaemon RunMode = iota // headless on a VPS, reached over Discord
+	ModeLocal                 // in the user's terminal, on their machine
+)
+
+// ToolPhase marks whether a ToolEvent fires as a tool starts or finishes.
+type ToolPhase string
+
+const (
+	ToolStart ToolPhase = "start"
+	ToolDone  ToolPhase = "done"
+)
+
+// ToolEvent fires as the agent runs a tool call: once when it starts, once
+// when it finishes. Consumers render live activity from start events and
+// the result preview from done events.
 type ToolEvent struct {
-	Name   string
-	Detail string
+	Phase   ToolPhase
+	Name    string
+	Detail  string
+	Input   json.RawMessage // raw tool input, for richer rendering of write/edit
+	Output  string          // set on ToolDone
+	IsError bool            // set on ToolDone
 }
 
 // ToolCallback receives ToolEvent values for a specific user.
@@ -62,6 +106,7 @@ type Agent struct {
 	cfg     *config.Config
 	version string
 	selfDoc string
+	mode    RunMode
 
 	mu            sync.Mutex
 	history       map[string][]json.RawMessage
@@ -74,13 +119,20 @@ type Agent struct {
 	tokensOut     int
 }
 
-func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Agent {
+// New builds an agent for the given run mode. Local mode runs the tools in
+// strict mode, since it is the user's own machine.
+func New(provider llm.Provider, cfg *config.Config, version, selfDoc string, mode RunMode) *Agent {
+	tr := tools.NewRegistry(cfg)
+	if mode == ModeLocal {
+		tr.SetStrict(true)
+	}
 	return &Agent{
 		llm:           provider,
-		tools:         tools.NewRegistry(cfg),
+		tools:         tr,
 		cfg:           cfg,
 		version:       version,
 		selfDoc:       strings.TrimSpace(selfDoc),
+		mode:          mode,
 		history:       make(map[string][]json.RawMessage),
 		userLock:      make(map[string]*sync.Mutex),
 		cancelFn:      make(map[string]context.CancelFunc),
@@ -88,6 +140,16 @@ func New(provider llm.Provider, cfg *config.Config, version, selfDoc string) *Ag
 		pendingToolID: make(map[string]string),
 		startTime:     time.Now(),
 	}
+}
+
+// systemPrompt returns the base prompt for the agent's run mode. It must
+// match where the agent actually runs, or it acts on a wrong model of its
+// environment.
+func (a *Agent) systemPrompt() string {
+	if a.mode == ModeLocal {
+		return systemPromptLocal
+	}
+	return systemPromptDaemon
 }
 
 // SetScheduleStore wires the schedule store into the underlying tool
@@ -109,7 +171,7 @@ func (a *Agent) SetToolCallback(userID string, cb ToolCallback) {
 	a.toolCb[userID] = cb
 }
 
-func (a *Agent) emitToolEvent(userID, name, detail string) {
+func (a *Agent) emitToolEvent(userID string, ev ToolEvent) {
 	a.mu.Lock()
 	cb := a.toolCb[userID]
 	a.mu.Unlock()
@@ -120,7 +182,7 @@ func (a *Agent) emitToolEvent(userID, name, detail string) {
 		// Never let a buggy consumer callback take down the agent loop.
 		_ = recover()
 	}()
-	cb(ToolEvent{Name: name, Detail: detail})
+	cb(ev)
 }
 
 func (a *Agent) Cancel(userID string) bool {
@@ -170,6 +232,84 @@ func (a *Agent) SwitchModel(name string) error {
 	}
 	logger.Info("switched to " + name)
 	return nil
+}
+
+// SetConfig writes or clears a config key. An empty value clears it. When
+// the key authenticates an LLM provider, the provider is reloaded so the
+// change takes effect without a restart.
+func (a *Agent) SetConfig(key, value string) error {
+	var err error
+	if value == "" {
+		err = a.cfg.Delete(key)
+	} else {
+		err = a.cfg.Set(key, value)
+	}
+	if err != nil {
+		return err
+	}
+	if isLLMKey(key) {
+		// Best effort: the key is saved regardless. If the current model
+		// no longer resolves, the caller can switch with /model.
+		_ = a.SwitchModel(a.Model())
+	}
+	return nil
+}
+
+// ConfigKeys reports every config key and whether it is set.
+func (a *Agent) ConfigKeys() []config.KeyStatus {
+	return a.cfg.Keys()
+}
+
+// GetConfig reads a config key's current value, empty when unset or unknown.
+func (a *Agent) GetConfig(key string) string {
+	v, err := a.cfg.Get(key)
+	if err != nil {
+		return ""
+	}
+	return v
+}
+
+// Usage reports cumulative token counts for this process and the estimated
+// cost, for a status display.
+func (a *Agent) Usage() (in, out int, cost float64) {
+	a.mu.Lock()
+	in, out = a.tokensIn, a.tokensOut
+	model := a.llm.Model()
+	a.mu.Unlock()
+	return in, out, estimateCost(model, in, out)
+}
+
+// isLLMKey reports whether a config key authenticates an LLM provider, so a
+// change to it should reload the provider.
+func isLLMKey(key string) bool {
+	switch key {
+	case "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+		"GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_MODEL":
+		return true
+	}
+	return false
+}
+
+// AvailableModels lists the catalog models whose provider has a key
+// configured, so a switch menu shows only models that can actually run.
+func (a *Agent) AvailableModels() []string {
+	pc := a.cfg.ProviderConfig()
+	var out []string
+	for _, p := range []struct {
+		name string
+		set  bool
+	}{
+		{"anthropic", pc.AnthropicKey != ""},
+		{"openai", pc.OpenAIKey != ""},
+		{"gemini", pc.GeminiKey != ""},
+		{"groq", pc.GroqKey != ""},
+		{"openrouter", pc.OpenRouterKey != ""},
+	} {
+		if p.set {
+			out = append(out, config.KnownModels[p.name]...)
+		}
+	}
+	return out
 }
 
 func (a *Agent) Status() string {

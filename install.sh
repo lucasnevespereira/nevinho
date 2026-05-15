@@ -52,6 +52,11 @@ else
 fi
 
 echo ""
-echo "Done! Run:"
-echo "  nevinho setup"
-echo "  nevinho start"
+echo "Done. Two ways to use nevinho:"
+echo ""
+echo "Local terminal (any OS):"
+echo "  nevinho                  open the TUI and chat right away"
+echo ""
+echo "Discord daemon (Linux VPS):"
+echo "  nevinho setup            configure Discord and provider keys"
+echo "  nevinho start            run nevinho as a background service"

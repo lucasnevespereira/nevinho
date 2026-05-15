@@ -31,17 +31,27 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 		a.mu.Unlock()
 	}()
 
-	if p := a.tools.PendingApproval(userID); p != nil && looksLikeApproval(text) {
-		switch p.Kind {
-		case "path":
-			a.tools.ApprovePending(userID)
-			logger.Info(fmt.Sprintf("approved: %s", p.Detail))
-			text = text + "\n[Access granted to " + p.Detail + ". Retry the file operation.]"
-		case "code":
-			logger.Info("approved: code execution")
-			output := a.tools.ExecutePendingCode(ctx, userID)
-			a.replacePendingToolResult(userID, output)
-			text = text + "\n[Code execution approved. Output:\n" + output + "]"
+	if p := a.tools.PendingApproval(userID); p != nil {
+		switch {
+		case looksLikeApproval(text):
+			switch p.Kind {
+			case "path":
+				a.tools.ApprovePending(userID)
+				logger.Info(fmt.Sprintf("approved: %s", p.Detail))
+				text = text + "\n[Access granted to " + p.Detail + ". Retry the file operation.]"
+			case "code":
+				logger.Info("approved: code execution")
+				output := a.tools.ExecutePendingCode(ctx, userID)
+				a.replacePendingToolResult(userID, output)
+				text = text + "\n[Code execution approved. Output:\n" + output + "]"
+			}
+		case looksLikeDenial(text):
+			// Clear the pending action and let the model see it was
+			// declined, so it acknowledges and moves on instead of looping.
+			logger.Info("denied: " + p.Detail)
+			a.tools.ClearPending(userID)
+			a.replacePendingToolResult(userID, "denied by user")
+			text = text + "\n[The user declined that action. Do not retry it. Acknowledge and move on.]"
 		}
 	}
 
@@ -70,7 +80,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 	if cp := a.cfg.CavemanPrompt(); cp != "" {
 		prompt = cp + "\n\n"
 	}
-	prompt += systemPrompt
+	prompt += a.systemPrompt()
 	if cwd, err := os.Getwd(); err == nil {
 		prompt += "\n\nCurrent working directory: " + cwd
 	}
@@ -146,13 +156,14 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 			toolsUsed = append(toolsUsed, tc.Name)
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
-			a.emitToolEvent(userID, tc.Name, detail)
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail, Input: tc.Input})
 			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
 			}
 			errored := isToolError(output)
 			logger.ToolResult(tc.Name, output, errored)
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: output, IsError: errored})
 			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
 			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
@@ -302,6 +313,12 @@ func looksLikeApproval(text string) bool {
 	return slices.Contains(approvalWords, strings.ToLower(strings.TrimSpace(text)))
 }
 
+var denialWords = []string{"no", "nope", "nah", "deny", "cancel", "stop", "n", "non"}
+
+func looksLikeDenial(text string) bool {
+	return slices.Contains(denialWords, strings.ToLower(strings.TrimSpace(text)))
+}
+
 func (a *Agent) HasPendingApproval(userID string) bool {
 	return a.tools.PendingApproval(userID) != nil
 }
@@ -320,4 +337,8 @@ func (a *Agent) ApprovedPaths() []string {
 
 func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
+}
+
+func (a *Agent) RevokePath(display string) bool {
+	return a.tools.RevokePath(display)
 }

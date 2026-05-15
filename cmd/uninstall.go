@@ -37,8 +37,14 @@ func Uninstall(configDir string, args []string) {
 		binPath = resolved
 	}
 
+	// Only list the systemd service when its unit file is actually on disk.
+	// A TUI-only Linux user shouldn't be told we're removing a service
+	// they never installed.
+	_, serviceErr := os.Stat(serviceFile)
+	hasService := runtime.GOOS == "linux" && serviceErr == nil
+
 	fmt.Println("This will remove:")
-	if runtime.GOOS == "linux" {
+	if hasService {
 		fmt.Println("  • systemd service /etc/systemd/system/nevinho.service")
 	}
 	fmt.Printf("  • binary           %s\n", binPath)
@@ -54,7 +60,7 @@ func Uninstall(configDir string, args []string) {
 		return
 	}
 
-	if runtime.GOOS == "linux" {
+	if hasService {
 		_ = exec.Command("systemctl", "stop", "nevinho").Run()
 		_ = exec.Command("systemctl", "disable", "nevinho").Run()
 		_ = exec.Command("systemctl", "reset-failed", "nevinho").Run()

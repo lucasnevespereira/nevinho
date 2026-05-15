@@ -13,10 +13,11 @@ import (
 
 const repo = "lucasnevespereira/nevinho"
 
-// Upgrade downloads the latest release binary, replaces the current one in
-// place, refreshes the systemd unit if present, and restarts the running
-// service. The unit refresh ensures changes to ExecStart (e.g. subcommand
-// renames) land without manual intervention from the operator.
+// Upgrade downloads the latest release binary and replaces the current one
+// in place. If a systemd unit is already installed, the unit gets refreshed
+// and the service is restarted so changes to ExecStart land cleanly. A
+// machine that only runs the TUI has no unit file, so upgrade leaves
+// systemd alone.
 func Upgrade(version string) {
 	latest, err := fetchLatestVersion()
 	if err != nil {
@@ -71,8 +72,12 @@ func Upgrade(version string) {
 	}
 
 	fmt.Printf("Updated to %s.\n", latest)
-	InstallSystemdUnit()
-	Restart()
+	// Only touch systemd if the unit is already there. A TUI-only Linux
+	// user must not gain a system service just from running upgrade.
+	if _, err := os.Stat(serviceFile); err == nil {
+		InstallSystemdUnit()
+		Restart()
+	}
 }
 
 func fetchLatestVersion() (string, error) {

@@ -41,7 +41,7 @@ func Serve(configDir, version, selfDoc string) {
 
 	provider := detectProvider(cfg)
 
-	a := agent.New(provider, cfg, version, selfDoc)
+	a := agent.New(provider, cfg, version, selfDoc, agent.ModeDaemon)
 	bot, err := discord.New(cfg.DiscordBotToken, cfg.DiscordOwnerID, a, cfg)
 	if err != nil {
 		log.Fatalf("failed to create bot: %v", err)
@@ -101,7 +101,7 @@ func startScheduler(a *agent.Agent, bot *discord.Bot, configDir string) (*schedu
 		var msg string
 		switch {
 		case err != nil:
-			msg = fmt.Sprintf("**Schedule `%s` failed**\n%s", s.Name, discord.FriendlyError(err))
+			msg = fmt.Sprintf("**Schedule `%s` failed**\n%s", s.Name, llm.FriendlyError(err))
 		case result == "":
 			msg = fmt.Sprintf("**Schedule `%s` ran** (no output)", s.Name)
 		default:

@@ -29,14 +29,15 @@ func main() {
 	}
 
 	switch arg {
+	case "", "chat":
+		// No argument launches the terminal UI — the local coding agent.
+		cmd.Chat(configDir, version, selfDoc)
 	case "setup":
 		if err := config.RunSetup(configDir); err != nil {
 			log.Fatal(err)
 		}
 	case "config":
 		cmd.Config(configDir, os.Args[2:])
-	case "chat":
-		cmd.Chat(configDir, version, selfDoc)
 	case "start":
 		cmd.Start(configDir, version, selfDoc)
 	case "stop":
@@ -65,15 +66,19 @@ func main() {
 func printUsage() {
 	fmt.Println("nevinho " + version)
 	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  nevinho setup    configure Discord token and LLM keys")
-	fmt.Println("  nevinho config   view, set, or delete config keys")
-	fmt.Println("  nevinho chat     local REPL with the agent (no Discord)")
-	fmt.Println("  nevinho start    start the bot")
-	fmt.Println("  nevinho stop     stop the bot")
-	fmt.Println("  nevinho logs     show live logs (--full, --last N)")
-	fmt.Println("  nevinho upgrade  update to latest version")
-	fmt.Println("  nevinho uninstall  remove service, binary, and ~/.nevinho")
-	fmt.Println("  nevinho status   check if bot is running")
-	fmt.Println("  nevinho version  show version")
+	fmt.Println("Local — a coding agent in your terminal:")
+	fmt.Println("  nevinho           open the terminal UI (same as 'chat')")
+	fmt.Println()
+	fmt.Println("VPS — an always-on agent reachable from Discord:")
+	fmt.Println("  nevinho setup     configure providers, Discord, and voice")
+	fmt.Println("  nevinho start     start the always-on bot")
+	fmt.Println("  nevinho stop      stop the bot")
+	fmt.Println("  nevinho status    check if the bot is running")
+	fmt.Println("  nevinho logs      show live logs (--full, --last N)")
+	fmt.Println()
+	fmt.Println("Shared:")
+	fmt.Println("  nevinho config    view, set, or delete config keys")
+	fmt.Println("  nevinho upgrade   update to the latest version")
+	fmt.Println("  nevinho uninstall remove service, binary, and ~/.nevinho")
+	fmt.Println("  nevinho version   show version")
 }

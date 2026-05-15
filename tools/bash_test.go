@@ -1,6 +1,10 @@
 package tools
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestIsDangerous(t *testing.T) {
 	tests := []struct {
@@ -40,5 +44,23 @@ func TestIsDangerous(t *testing.T) {
 				t.Errorf("isDangerous(%q) = %q, wantDangerous = %v", tt.command, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunBashStrictMode(t *testing.T) {
+	r, _ := newTestRegistry(t)
+	input := marshalInput(t, bashInput{Command: "echo hello"})
+
+	// Non-strict: a command the heuristic considers safe runs without asking.
+	out := r.runBash(context.Background(), input, "u1")
+	if strings.Contains(out, "NEEDS_APPROVAL") {
+		t.Errorf("non-strict: safe command should run, got %q", out)
+	}
+
+	// Strict: the same safe command needs approval.
+	r.SetStrict(true)
+	out = r.runBash(context.Background(), input, "u2")
+	if !strings.HasPrefix(out, "NEEDS_APPROVAL:") {
+		t.Errorf("strict: safe command should need approval, got %q", out)
 	}
 }

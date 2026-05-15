@@ -43,6 +43,7 @@ type Registry struct {
 	files     map[string][]FileDisplay
 	permFile  string
 	schedules *schedule.Store
+	strict    bool
 }
 
 func NewRegistry(cfg *config.Config) *Registry {
@@ -64,6 +65,21 @@ func (r *Registry) SetScheduleStore(s *schedule.Store) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.schedules = s
+}
+
+// SetStrict turns on strict mode, used when nevinho runs on the user's own
+// machine instead of a VPS. In strict mode every bash command needs
+// approval, not only the ones that trip the dangerous-pattern heuristic.
+func (r *Registry) SetStrict(strict bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.strict = strict
+}
+
+func (r *Registry) isStrict() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.strict
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) string {
@@ -275,6 +291,22 @@ func (r *Registry) ClearApprovedPaths() {
 	defer r.mu.Unlock()
 	r.approved = make(map[string]bool)
 	r.saveApproved()
+}
+
+// RevokePath drops one approved path. The argument matches the displayed
+// form returned by ApprovedPaths (so a "~/foo" from the UI revokes the
+// full "/Users/x/foo" key in storage). Returns true if a path was removed.
+func (r *Registry) RevokePath(display string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key := range r.approved {
+		if shortenHome(key) == display || key == display {
+			delete(r.approved, key)
+			r.saveApproved()
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) PendingApproval(userID string) *Pending {

@@ -55,6 +55,12 @@ func newActivityIndicator(s *discordgo.Session, channelID string) *activityIndic
 // Discord API calls happen inline so the agent sees back-pressure if Discord
 // is slow.
 func (a *activityIndicator) onEvent(ev agent.ToolEvent) {
+	// The indicator tracks tools as they start; done events carry the
+	// result preview, which Discord does not render inline.
+	if ev.Phase != agent.ToolStart {
+		return
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
