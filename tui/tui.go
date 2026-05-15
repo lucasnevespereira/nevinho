@@ -24,7 +24,7 @@ import (
 )
 
 // userID namespaces this session's history in the agent.
-const userID = "cli-local"
+const userID = "terminal"
 
 // inputPlaceholder is the textarea's resting placeholder text.
 const inputPlaceholder = "Ask nevinho anything…"

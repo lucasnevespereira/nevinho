@@ -72,6 +72,15 @@ One file covers Groq, Together, OpenRouter, LM Studio, vLLM, local servers.
 - [ ] `llm/compat.go` pointing at any URL via `OPENAI_COMPAT_URL`, `OPENAI_COMPAT_KEY`, `OPENAI_COMPAT_MODEL`.
 - [ ] `nevinho setup` offers the new provider with presets for Groq, OpenRouter, LM Studio.
 
+### Per-cwd terminal summaries
+
+The terminal client uses one shared summary today, so context from project A leaks into project B when the user hops between repos. Real pain for anyone running `nevinho` in more than one place.
+
+- [ ] Derive the terminal userID from the cwd at launch (`terminal:` + short hash of `os.Getwd()`), so each project gets its own summary file.
+- [ ] Cap retained summaries (last N by mtime) so `~/.nevinho/summaries/` does not grow unbounded over the years.
+- [ ] `/forget` clears just the current cwd's summary, not all of them.
+- [ ] `/session` in the terminal mentions which cwd is currently active.
+
 ### Scheduled tasks: follow-ups
 
 Foundation shipped. Remaining work:
