@@ -4,8 +4,6 @@
 
 <h1 align="center">nevinho</h1>
 
----
-
 <p align="center"><i><b>
 A personal AI agent you self-host. Reach it from a Discord DM, or run it as a coding agent in your terminal.
 </b></i></p>
@@ -42,7 +40,7 @@ nevinho
 
 The terminal client configures providers from inside the session with `/config`, so a fresh local install needs no setup wizard.
 
-`nevinho upgrade` swaps the binary in place. If a service is installed it refreshes the unit and restarts, otherwise it just updates the binary. `nevinho uninstall` removes whatever is actually there. Pass `--keep-config` to preserve `~/.nevinho`.
+`nevinho upgrade` updates the binary in place and refreshes the service if installed. `nevinho uninstall` removes whatever is on disk (`--keep-config` preserves `~/.nevinho`).
 
 ## CLI
 
@@ -140,7 +138,7 @@ The terminal client tightens this further: every shell command and every write o
 
 ## Terminal use
 
-nevinho also runs locally in your terminal. Same agent, same tools, same encrypted config under `~/.nevinho/`. Conversation blocks render inline so your terminal handles wheel scroll, text selection, and URL clicks the same as for any other shell output.
+nevinho also runs locally in your terminal. Same agent, same config. Conversation blocks render inline so your terminal handles wheel scroll, text selection, and URL clicks the same as for any other shell output.
 
 Voice messages and scheduled tasks are Discord-only for now. They need a long-running process and an inbox, which the terminal client does not have.
 
