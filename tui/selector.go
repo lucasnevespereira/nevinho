@@ -153,7 +153,7 @@ var configLabels = map[string]string{
 	"OLLAMA_MODEL":       "Ollama model",
 	"TAVILY_API_KEY":     "Tavily search key",
 	"CAVEMAN":            "Caveman mode",
-	"ELEPHANT":           "Conversation memory",
+	"ELEPHANT":           "Elephant memory",
 }
 
 // configToggles is the set of config keys that are on/off booleans, so the
