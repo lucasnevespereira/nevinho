@@ -216,6 +216,12 @@ func (a *Agent) Model() string {
 	return a.llm.Model()
 }
 
+// Version reports the binary's version string. Embedded in the TUI greeting
+// and the Status panel.
+func (a *Agent) Version() string {
+	return a.version
+}
+
 func (a *Agent) SwitchModel(name string) error {
 	p, err := llm.Resolve(name, a.cfg.ProviderConfig())
 	if err != nil {

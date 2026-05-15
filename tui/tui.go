@@ -186,12 +186,13 @@ func (m model) printBlock(b block) tea.Cmd {
 	return tea.Println("\n" + b.render(m.contentWidth()))
 }
 
-// greeting is the first hint block, shown once on startup.
+// greeting is the first hint block, shown once on startup. Lays out like
+// pi's startup header: name and version, then a one-line key hint.
 func (m model) greeting() block {
 	if len(m.agent.AvailableModels()) == 0 {
-		return hintBlock{"nevinho · no LLM provider configured yet\ntype /config to add one, then /model to pick a model"}
+		return hintBlock{"nevinho " + m.agent.Version() + "\nno LLM provider configured yet · /config to add one · /model to pick"}
 	}
-	return hintBlock{"nevinho · " + m.agent.Model() + "\ntype a message · /help for commands · ctrl+c to quit"}
+	return hintBlock{"nevinho " + m.agent.Version() + "\nesc interrupt · ctrl+c quit · / commands · /help for the list"}
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -228,6 +229,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "esc":
+			// While a turn is running, esc interrupts the agent. The Chat
+			// goroutine returns "Cancelled." which lands as a normal reply.
+			if m.busy {
+				m.agent.Cancel(userID)
+				return m, nil
+			}
 			if m.configKey != "" {
 				m.configKey = ""
 				m.input.Reset()

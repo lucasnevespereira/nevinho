@@ -50,7 +50,7 @@ func main() {
 		cmd.Uninstall(configDir, os.Args[2:])
 	case "status":
 		cmd.Status(version)
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Println("nevinho " + version)
 	case "serve":
 		cmd.Serve(configDir, version, selfDoc)
