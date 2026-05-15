@@ -216,6 +216,16 @@ func (a *Agent) ConfigKeys() []config.KeyStatus {
 	return a.cfg.Keys()
 }
 
+// Usage reports cumulative token counts for this process and the estimated
+// cost, for a status display.
+func (a *Agent) Usage() (in, out int, cost float64) {
+	a.mu.Lock()
+	in, out = a.tokensIn, a.tokensOut
+	model := a.llm.Model()
+	a.mu.Unlock()
+	return in, out, estimateCost(model, in, out)
+}
+
 // isLLMKey reports whether a config key authenticates an LLM provider, so a
 // change to it should reload the provider.
 func isLLMKey(key string) bool {

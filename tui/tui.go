@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -393,14 +394,29 @@ func (m model) workingLine() string {
 	return ""
 }
 
-// statusBar renders the bottom bar: working directory on the left, the
-// active model on the right.
+// statusBar renders the bottom bar: working directory and token usage on
+// the left, the active model on the right.
 func (m model) statusBar() string {
 	left := " " + shortenHome(m.cwd)
+	if in, out, cost := m.agent.Usage(); in > 0 || out > 0 {
+		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.3f", humanCount(in), humanCount(out), cost)
+	}
 	right := m.agent.Model() + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	bar := left + strings.Repeat(" ", gap) + right
 	return styleStatus.Width(m.width).Render(bar)
+}
+
+// humanCount formats a token count compactly: 500, 2.8k, 30k.
+func humanCount(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 10000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%dk", n/1000)
+	}
 }
 
 // layout sizes the viewport and input to the current terminal size. It

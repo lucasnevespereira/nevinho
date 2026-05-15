@@ -117,8 +117,11 @@ func renderMarkdown(s string, w int) string {
 		return s
 	}
 	if mdRenderer == nil || mdWidth != w {
+		// A fixed dark style, not WithAutoStyle: auto-style queries the
+		// terminal for its background colour, and that reply leaks into
+		// Bubble Tea's input as garbage keystrokes.
 		r, err := glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(w-4),
 		)
 		if err != nil {
