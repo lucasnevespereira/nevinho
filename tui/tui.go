@@ -72,10 +72,10 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	})
 	defer a.SetToolCallback(userID, nil)
 
-	// No WithMouseCellMotion: capturing mouse breaks text selection and URL
-	// clicking, which matter more than wheel-scrolling in a chat-like UI.
-	// pgup / pgdown / ctrl+u / ctrl+d still scroll the viewport.
-	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen())
+	// Mouse capture for wheel scrolling. Terminals still pass through
+	// shift+drag for native text selection and cmd+click for URLs, so we
+	// keep both: wheel scrolls the viewport, shift+drag selects text.
+	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -202,6 +202,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.submit()
 		}
+
+	case tea.MouseMsg:
+		// Wheel events scroll the viewport. Shift+drag and cmd+click are
+		// intercepted by the terminal before reaching here, so native text
+		// selection and URL clicking still work.
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
 
 	case responseMsg:
 		m.busy = false
