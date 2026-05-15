@@ -30,7 +30,7 @@ func main() {
 
 	switch arg {
 	case "", "chat":
-		// No argument launches the terminal UI — the local coding agent.
+		// No argument launches the terminal UI, the local coding agent.
 		cmd.Chat(configDir, version, selfDoc)
 	case "setup":
 		if err := config.RunSetup(configDir); err != nil {
@@ -51,7 +51,7 @@ func main() {
 	case "status":
 		cmd.Status(version)
 	case "version", "--version", "-v":
-		fmt.Println("nevinho " + version)
+		cmd.Version(version)
 	case "serve":
 		cmd.Serve(configDir, version, selfDoc)
 	case "help", "-h", "--help":
@@ -66,10 +66,10 @@ func main() {
 func printUsage() {
 	fmt.Println("nevinho " + version)
 	fmt.Println()
-	fmt.Println("Local — a coding agent in your terminal:")
+	fmt.Println("Local. A coding agent in your terminal:")
 	fmt.Println("  nevinho           open the terminal UI (same as 'chat')")
 	fmt.Println()
-	fmt.Println("VPS — an always-on agent reachable from Discord:")
+	fmt.Println("VPS. An always-on agent reachable from Discord:")
 	fmt.Println("  nevinho setup     configure providers, Discord, and voice")
 	fmt.Println("  nevinho start     start the always-on bot")
 	fmt.Println("  nevinho stop      stop the bot")
