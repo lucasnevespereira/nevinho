@@ -25,7 +25,9 @@ Tools for bash, code search, web search, file editing, scheduled tasks.
 curl -sSL https://raw.githubusercontent.com/lucasnevespereira/nevinho/main/install.sh | bash
 ```
 
-One binary lands in your PATH. From there, set up the Discord bot on a Linux VPS:
+One binary lands in your PATH. From there, two ways to use it.
+
+### Discord bot (Linux VPS)
 
 ```bash
 nevinho setup     # Discord token, owner ID, LLM keys, voice
@@ -34,13 +36,15 @@ nevinho start     # runs as a background service
 
 No Discord bot yet? Follow [SETUP.md](SETUP.md) first to create one.
 
-You can also run nevinho locally as a coding agent in your terminal. Same agent, same tools, same config:
+### Terminal client (any OS)
 
 ```bash
 nevinho
 ```
 
-The terminal client configures providers from inside the session with `/config`, so a fresh local install needs no setup wizard.
+A fresh local install needs no setup wizard. Configure providers from inside the session with `/config`.
+
+### Upgrade and uninstall
 
 `nevinho upgrade` updates the binary in place and refreshes the service if installed. `nevinho uninstall` removes whatever is on disk (`--keep-config` preserves `~/.nevinho`).
 
