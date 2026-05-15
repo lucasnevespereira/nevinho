@@ -4,12 +4,11 @@
 
 # nevinho
 
-A minimal personal AI harness. Same core, two ways to run it.
+A personal AI agent you self-host. Reach it from a Discord DM,
+or run it as a coding agent in your terminal.
 
-- **Local terminal**: launch `nevinho` and chat with a coding agent in your shell. Every shell command and write outside the current directory asks before it runs.
-- **Discord daemon**: install on a VPS, run `nevinho start`, and reach the same agent from a Discord DM.
-
-Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama. Comes with tools for bash, code search, web search, file editing, and (on the daemon) scheduled tasks.
+Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
+Tools for bash, code search, web search, file editing, scheduled tasks.
 
 ## Install
 
@@ -17,32 +16,32 @@ Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama. Comes with too
 curl -sSL https://raw.githubusercontent.com/lucasnevespereira/nevinho/main/install.sh | bash
 ```
 
-The script drops one binary in your PATH. Then you pick a flow:
+One binary lands in your PATH. From there, set up the Discord bot on a Linux VPS:
 
 ```bash
-# Local terminal (any OS)
-nevinho
-
-# Discord daemon (Linux VPS)
-nevinho setup
-nevinho start
+nevinho setup     # Discord token, owner ID, LLM keys, voice
+nevinho start     # runs as a background service
 ```
 
-The TUI can configure providers from inside the session with `/config`, so a brand new local user does not need to run `nevinho setup` at all. The daemon does need it for the Discord credentials.
+You can also run nevinho locally as a coding agent in your terminal. Same agent, same tools, same config:
 
-`nevinho upgrade` swaps the binary in place. If a systemd service is installed it refreshes the unit and restarts. If not it just updates the binary, so a local-only user never gets a service they did not ask for.
+```bash
+nevinho
+```
 
-`nevinho uninstall` removes whatever is actually there: the systemd unit (only on a VPS install), the binary, and `~/.nevinho`. Pass `--keep-config` to preserve `~/.nevinho`.
+The terminal client configures providers from inside the session with `/config`, so a fresh local install needs no setup wizard.
+
+`nevinho upgrade` swaps the binary in place. If a service is installed it refreshes the unit and restarts, otherwise it just updates the binary. `nevinho uninstall` removes whatever is actually there. Pass `--keep-config` to preserve `~/.nevinho`.
 
 ## CLI
 
 ```
-nevinho            open the terminal UI (same as 'chat')
-nevinho setup      configure providers, Discord, and voice
-nevinho start      start the always-on Discord daemon
-nevinho stop       stop the daemon
-nevinho status     check if the daemon is running
-nevinho logs       show live daemon logs (--full, --last N)
+nevinho            open the terminal client (same as 'chat')
+nevinho setup      configure Discord, providers, and voice
+nevinho start      start the Discord bot as a background service
+nevinho stop       stop the bot
+nevinho status     check if the bot is running
+nevinho logs       show live logs (--full, --last N)
 nevinho config     view, set, or delete config keys
 nevinho upgrade    update to the latest version
 nevinho uninstall  remove what is installed
@@ -54,14 +53,14 @@ nevinho version    show version
 ```bash
 git clone https://github.com/lucasnevespereira/nevinho.git
 cd nevinho
-make build      # binary at ./bin/nevinho
+make build        # binary at ./bin/nevinho
 ```
 
-For daemon work, copy `.env.example` to `.env`, fill `DISCORD_BOT_TOKEN`, `DISCORD_OWNER_ID`, and at least one LLM key, then `make run`. See [SETUP.md](SETUP.md) for Discord bot creation steps.
+For development, copy `.env.example` to `.env`, fill `DISCORD_BOT_TOKEN`, `DISCORD_OWNER_ID`, and at least one LLM key, then `make run`. See [SETUP.md](SETUP.md) for Discord bot creation steps.
 
 ## Providers
 
-Configure one or more LLM backends with the in-TUI `/config` picker or `nevinho setup`.
+Configure one or more LLM backends with `nevinho setup` or the in-session `/config` picker.
 
 | Provider   | Env var               | Default model                                       | Get a key                              |
 | ---------- | --------------------- | --------------------------------------------------- | -------------------------------------- |
@@ -82,7 +81,7 @@ Switch models with `/model` (picker) or `/model <name>`.
 
 | Tool         | What it does                                       |
 | ------------ | -------------------------------------------------- |
-| `bash`       | Run any bash command. Strict approval in local TUI |
+| `bash`       | Run any bash command                               |
 | `grep`       | Search file contents by pattern                    |
 | `find`       | Find files by name                                 |
 | `web_search` | Search via Tavily API or DuckDuckGo fallback       |
@@ -94,11 +93,45 @@ Switch models with `/model` (picker) or `/model <name>`.
 
 The agent chains tools automatically. Ask it to "find the latest Go release" and it will search, read the page, and summarize.
 
-## TUI
+## Voice messages
 
-The local terminal client renders inline, like Claude Code or opencode. Conversation blocks print to your terminal scrollback, so wheel scroll, text selection, and URL clicking all work natively. Only the input box, working indicator, status bar, and pickers live in the managed live region.
+Send voice messages in Discord and nevinho transcribes them using a local Whisper model. No extra API keys, no cost.
 
-Slash commands inside the TUI:
+Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installed if missing). The Whisper model (~75MB) is stored in `~/.nevinho/whisper/`.
+
+## Images
+
+Attach images to a message and nevinho passes them straight to a vision-capable model. JPEG, PNG, GIF, WebP. Up to 4 images per message, 5MB each. Works with any Claude 4.x model, the GPT-4o family, and Ollama vision models like llava or llama3.2-vision.
+
+If the current model cannot read images, nevinho replies with a hint to switch via `/model` instead of dropping the message silently.
+
+## Scheduled tasks
+
+Tell nevinho "every morning at 9, summarize the top 5 Hacker News stories" and it sets up a cron schedule. The runner ticks once a minute, fires anything due, and DMs you the result.
+
+Limits: 10 schedules total, 5 minute minimum interval, 5 minute per-run timeout. Scheduled prompts run without the interactive approval flow, so don't ask schedules to do destructive things.
+
+Cron accepts standard 5-field expressions (`0 9 * * *`), descriptors (`@daily`, `@hourly`, `@weekly`), and durations (`@every 30m`, `@every 6h`).
+
+> **Time zone**: schedules accept an IANA timezone (e.g. `Europe/Paris`). The agent picks one up from natural language ("every day at 9am Paris time"). Without one, the cron runs in the host's local time.
+
+## Safety
+
+nevinho asks before running anything risky.
+
+**Bash commands** are scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval.
+
+**File writes** outside the per-user workspace require directory approval. Approved paths persist across restarts.
+
+**URL fetching** validates scheme (http/https only) and resolves DNS to block requests to localhost, private IPs, and link-local addresses.
+
+The terminal client tightens this further: every shell command and every write outside the current directory asks, with an inline yes/no picker. Use `/paths` to see what is currently trusted and revoke any entry.
+
+## Terminal use
+
+nevinho also runs locally in your terminal. Same agent, same tools, same encrypted config under `~/.nevinho/`. Conversation blocks render inline so your terminal handles wheel scroll, text selection, and URL clicks the same as for any other shell output.
+
+Slash commands inside the terminal:
 
 | Command         | What it does                                |
 | --------------- | ------------------------------------------- |
@@ -111,39 +144,7 @@ Slash commands inside the TUI:
 | `/paths clear`  | Revoke all path permissions                 |
 | `/forget`       | Wipe this conversation and saved summary    |
 | `/help`         | Show the command list                       |
-| `/quit`         | Leave the TUI (or ctrl+c)                   |
-
-## Voice messages (daemon)
-
-Send voice messages in Discord and nevinho transcribes them using a local Whisper model. No extra API keys, no cost.
-
-Enable during `nevinho setup`. Requires `ffmpeg` and a C compiler (auto-installed if missing). The Whisper model (~75MB) is stored in `~/.nevinho/whisper/`.
-
-## Images
-
-Attach images to a message and nevinho passes them straight to a vision-capable model. JPEG, PNG, GIF, WebP. Up to 4 images per message, 5MB each. Works with any Claude 4.x model, the GPT-4o family, and Ollama vision models like llava or llama3.2-vision.
-
-If the current model cannot read images, nevinho replies with a hint to switch via `/model` instead of dropping the message silently.
-
-## Scheduled tasks (daemon)
-
-Tell nevinho "every morning at 9, summarize the top 5 Hacker News stories" and it sets up a cron schedule. The runner ticks once a minute, fires anything due, and DMs you the result.
-
-Limits: 10 schedules total, 5 minute minimum interval, 5 minute per-run timeout. Scheduled prompts run without the interactive approval flow, so don't ask schedules to do destructive things.
-
-Cron accepts standard 5-field expressions (`0 9 * * *`), descriptors (`@daily`, `@hourly`, `@weekly`), and durations (`@every 30m`, `@every 6h`).
-
-> **Time zone**: schedules accept an IANA timezone (e.g. `Europe/Paris`). The agent picks one up from natural language ("every day at 9am Paris time"). Without one, the cron runs in the VPS's local time.
-
-## Safety
-
-The TUI runs in strict mode by default. Every bash command and every write outside the current directory asks before it runs, with an inline yes/no picker. The Discord daemon uses a looser gate that only intercepts dangerous patterns, since the owner is implicit on a personal VPS.
-
-**Bash commands** are scanned against patterns like `rm`, `sudo`, `chmod`, `kill`, pipe to `curl`, and fork bombs. Sensitive paths (`.ssh`, `.aws`, `.env`, credentials) also trigger approval.
-
-**File writes** outside the per-user workspace require directory approval. Approved paths persist across restarts. Use `/paths` in the TUI to see and revoke them.
-
-**URL fetching** validates scheme (http/https only) and resolves DNS to block requests to localhost, private IPs, and link-local addresses.
+| `/quit`         | Leave (or ctrl+c)                           |
 
 ## Config
 
@@ -156,7 +157,7 @@ approved_paths.json persisted write permissions
 memory.md           learned user preferences
 summaries/          per-user conversation summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
-chat.log            TUI runtime log
+chat.log            terminal client runtime log
 ```
 
 `.env` in the project directory also works for development. Env vars take priority over the encrypted config.
@@ -171,17 +172,16 @@ Set `ELEPHANT=on` via `/config` to persist conversation summaries across restart
 main.go      entry point, CLI dispatch
 cmd/         chat, serve, setup, config, upgrade, uninstall, service
 agent/       agent loop, history, persistence, run mode
-llm/         provider interface, anthropic, openai, gemini, groq,
-             openrouter, ollama
+llm/         provider interface and implementations
 tools/       bash, file_read/write/edit, find, grep, web, schedule
-tui/         terminal UI, blocks, selector
+tui/         terminal client, blocks, selector
 discord/     bot, message handling, slash commands, indicator
 config/      encrypted config, model catalog, setup wizard
 crypto/      AES-256-GCM
 memory/      preference learning
-schedule/    cron job store (daemon)
+schedule/    cron job store
 voice/       local Whisper transcription
-logger/      coloured daemon output
+logger/      coloured terminal output
 ```
 
 ## Demo
