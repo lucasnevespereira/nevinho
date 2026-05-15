@@ -1,5 +1,11 @@
 // Package tui is the local terminal client for nevinho. It drives the same
 // agent core the Discord transport does, rendered in the terminal.
+//
+// The render model is inline, not alt-screen: conversation blocks are
+// printed straight into the terminal's regular scrollback via tea.Println,
+// so the terminal handles wheel scrolling, text selection, and URL
+// clicking natively. Only the live region at the bottom (input, status,
+// pickers) is managed by Bubble Tea.
 package tui
 
 import (
@@ -10,7 +16,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -52,16 +57,16 @@ var (
 )
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
-// the status bar; configDir is where the agent's log file is written.
+// the status bar. configDir is where the agent's log file is written.
 func Run(a *agent.Agent, cwd, configDir string) error {
-	// The agent logs through the stdlib logger, which writes to stderr and
-	// would shred the alt screen. Send it to a file so the terminal stays
-	// clean; tail ~/.nevinho/chat.log to see it.
+	// The agent logs through the stdlib logger, which writes to stderr.
+	// Send it to a file so the terminal stays clean. tail ~/.nevinho/chat.log
+	// to follow it live.
 	if f, err := tea.LogToFile(filepath.Join(configDir, "chat.log"), ""); err == nil {
 		defer f.Close()
 	}
 
-	// Buffered so the agent's tool callback never blocks on a slow UI; a
+	// Buffered so the agent's tool callback never blocks on a slow UI. a
 	// full buffer just drops an event, which only costs a missed card.
 	events := make(chan agent.ToolEvent, 64)
 	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
@@ -72,11 +77,10 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	})
 	defer a.SetToolCallback(userID, nil)
 
-	// No mouse capture: it would steal click and drag events and break
-	// terminal-native text selection and URL clicking, which matter more
-	// in a coding-agent TUI than wheel scrolling. Use pgup / pgdown /
-	// ctrl+u / ctrl+d / home / end to scroll the viewport.
-	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen())
+	// Inline rendering, not alt-screen. The terminal owns scrollback,
+	// selection, and URL clicks. Bubble Tea only manages the bottom live
+	// region (input, status, pickers).
+	p := tea.NewProgram(newModel(a, events, cwd))
 	_, err := p.Run()
 	return err
 }
@@ -96,13 +100,10 @@ type model struct {
 	events chan agent.ToolEvent
 	cwd    string
 
-	vp    viewport.Model
 	input textarea.Model
 	spin  spinner.Model
 
-	blocks         []block
 	busy           bool
-	expanded       bool // ctrl+o: show full tool output instead of previews
 	selecting      bool // a picker (model or config) is open
 	approving      bool // a tool action is awaiting yes/no
 	approvalCursor int  // 0 = yes, 1 = no
@@ -121,17 +122,12 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
 	ta.Focus()
-	// Drop the default cursor-line background; it reads as an ugly block.
+	// Drop the default cursor-line background. It reads as an ugly block.
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = styleSpin
-
-	greeting := hintBlock{"nevinho · " + a.Model() + "\ntype a message · /help for commands · ctrl+c to quit"}
-	if len(a.AvailableModels()) == 0 {
-		greeting = hintBlock{"nevinho — no LLM provider configured yet\ntype /config to add one, then /model to pick a model"}
-	}
 
 	return model{
 		agent:  a,
@@ -139,7 +135,6 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 		cwd:    cwd,
 		input:  ta,
 		spin:   sp,
-		blocks: []block{greeting},
 	}
 }
 
@@ -167,15 +162,53 @@ func (m model) send(text string) tea.Cmd {
 	}
 }
 
+// maxContentWidth caps how wide rendered blocks get on wide terminals, so
+// long lines stay readable instead of stretching edge to edge. Matches the
+// ~100-col content width used by Claude Code and pi.
+const maxContentWidth = 100
+
+// contentWidth is the width passed to block renders: terminal width clamped
+// to maxContentWidth.
+func (m model) contentWidth() int {
+	if m.width > maxContentWidth {
+		return maxContentWidth
+	}
+	return m.width
+}
+
+// printBlock returns a Cmd that pushes a rendered block into the terminal
+// scrollback, above the live region. The leading blank row gives every
+// block one row of breathing space, so user turns, agent replies, and
+// tool cards do not touch each other (pi-style).
+func (m model) printBlock(b block) tea.Cmd {
+	return tea.Println("\n" + b.render(m.contentWidth()))
+}
+
+// greeting is the first hint block, shown once on startup.
+func (m model) greeting() block {
+	if len(m.agent.AvailableModels()) == 0 {
+		return hintBlock{"nevinho · no LLM provider configured yet\ntype /config to add one, then /model to pick a model"}
+	}
+	return hintBlock{"nevinho · " + m.agent.Model() + "\ntype a message · /help for commands · ctrl+c to quit"}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.layout()
-		m.ready = true
+		m.input.SetWidth(m.contentWidth() - 2)
+		if !m.ready {
+			m.ready = true
+			return m, m.printBlock(m.greeting())
+		}
 		return m, nil
 
 	case tea.KeyMsg:
+		// ctrl+c quits from any mode. Each sub-handler ignores it otherwise,
+		// which leaves the user stuck inside a picker.
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
 		if m.selecting {
 			return m.updateSelector(msg.String())
 		}
@@ -183,58 +216,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateApproval(msg.String())
 		}
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "pgup", "pgdown", "ctrl+u", "ctrl+d", "home", "end":
-			var cmd tea.Cmd
-			m.vp, cmd = m.vp.Update(msg)
-			return m, cmd
-		case "ctrl+o":
-			m.toggleExpand()
-			return m, nil
 		case "esc":
 			if m.configKey != "" {
 				m.configKey = ""
 				m.input.Reset()
 				m.input.Placeholder = inputPlaceholder
-				m.add(hintBlock{"cancelled"})
+				return m, m.printBlock(hintBlock{"cancelled"})
 			}
 			return m, nil
 		case "enter":
 			return m.submit()
 		}
 
-	case tea.MouseMsg:
-		// Wheel events scroll the viewport. Shift+drag and cmd+click are
-		// intercepted by the terminal before reaching here, so native text
-		// selection and URL clicking still work.
-		var cmd tea.Cmd
-		m.vp, cmd = m.vp.Update(msg)
-		return m, cmd
-
 	case responseMsg:
 		m.busy = false
 		switch {
 		case msg.err != nil:
-			m.add(errorBlock{llm.FriendlyError(msg.err)})
+			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
 		case m.agent.HasPendingApproval(userID):
 			// The reply is the agent asking permission. The picker at the
-			// bottom resolves the decision; the message block has no keys.
-			m.add(approvalBlock{msg.text})
+			// bottom resolves the yes/no decision. The message itself goes
+			// to scrollback like any other block.
 			m.approving = true
 			m.approvalCursor = 0
+			return m, m.printBlock(approvalBlock{msg.text})
 		default:
-			m.add(agentBlock{msg.text})
+			return m, m.printBlock(agentBlock{msg.text})
 		}
-		return m, nil
 
 	case toolEventMsg:
 		ev := agent.ToolEvent(msg)
 		// A card is the result of a finished tool. NEEDS_APPROVAL is the
-		// approval handshake, not a real result, so skip it; the agent's
+		// approval handshake, not a real result, so skip it. The agent's
 		// reply carries the approval prompt instead.
 		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
-			m.add(toolBlock{name: ev.Name, detail: ev.Detail, input: ev.Input, output: ev.Output, isError: ev.IsError, expanded: m.expanded})
+			card := toolBlock{name: ev.Name, detail: ev.Detail, input: ev.Input, output: ev.Output, isError: ev.IsError}
+			return m, tea.Batch(m.printBlock(card), m.listen())
 		}
 		return m, m.listen()
 
@@ -253,7 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateSelector handles one keypress while a picker is open. A non-empty
-// chosen with open=true is a toggle (config booleans); open=false is a pick.
+// chosen with open=true is a toggle (config booleans). open=false is a pick.
 func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 	sel, chosen, open := m.sel.update(key)
 	m.sel = sel
@@ -267,7 +284,7 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		// Toggle action: flip the boolean and refresh items in place so
 		// the cursor stays on the toggled row.
 		if m.selKind == "config" {
-			m.toggleConfig(chosen)
+			return m, m.toggleConfig(chosen)
 		}
 		return m, nil
 	}
@@ -277,42 +294,43 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 	case "model":
 		if chosen != m.agent.Model() {
 			if err := m.agent.SwitchModel(chosen); err != nil {
-				m.add(errorBlock{err.Error()})
-			} else {
-				m.add(hintBlock{"switched to " + chosen})
+				return m, m.printBlock(errorBlock{err.Error()})
 			}
+			return m, m.printBlock(hintBlock{"switched to " + chosen})
 		}
 	case "config":
-		// chosen is a config key name; capture its value next.
+		// chosen is a config key name. capture its value next.
 		m.configKey = chosen
 		m.input.Reset()
 		m.input.Placeholder = "value for " + configLabels[chosen]
+	case "paths":
+		if m.agent.RevokePath(chosen) {
+			return m, m.printBlock(hintBlock{"revoked " + chosen})
+		}
+		return m, m.printBlock(hintBlock{"could not revoke " + chosen})
 	}
 	return m, nil
 }
 
 // toggleConfig flips a boolean config key (CAVEMAN, ELEPHANT) and refreshes
 // the open selector's items so the ✓ moves immediately.
-func (m *model) toggleConfig(key string) {
+func (m *model) toggleConfig(key string) tea.Cmd {
 	next := "on"
 	if m.agent.GetConfig(key) == "on" {
 		next = "off"
 	}
 	if err := m.agent.SetConfig(key, next); err != nil {
-		m.add(errorBlock{err.Error()})
-		return
+		return m.printBlock(errorBlock{err.Error()})
 	}
 	m.sel.items = configItems(m.agent.ConfigKeys(), m.agent.GetConfig)
+	return nil
 }
 
 // updateApproval handles one keypress while a tool action awaits a yes/no
 // decision. Arrow keys move the cursor between yes and no, enter chooses,
-// and y/n/esc are shortcuts. The decision routes through the agent's
-// existing approval text protocol.
+// and y/n/esc are shortcuts.
 func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "ctrl+c":
-		return m, tea.Quit
 	case "left", "h", "up", "k":
 		m.approvalCursor = 0
 		return m, nil
@@ -354,15 +372,12 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		m.input.Reset()
 		m.input.Placeholder = inputPlaceholder
 		if text == "" {
-			m.add(hintBlock{"cancelled"})
-			return m, nil
+			return m, m.printBlock(hintBlock{"cancelled"})
 		}
 		if err := m.agent.SetConfig(key, text); err != nil {
-			m.add(errorBlock{err.Error()})
-		} else {
-			m.add(hintBlock{"set " + key})
+			return m, m.printBlock(errorBlock{err.Error()})
 		}
-		return m, nil
+		return m, m.printBlock(hintBlock{"set " + key})
 	}
 
 	if text == "" {
@@ -372,9 +387,12 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleSlash(text); handled {
 		return m, cmd
 	}
-	m.add(userBlock{text})
 	m.busy = true
-	return m, tea.Batch(m.send(text), m.spin.Tick)
+	return m, tea.Batch(
+		m.printBlock(userBlock{text}),
+		m.send(text),
+		m.spin.Tick,
+	)
 }
 
 // slashCommands is the canonical list, used for the /help text and the
@@ -382,6 +400,10 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 var slashCommands = []struct{ name, desc string }{
 	{"/model", "list models, or switch to one"},
 	{"/config", "view config, set a key, or clear it"},
+	{"/memory", "show what nevinho remembers about you"},
+	{"/session", "show the saved session summary"},
+	{"/status", "model, tokens, cost, approved paths"},
+	{"/paths", "list approved paths, pick one to revoke"},
 	{"/forget", "wipe this session's history"},
 	{"/help", "show this list"},
 	{"/quit", "leave (or ctrl+c)"},
@@ -397,23 +419,26 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 		return tea.Quit, true
 	case "/forget":
 		m.agent.ClearHistory(userID)
-		m.add(hintBlock{"history cleared"})
-		return nil, true
+		return m.printBlock(hintBlock{"history cleared"}), true
 	case "/model":
-		m.handleModel(arg)
-		return nil, true
+		return m.handleModel(arg), true
 	case "/config":
-		m.handleConfig(arg)
-		return nil, true
+		return m.handleConfig(arg), true
+	case "/memory":
+		return m.printBlock(agentBlock{m.agent.MemoryView()}), true
+	case "/session":
+		return m.printBlock(agentBlock{m.agent.SummaryView(userID)}), true
+	case "/status":
+		return m.printBlock(agentBlock{m.agent.Status()}), true
+	case "/paths":
+		return m.handlePaths(arg), true
 	case "/help":
-		m.add(hintBlock{commandHelp()})
-		return nil, true
+		return m.printBlock(hintBlock{commandHelp()}), true
 	}
-	// An unknown slash command is a typo, not a message — keep it out of
+	// An unknown slash command is a typo, not a message. Keep it out of
 	// the agent and point at /help.
 	if strings.HasPrefix(cmd, "/") {
-		m.add(hintBlock{"unknown command " + cmd + " — /help for the list"})
-		return nil, true
+		return m.printBlock(hintBlock{"unknown command " + cmd + ". /help for the list"}), true
 	}
 	return nil, false
 }
@@ -447,67 +472,84 @@ func matchCommands(input string) string {
 	return strings.Join(names, "  ")
 }
 
-// handleConfig lists config when called bare, sets a key when given a key
-// and value, or clears a key when given just a key.
-func (m *model) handleConfig(arg string) {
+// handleConfig opens the picker when called bare, sets a key when given a
+// key and value, or clears a key when given just a key.
+func (m *model) handleConfig(arg string) tea.Cmd {
 	if arg == "" {
 		m.sel = newSelector("configure", configItems(m.agent.ConfigKeys(), m.agent.GetConfig))
 		m.selKind = "config"
 		m.selecting = true
-		return
+		return nil
 	}
-	// /config KEY value — the direct path for power users.
 	key, value, _ := strings.Cut(arg, " ")
 	key = strings.ToUpper(strings.TrimSpace(key))
 	value = strings.TrimSpace(value)
 	if err := m.agent.SetConfig(key, value); err != nil {
-		m.add(errorBlock{err.Error()})
-		return
+		return m.printBlock(errorBlock{err.Error()})
 	}
 	if value == "" {
-		m.add(hintBlock{"cleared " + key})
-	} else {
-		m.add(hintBlock{"set " + key})
+		return m.printBlock(hintBlock{"cleared " + key})
+	}
+	return m.printBlock(hintBlock{"set " + key})
+}
+
+// handlePaths opens the approved-paths picker (enter on a row revokes it),
+// or runs the "clear" subcommand to wipe them all.
+func (m *model) handlePaths(arg string) tea.Cmd {
+	switch arg {
+	case "":
+		paths := m.agent.ApprovedPaths()
+		if len(paths) == 0 {
+			return m.printBlock(hintBlock{"no approved paths yet"})
+		}
+		m.sel = newSelector("revoke a path", pathItems(paths))
+		m.selKind = "paths"
+		m.selecting = true
+		return nil
+	case "clear":
+		m.agent.ClearApprovedPaths()
+		return m.printBlock(hintBlock{"cleared all approved paths"})
+	default:
+		return m.printBlock(hintBlock{"unknown /paths option. try /paths or /paths clear"})
 	}
 }
 
 // handleModel opens the picker when called bare, or switches directly to
 // the named model.
-func (m *model) handleModel(name string) {
+func (m *model) handleModel(name string) tea.Cmd {
 	if name == "" {
 		models := m.agent.AvailableModels()
 		if len(models) == 0 {
-			m.add(hintBlock{"no models available — type /config to add a provider"})
-			return
+			return m.printBlock(hintBlock{"no models available. type /config to add a provider"})
 		}
 		m.sel = newSelector("pick a model", modelItems(models, m.agent.Model()))
 		m.selKind = "model"
 		m.selecting = true
-		return
+		return nil
 	}
 	if err := m.agent.SwitchModel(name); err != nil {
-		m.add(errorBlock{err.Error()})
-		return
+		return m.printBlock(errorBlock{err.Error()})
 	}
-	m.add(hintBlock{"switched to " + name})
+	return m.printBlock(hintBlock{"switched to " + name})
 }
 
 func (m model) View() string {
 	if !m.ready {
-		return "starting nevinho…"
+		return ""
 	}
 	if m.selecting {
-		body := lipgloss.NewStyle().Height(m.height - 1).Render(m.sel.view())
-		return body + "\n" + m.statusBar()
+		return lipgloss.JoinVertical(lipgloss.Left, m.sel.view(), m.statusBar())
 	}
 	var bottom string
 	if m.approving {
 		bottom = m.approvalPicker()
 	} else {
-		bottom = styleInput.Width(m.width - 2).Render(m.input.View())
+		bottom = styleInput.Width(m.contentWidth() - 2).Render(m.input.View())
 	}
+	// Leading blank row keeps the live region from hugging the last
+	// printed block in scrollback.
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.vp.View(),
+		"",
 		m.workingLine(),
 		bottom,
 		m.statusBar(),
@@ -529,7 +571,7 @@ func (m model) approvalPicker() string {
 	hint := styleHint.Render("approve?")
 	keys := styleHint.Render("(↑↓ enter · y / n · esc)")
 	line := hint + "  " + yes + "    " + no + "    " + keys
-	return styleApprove.Width(m.width - 2).Render(line)
+	return styleApprove.Width(m.contentWidth() - 2).Render(line)
 }
 
 // workingLine is the one row above the input: the spinner while a turn
@@ -571,51 +613,6 @@ func humanCount(n int) string {
 	default:
 		return fmt.Sprintf("%dk", n/1000)
 	}
-}
-
-// layout sizes the viewport and input to the current terminal size. It
-// reserves a row for the working line so the layout is stable busy or idle.
-func (m *model) layout() {
-	workingH := 1
-	inputH := m.input.Height() + 2 // textarea plus its rounded border
-	statusH := 1
-	vpH := max(m.height-workingH-inputH-statusH, 1)
-
-	m.vp = viewport.New(m.width, vpH)
-	m.input.SetWidth(m.width - 2) // inside the border
-	m.setContent()
-}
-
-// add appends a block to the transcript and scrolls to it.
-func (m *model) add(b block) {
-	m.blocks = append(m.blocks, b)
-	m.setContent()
-}
-
-// toggleExpand flips every tool card between its preview and full output.
-func (m *model) toggleExpand() {
-	m.expanded = !m.expanded
-	for i, b := range m.blocks {
-		if tb, ok := b.(toolBlock); ok {
-			tb.expanded = m.expanded
-			m.blocks[i] = tb
-		}
-	}
-	m.setContent()
-}
-
-// setContent re-renders every block to the viewport width and scrolls down.
-// The viewport does not soft-wrap, so each block wraps itself here.
-func (m *model) setContent() {
-	if m.vp.Width == 0 {
-		return
-	}
-	parts := make([]string, len(m.blocks))
-	for i, b := range m.blocks {
-		parts[i] = b.render(m.vp.Width)
-	}
-	m.vp.SetContent(strings.Join(parts, "\n\n"))
-	m.vp.GotoBottom()
 }
 
 // shortenHome swaps the home directory prefix for ~ so the status bar stays short.

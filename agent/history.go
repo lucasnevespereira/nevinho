@@ -154,7 +154,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 
 // PersistAll summarizes each active user's in-memory history and writes it to
 // disk. Called on shutdown so the next process start can resume context.
-// Respects the parent context for early cancellation; skips users on error so
+// Respects the parent context for early cancellation. Skips users on error so
 // one bad summary doesn't block the rest.
 func (a *Agent) PersistAll(ctx context.Context) {
 	if !a.cfg.ElephantEnabled() {

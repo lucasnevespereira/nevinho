@@ -16,7 +16,7 @@ const (
 
 // summaryPath returns the on-disk location for a user's persisted summary.
 // The userID is sanitized to prevent path traversal even though Discord IDs
-// are numeric snowflakes; we don't trust callers.
+// are numeric snowflakes. We don't trust callers.
 func summaryPath(configDir, userID string) (string, error) {
 	clean := sanitizeUserID(userID)
 	if clean == "" {

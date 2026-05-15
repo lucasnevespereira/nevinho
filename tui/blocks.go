@@ -51,7 +51,7 @@ func (b errorBlock) render(w int) string {
 }
 
 // approvalBlock is the agent asking permission for an action. It renders in
-// the warning colour; the chooser at the bottom of the screen resolves the
+// the warning colour. The chooser at the bottom of the screen resolves the
 // yes/no decision.
 type approvalBlock struct{ text string }
 
@@ -62,13 +62,11 @@ func (b approvalBlock) render(w int) string {
 
 // toolBlock is a finished tool call: a header line plus a boxed preview.
 // file_write previews the written content (green), file_edit previews the
-// diff (green/red), both from the tool input; other tools preview output.
-// expanded shows the full body; ctrl+o toggles it.
+// diff (green/red), both from the tool input. Other tools preview output.
 type toolBlock struct {
 	name, detail, output string
 	input                json.RawMessage
 	isError              bool
-	expanded             bool
 }
 
 func (b toolBlock) render(w int) string {
@@ -88,16 +86,16 @@ func (b toolBlock) body() string {
 	if !b.isError {
 		switch b.name {
 		case "file_write":
-			if s := writePreview(b.input, b.expanded); s != "" {
+			if s := writePreview(b.input); s != "" {
 				return s
 			}
 		case "file_edit":
-			if s := editPreview(b.input, b.expanded); s != "" {
+			if s := editPreview(b.input); s != "" {
 				return s
 			}
 		}
 	}
-	return toolBody(b.output, b.expanded)
+	return toolBody(b.output)
 }
 
 // toolHeader renders the one-line title of a tool card: a verb plus its
@@ -128,15 +126,15 @@ func toolHeader(name, detail string) string {
 	return head
 }
 
-// toolBody renders a tool card's output: the full text when expanded,
-// otherwise a capped preview with a "more" hint. When the output looks
-// like a unified diff, its lines are tinted green/red.
-func toolBody(output string, expanded bool) string {
+// toolBody renders a tool card's output: a capped preview with a "more"
+// hint. Full output is in chat.log when the model needs everything. When
+// the output looks like a unified diff, its lines are tinted green/red.
+func toolBody(output string) string {
 	output = strings.TrimRight(output, "\n")
 	if output == "" {
 		return styleHint.Render("(no output)")
 	}
-	lines, more := capLines(strings.Split(output, "\n"), expanded)
+	lines, more := capLines(strings.Split(output, "\n"))
 	if looksLikeDiff(output) {
 		colorizeDiff(lines)
 	}
@@ -151,14 +149,14 @@ type editPair struct {
 
 // writePreview renders a file_write card body: the written content, every
 // line tinted green since the whole file is new content.
-func writePreview(input json.RawMessage, expanded bool) string {
+func writePreview(input json.RawMessage) string {
 	var in struct {
 		Content string `json:"content"`
 	}
 	if json.Unmarshal(input, &in) != nil || in.Content == "" {
 		return ""
 	}
-	lines, more := capLines(strings.Split(strings.TrimRight(in.Content, "\n"), "\n"), expanded)
+	lines, more := capLines(strings.Split(strings.TrimRight(in.Content, "\n"), "\n"))
 	for i, ln := range lines {
 		lines[i] = styleDiffAdd.Render(ln)
 	}
@@ -167,7 +165,7 @@ func writePreview(input json.RawMessage, expanded bool) string {
 
 // editPreview renders a file_edit card body: each replacement as a diff,
 // old lines red, new lines green.
-func editPreview(input json.RawMessage, expanded bool) string {
+func editPreview(input json.RawMessage) string {
 	var in struct {
 		OldText string     `json:"old_text"`
 		NewText string     `json:"new_text"`
@@ -192,14 +190,14 @@ func editPreview(input json.RawMessage, expanded bool) string {
 			lines = append(lines, styleDiffAdd.Render("+ "+ln))
 		}
 	}
-	lines, more := capLines(lines, expanded)
+	lines, more := capLines(lines)
 	return joinWithMore(lines, more)
 }
 
-// capLines trims a slice to the preview cap unless expanded, returning the
-// trimmed slice and how many lines were dropped.
-func capLines(lines []string, expanded bool) ([]string, int) {
-	if expanded || len(lines) <= cardPreviewLines {
+// capLines trims a slice to the preview cap, returning the trimmed slice
+// and how many lines were dropped.
+func capLines(lines []string) ([]string, int) {
+	if len(lines) <= cardPreviewLines {
 		return lines, 0
 	}
 	return lines[:cardPreviewLines], len(lines) - cardPreviewLines
@@ -209,7 +207,7 @@ func capLines(lines []string, expanded bool) ([]string, int) {
 func joinWithMore(lines []string, more int) string {
 	body := strings.Join(lines, "\n")
 	if more > 0 {
-		body += "\n" + styleHint.Render(fmt.Sprintf("… %d more lines  (ctrl+o)", more))
+		body += "\n" + styleHint.Render(fmt.Sprintf("… %d more lines", more))
 	}
 	return body
 }

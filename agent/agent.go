@@ -234,7 +234,7 @@ func (a *Agent) SwitchModel(name string) error {
 	return nil
 }
 
-// SetConfig writes or clears a config key; an empty value clears it. When
+// SetConfig writes or clears a config key. An empty value clears it. When
 // the key authenticates an LLM provider, the provider is reloaded so the
 // change takes effect without a restart.
 func (a *Agent) SetConfig(key, value string) error {

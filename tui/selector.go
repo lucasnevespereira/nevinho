@@ -8,7 +8,7 @@ import (
 
 // selectorItem is one row of a selector: what shows, what it resolves to
 // when chosen, and whether it carries the ✓ mark (the active/current one).
-// toggle items flip on/off in place via space; non-toggle items pick on
+// toggle items flip on/off in place via space. non-toggle items pick on
 // enter.
 type selectorItem struct {
 	label  string
@@ -18,7 +18,7 @@ type selectorItem struct {
 }
 
 // selector is a filterable single-pick list. It backs both the model
-// picker and the config picker; the model owns one while it is selecting.
+// picker and the config picker. The model owns one while it is selecting.
 type selector struct {
 	title  string
 	items  []selectorItem
@@ -99,7 +99,7 @@ func (s selector) update(key string) (next selector, chosen string, open bool) {
 // with → on the cursor, ✓ on set items, and on/off on toggle items.
 func (s selector) view() string {
 	var b strings.Builder
-	b.WriteString(styleHint.Render(s.title + " — type to filter · ↑↓ move · enter select · space toggle · esc cancel"))
+	b.WriteString(styleHint.Render(s.title + " · type to filter · ↑↓ move · enter select · space toggle · esc cancel"))
 	b.WriteString("\n")
 	if s.filter != "" {
 		b.WriteString(styleToolHead.Render("filter ") + s.filter)
@@ -137,6 +137,17 @@ func modelItems(models []string, current string) []selectorItem {
 	items := make([]selectorItem, len(models))
 	for i, name := range models {
 		items[i] = selectorItem{label: name, value: name, marked: name == current}
+	}
+	return items
+}
+
+// pathItems builds selector rows for the /paths picker. Every row is
+// marked (all listed paths are currently approved). enter on a row will
+// revoke it.
+func pathItems(paths []string) []selectorItem {
+	items := make([]selectorItem, len(paths))
+	for i, p := range paths {
+		items[i] = selectorItem{label: p, value: p, marked: true}
 	}
 	return items
 }

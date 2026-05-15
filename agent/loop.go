@@ -338,3 +338,7 @@ func (a *Agent) ApprovedPaths() []string {
 func (a *Agent) ClearApprovedPaths() {
 	a.tools.ClearApprovedPaths()
 }
+
+func (a *Agent) RevokePath(display string) bool {
+	return a.tools.RevokePath(display)
+}

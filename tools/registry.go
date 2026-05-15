@@ -293,6 +293,22 @@ func (r *Registry) ClearApprovedPaths() {
 	r.saveApproved()
 }
 
+// RevokePath drops one approved path. The argument matches the displayed
+// form returned by ApprovedPaths (so a "~/foo" from the UI revokes the
+// full "/Users/x/foo" key in storage). Returns true if a path was removed.
+func (r *Registry) RevokePath(display string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key := range r.approved {
+		if shortenHome(key) == display || key == display {
+			delete(r.approved, key)
+			r.saveApproved()
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) PendingApproval(userID string) *Pending {
 	r.mu.Lock()
 	defer r.mu.Unlock()
