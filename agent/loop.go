@@ -156,14 +156,14 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 			toolsUsed = append(toolsUsed, tc.Name)
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
-			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail})
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail, Input: tc.Input})
 			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
 			if len(output) > maxToolResult {
 				output = output[:maxToolResult] + "\n...(truncated)"
 			}
 			errored := isToolError(output)
 			logger.ToolResult(tc.Name, output, errored)
-			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Output: output, IsError: errored})
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: output, IsError: errored})
 			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
 			results = append(results, result)
 			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {

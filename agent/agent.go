@@ -92,8 +92,9 @@ type ToolEvent struct {
 	Phase   ToolPhase
 	Name    string
 	Detail  string
-	Output  string // set on ToolDone
-	IsError bool   // set on ToolDone
+	Input   json.RawMessage // raw tool input, for richer rendering of write/edit
+	Output  string          // set on ToolDone
+	IsError bool            // set on ToolDone
 }
 
 // ToolCallback receives ToolEvent values for a specific user.

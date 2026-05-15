@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,11 +56,13 @@ func (b approvalBlock) render(w int) string {
 	return styleApproveLn.Width(w).Render("⏸  " + msg + "\n" + prompt)
 }
 
-// toolBlock is a finished tool call: a header line plus a boxed preview of
-// the output, tinted red when the tool errored. expanded shows the full
-// output instead of the preview; ctrl+o toggles it.
+// toolBlock is a finished tool call: a header line plus a boxed preview.
+// file_write previews the written content (green), file_edit previews the
+// diff (green/red), both from the tool input; other tools preview output.
+// expanded shows the full body; ctrl+o toggles it.
 type toolBlock struct {
 	name, detail, output string
+	input                json.RawMessage
 	isError              bool
 	expanded             bool
 }
@@ -70,7 +73,25 @@ func (b toolBlock) render(w int) string {
 		card = styleCardErr
 	}
 	// w-2 is the card's content width (the style pads one column each side).
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolBody(b.output, b.expanded, w-2))
+	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(b.body(w-2))
+}
+
+// body picks what the card shows: the written content for file_write, an
+// old→new diff for file_edit, the tool output for everything else.
+func (b toolBlock) body(width int) string {
+	if !b.isError {
+		switch b.name {
+		case "file_write":
+			if s := writePreview(b.input, width, b.expanded); s != "" {
+				return s
+			}
+		case "file_edit":
+			if s := editPreview(b.input, width, b.expanded); s != "" {
+				return s
+			}
+		}
+	}
+	return toolBody(b.output, b.expanded, width)
 }
 
 // toolHeader renders the one-line title of a tool card: a verb plus its
@@ -109,15 +130,77 @@ func toolBody(output string, expanded bool, width int) string {
 	if output == "" {
 		return styleHint.Render("(no output)")
 	}
-	lines := strings.Split(output, "\n")
-	more := 0
-	if !expanded && len(lines) > cardPreviewLines {
-		more = len(lines) - cardPreviewLines
-		lines = lines[:cardPreviewLines]
-	}
+	lines, more := capLines(strings.Split(output, "\n"), expanded)
 	if looksLikeDiff(output) {
 		colorizeDiff(lines, width)
 	}
+	return joinWithMore(lines, more)
+}
+
+// editPair is one find/replace from a file_edit call.
+type editPair struct {
+	OldText string `json:"old_text"`
+	NewText string `json:"new_text"`
+}
+
+// writePreview renders a file_write card body: the written content, every
+// line tinted green since the whole file is new content.
+func writePreview(input json.RawMessage, width int, expanded bool) string {
+	var in struct {
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(input, &in) != nil || in.Content == "" {
+		return ""
+	}
+	lines, more := capLines(strings.Split(strings.TrimRight(in.Content, "\n"), "\n"), expanded)
+	for i, ln := range lines {
+		lines[i] = styleDiffAdd.Width(width).Render(ln)
+	}
+	return joinWithMore(lines, more)
+}
+
+// editPreview renders a file_edit card body: each replacement as a diff,
+// old lines red, new lines green.
+func editPreview(input json.RawMessage, width int, expanded bool) string {
+	var in struct {
+		OldText string     `json:"old_text"`
+		NewText string     `json:"new_text"`
+		Edits   []editPair `json:"edits"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	edits := in.Edits
+	if len(edits) == 0 && (in.OldText != "" || in.NewText != "") {
+		edits = []editPair{{in.OldText, in.NewText}}
+	}
+	if len(edits) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, e := range edits {
+		for _, ln := range strings.Split(strings.TrimRight(e.OldText, "\n"), "\n") {
+			lines = append(lines, styleDiffDel.Width(width).Render("- "+ln))
+		}
+		for _, ln := range strings.Split(strings.TrimRight(e.NewText, "\n"), "\n") {
+			lines = append(lines, styleDiffAdd.Width(width).Render("+ "+ln))
+		}
+	}
+	lines, more := capLines(lines, expanded)
+	return joinWithMore(lines, more)
+}
+
+// capLines trims a slice to the preview cap unless expanded, returning the
+// trimmed slice and how many lines were dropped.
+func capLines(lines []string, expanded bool) ([]string, int) {
+	if expanded || len(lines) <= cardPreviewLines {
+		return lines, 0
+	}
+	return lines[:cardPreviewLines], len(lines) - cardPreviewLines
+}
+
+// joinWithMore joins body lines, appending a hint when lines were dropped.
+func joinWithMore(lines []string, more int) string {
 	body := strings.Join(lines, "\n")
 	if more > 0 {
 		body += "\n" + styleHint.Render(fmt.Sprintf("… %d more lines  (ctrl+o)", more))

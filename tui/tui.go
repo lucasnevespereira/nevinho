@@ -224,7 +224,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// approval handshake, not a real result, so skip it; the agent's
 		// reply carries the approval prompt instead.
 		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
-			m.add(toolBlock{name: ev.Name, detail: ev.Detail, output: ev.Output, isError: ev.IsError, expanded: m.expanded})
+			m.add(toolBlock{name: ev.Name, detail: ev.Detail, input: ev.Input, output: ev.Output, isError: ev.IsError, expanded: m.expanded})
 		}
 		return m, m.listen()
 
