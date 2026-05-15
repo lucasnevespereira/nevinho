@@ -2,10 +2,20 @@
   <img src="assets/nevinho.png" width="200" />
 </p>
 
-# nevinho
+<h1 align="center">nevinho</h1>
 
-A personal AI agent you self-host. Reach it from a Discord DM,
-or run it as a coding agent in your terminal.
+<p align="center">
+  A personal AI agent you self-host. Reach it from a Discord DM,<br/>
+  or run it as a coding agent in your terminal.
+</p>
+
+<p align="center">
+  <a href="https://github.com/lucasnevespereira/nevinho/releases"><img src="https://img.shields.io/github/v/release/lucasnevespereira/nevinho?color=blue" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/lucasnevespereira/nevinho" alt="License" /></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/lucasnevespereira/nevinho" alt="Go version" />
+  <a href="https://github.com/lucasnevespereira/nevinho/stargazers"><img src="https://img.shields.io/github/stars/lucasnevespereira/nevinho?style=flat" alt="Stars" /></a>
+  <a href="https://github.com/lucasnevespereira/nevinho/network/members"><img src="https://img.shields.io/github/forks/lucasnevespereira/nevinho?style=flat" alt="Forks" /></a>
+</p>
 
 Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
 Tools for bash, code search, web search, file editing, scheduled tasks.
@@ -130,6 +140,8 @@ The terminal client tightens this further: every shell command and every write o
 ## Terminal use
 
 nevinho also runs locally in your terminal. Same agent, same tools, same encrypted config under `~/.nevinho/`. Conversation blocks render inline so your terminal handles wheel scroll, text selection, and URL clicks the same as for any other shell output.
+
+Voice messages and scheduled tasks are Discord-only for now. They need a long-running process and an inbox, which the terminal client does not have.
 
 Slash commands inside the terminal:
 
