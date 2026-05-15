@@ -8,10 +8,13 @@ import (
 
 // selectorItem is one row of a selector: what shows, what it resolves to
 // when chosen, and whether it carries the ✓ mark (the active/current one).
+// toggle items flip on/off in place via space; non-toggle items pick on
+// enter.
 type selectorItem struct {
 	label  string
 	value  string
 	marked bool
+	toggle bool
 }
 
 // selector is a filterable single-pick list. It backs both the model
@@ -61,6 +64,15 @@ func (s selector) update(key string) (next selector, chosen string, open bool) {
 		if s.cursor < len(vis) {
 			return s, vis[s.cursor].value, false
 		}
+	case " ":
+		// Space flips a toggle item in place (selector stays open). For
+		// other items it just extends the filter, like any printable.
+		vis := s.visible()
+		if s.cursor < len(vis) && vis[s.cursor].toggle {
+			return s, vis[s.cursor].value, true
+		}
+		s.filter += " "
+		s.cursor = 0
 	case "up", "ctrl+p":
 		if s.cursor > 0 {
 			s.cursor--
@@ -84,10 +96,10 @@ func (s selector) update(key string) (next selector, chosen string, open bool) {
 }
 
 // view renders the picker: a help line, the current filter, and the list
-// with → on the cursor and ✓ on the marked item.
+// with → on the cursor, ✓ on set items, and on/off on toggle items.
 func (s selector) view() string {
 	var b strings.Builder
-	b.WriteString(styleHint.Render(s.title + " — type to filter · ↑↓ move · enter select · esc cancel"))
+	b.WriteString(styleHint.Render(s.title + " — type to filter · ↑↓ move · enter select · space toggle · esc cancel"))
 	b.WriteString("\n")
 	if s.filter != "" {
 		b.WriteString(styleToolHead.Render("filter ") + s.filter)
@@ -100,12 +112,20 @@ func (s selector) view() string {
 		return b.String()
 	}
 	for i, it := range vis {
-		row := "  " + it.label
+		prefix := "  "
+		row := prefix + it.label
 		if i == s.cursor {
 			row = styleSelected.Render("→ " + it.label)
 		}
-		if it.marked {
-			row += styleHint.Render("  ✓")
+		switch {
+		case it.toggle:
+			state := "off"
+			if it.marked {
+				state = "on"
+			}
+			row += "  " + styleHint.Render(state)
+		case it.marked:
+			row += "  " + styleHint.Render("✓")
 		}
 		b.WriteString(row + "\n")
 	}
@@ -132,20 +152,32 @@ var configLabels = map[string]string{
 	"OPENROUTER_API_KEY": "OpenRouter API key",
 	"OLLAMA_MODEL":       "Ollama model",
 	"TAVILY_API_KEY":     "Tavily search key",
-	"CAVEMAN":            "Caveman mode (on / off)",
-	"ELEPHANT":           "Conversation memory (on / off)",
+	"CAVEMAN":            "Caveman mode",
+	"ELEPHANT":           "Conversation memory",
 }
 
-// configItems builds selector rows for the /config picker, labeled and
-// marked with ✓ when already set.
-func configItems(keys []config.KeyStatus) []selectorItem {
+// configToggles is the set of config keys that are on/off booleans, so the
+// selector lets the user flip them with space instead of typing "on"/"off".
+var configToggles = map[string]bool{
+	"CAVEMAN":  true,
+	"ELEPHANT": true,
+}
+
+// configItems builds selector rows for the /config picker. getValue reads
+// each toggle key's current value so its ✓ mark reflects reality.
+func configItems(keys []config.KeyStatus, getValue func(string) string) []selectorItem {
 	var items []selectorItem
 	for _, k := range keys {
 		label, ok := configLabels[k.Name]
 		if !ok {
 			continue
 		}
-		items = append(items, selectorItem{label: label, value: k.Name, marked: k.Set})
+		toggle := configToggles[k.Name]
+		marked := k.Set
+		if toggle {
+			marked = getValue(k.Name) == "on"
+		}
+		items = append(items, selectorItem{label: label, value: k.Name, marked: marked, toggle: toggle})
 	}
 	return items
 }

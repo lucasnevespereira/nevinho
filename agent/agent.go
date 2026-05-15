@@ -260,6 +260,15 @@ func (a *Agent) ConfigKeys() []config.KeyStatus {
 	return a.cfg.Keys()
 }
 
+// GetConfig reads a config key's current value, empty when unset or unknown.
+func (a *Agent) GetConfig(key string) string {
+	v, err := a.cfg.Get(key)
+	if err != nil {
+		return ""
+	}
+	return v
+}
+
 // Usage reports cumulative token counts for this process and the estimated
 // cost, for a status display.
 func (a *Agent) Usage() (in, out int, cost float64) {

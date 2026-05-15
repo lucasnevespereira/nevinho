@@ -246,17 +246,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// updateSelector handles one keypress while the model picker is open.
+// updateSelector handles one keypress while a picker is open. A non-empty
+// chosen with open=true is a toggle (config booleans); open=false is a pick.
 func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 	sel, chosen, open := m.sel.update(key)
 	m.sel = sel
-	if open {
-		return m, nil
-	}
-	m.selecting = false
 	if chosen == "" {
+		if !open {
+			m.selecting = false
+		}
 		return m, nil
 	}
+	if open {
+		// Toggle action: flip the boolean and refresh items in place so
+		// the cursor stays on the toggled row.
+		if m.selKind == "config" {
+			m.toggleConfig(chosen)
+		}
+		return m, nil
+	}
+	// Pick action.
+	m.selecting = false
 	switch m.selKind {
 	case "model":
 		if chosen != m.agent.Model() {
@@ -273,6 +283,20 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		m.input.Placeholder = "value for " + configLabels[chosen]
 	}
 	return m, nil
+}
+
+// toggleConfig flips a boolean config key (CAVEMAN, ELEPHANT) and refreshes
+// the open selector's items so the ✓ moves immediately.
+func (m *model) toggleConfig(key string) {
+	next := "on"
+	if m.agent.GetConfig(key) == "on" {
+		next = "off"
+	}
+	if err := m.agent.SetConfig(key, next); err != nil {
+		m.add(errorBlock{err.Error()})
+		return
+	}
+	m.sel.items = configItems(m.agent.ConfigKeys(), m.agent.GetConfig)
 }
 
 // updateApproval handles one keypress while a tool action awaits a yes/no
@@ -421,7 +445,7 @@ func matchCommands(input string) string {
 // and value, or clears a key when given just a key.
 func (m *model) handleConfig(arg string) {
 	if arg == "" {
-		m.sel = newSelector("configure", configItems(m.agent.ConfigKeys()))
+		m.sel = newSelector("configure", configItems(m.agent.ConfigKeys(), m.agent.GetConfig))
 		m.selKind = "config"
 		m.selecting = true
 		return
