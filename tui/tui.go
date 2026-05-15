@@ -41,6 +41,11 @@ var (
 	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
 	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+
+	styleDiffAdd  = lipgloss.NewStyle().Background(lipgloss.Color("22")).Foreground(lipgloss.Color("252"))
+	styleDiffDel  = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252"))
+	styleDiffHunk = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	styleDiffMeta = lipgloss.NewStyle().Foreground(colDim)
 )
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in

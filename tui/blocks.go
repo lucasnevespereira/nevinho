@@ -69,7 +69,8 @@ func (b toolBlock) render(w int) string {
 	if b.isError {
 		card = styleCardErr
 	}
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolBody(b.output, b.expanded))
+	// w-2 is the card's content width (the style pads one column each side).
+	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(toolBody(b.output, b.expanded, w-2))
 }
 
 // toolHeader renders the one-line title of a tool card: a verb plus its
@@ -101,18 +102,50 @@ func toolHeader(name, detail string) string {
 }
 
 // toolBody renders a tool card's output: the full text when expanded,
-// otherwise a capped preview with a "more" hint.
-func toolBody(output string, expanded bool) string {
+// otherwise a capped preview with a "more" hint. When the output looks
+// like a unified diff, its lines are tinted green/red.
+func toolBody(output string, expanded bool, width int) string {
 	output = strings.TrimRight(output, "\n")
 	if output == "" {
 		return styleHint.Render("(no output)")
 	}
 	lines := strings.Split(output, "\n")
-	if expanded || len(lines) <= cardPreviewLines {
-		return output
+	more := 0
+	if !expanded && len(lines) > cardPreviewLines {
+		more = len(lines) - cardPreviewLines
+		lines = lines[:cardPreviewLines]
 	}
-	shown := strings.Join(lines[:cardPreviewLines], "\n")
-	return shown + "\n" + styleHint.Render(fmt.Sprintf("… %d more lines  (ctrl+o)", len(lines)-cardPreviewLines))
+	if looksLikeDiff(output) {
+		colorizeDiff(lines, width)
+	}
+	body := strings.Join(lines, "\n")
+	if more > 0 {
+		body += "\n" + styleHint.Render(fmt.Sprintf("… %d more lines  (ctrl+o)", more))
+	}
+	return body
+}
+
+// looksLikeDiff reports whether output is a unified diff, so plain command
+// output with leading +/- (an ls listing, a markdown list) is not tinted.
+func looksLikeDiff(s string) bool {
+	return strings.Contains(s, "diff --git") || strings.Contains(s, "\n@@") || strings.HasPrefix(s, "@@")
+}
+
+// colorizeDiff tints diff lines in place: green for additions, red for
+// deletions, each padded to the card width so the tint runs full bleed.
+func colorizeDiff(lines []string, width int) {
+	for i, ln := range lines {
+		switch {
+		case strings.HasPrefix(ln, "+++") || strings.HasPrefix(ln, "---"):
+			lines[i] = styleDiffMeta.Render(ln)
+		case strings.HasPrefix(ln, "@@"):
+			lines[i] = styleDiffHunk.Render(ln)
+		case strings.HasPrefix(ln, "+"):
+			lines[i] = styleDiffAdd.Width(width).Render(ln)
+		case strings.HasPrefix(ln, "-"):
+			lines[i] = styleDiffDel.Width(width).Render(ln)
+		}
+	}
 }
 
 // mdRenderer is cached across blocks and rebuilt only when the width changes.
