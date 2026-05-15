@@ -72,10 +72,11 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	})
 	defer a.SetToolCallback(userID, nil)
 
-	// Mouse capture for wheel scrolling. Terminals still pass through
-	// shift+drag for native text selection and cmd+click for URLs, so we
-	// keep both: wheel scrolls the viewport, shift+drag selects text.
-	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// No mouse capture: it would steal click and drag events and break
+	// terminal-native text selection and URL clicking, which matter more
+	// in a coding-agent TUI than wheel scrolling. Use pgup / pgdown /
+	// ctrl+u / ctrl+d / home / end to scroll the viewport.
+	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
