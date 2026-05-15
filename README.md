@@ -4,17 +4,18 @@
 
 <h1 align="center">nevinho</h1>
 
-<p align="center">
-  A personal AI agent you self-host. Reach it from a Discord DM,<br/>
-  or run it as a coding agent in your terminal.
-</p>
+---
+
+<p align="center"><i><b>
+A personal AI agent you self-host. Reach it from a Discord DM, or run it as a coding agent in your terminal.
+</b></i></p>
 
 <p align="center">
-  <a href="https://github.com/lucasnevespereira/nevinho/releases"><img src="https://img.shields.io/github/v/release/lucasnevespereira/nevinho?color=blue" alt="Release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/lucasnevespereira/nevinho" alt="License" /></a>
-  <img src="https://img.shields.io/github/go-mod/go-version/lucasnevespereira/nevinho" alt="Go version" />
-  <a href="https://github.com/lucasnevespereira/nevinho/stargazers"><img src="https://img.shields.io/github/stars/lucasnevespereira/nevinho?style=flat" alt="Stars" /></a>
-  <a href="https://github.com/lucasnevespereira/nevinho/network/members"><img src="https://img.shields.io/github/forks/lucasnevespereira/nevinho?style=flat" alt="Forks" /></a>
+  <a href="https://github.com/lucasnevespereira/nevinho/stargazers"><img src="https://img.shields.io/github/stars/lucasnevespereira/nevinho?style=flat&logo=github" alt="Stars" /></a>
+  <a href="https://github.com/lucasnevespereira/nevinho/network/members"><img src="https://img.shields.io/github/forks/lucasnevespereira/nevinho?style=flat&logo=github" alt="Forks" /></a>
+  <a href="https://github.com/lucasnevespereira/nevinho/issues"><img src="https://img.shields.io/github/issues/lucasnevespereira/nevinho?style=flat&logo=github" alt="Issues" /></a>
+  <a href="https://github.com/lucasnevespereira/nevinho/releases"><img src="https://img.shields.io/github/v/release/lucasnevespereira/nevinho?style=flat&color=blue" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/lucasnevespereira/nevinho?style=flat&color=green" alt="License" /></a>
 </p>
 
 Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
