@@ -32,6 +32,8 @@ nevinho setup     # Discord token, owner ID, LLM keys, voice
 nevinho start     # runs as a background service
 ```
 
+No Discord bot yet? Follow [SETUP.md](SETUP.md) first to create one.
+
 You can also run nevinho locally as a coding agent in your terminal. Same agent, same tools, same config:
 
 ```bash

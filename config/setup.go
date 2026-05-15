@@ -54,6 +54,9 @@ func RunSetup(configDir string) error {
 
 	// Discord
 	fmt.Println("Discord")
+	if cfg.DiscordBotToken == "" {
+		fmt.Println("  No bot yet? Follow https://github.com/lucasnevespereira/nevinho/blob/main/SETUP.md")
+	}
 	cfg.DiscordBotToken = prompt("Bot token", cfg.DiscordBotToken)
 	cfg.DiscordOwnerID = prompt("Your Discord user ID", cfg.DiscordOwnerID)
 
