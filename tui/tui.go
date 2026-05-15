@@ -105,11 +105,11 @@ type model struct {
 	approving      bool // a tool action is awaiting yes/no
 	approvalCursor int  // 0 = yes, 1 = no
 	sel            selector
-	selKind   string // "model" or "config": what the open picker resolves to
-	configKey string // non-empty while the input captures a value for this key
-	width     int
-	height    int
-	ready     bool
+	selKind        string // "model" or "config": what the open picker resolves to
+	configKey      string // non-empty while the input captures a value for this key
+	width          int
+	height         int
+	ready          bool
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
