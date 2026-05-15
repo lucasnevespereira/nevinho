@@ -39,13 +39,9 @@ var (
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
 	styleSelected  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	styleUserMark  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
-	// Agent text is the model's voice — soft and italic, like pi's
-	// "thinking". Tool cards and approvals stay bright, so the visual
-	// hierarchy is: bright = facts, dim italic = the model talking.
-	styleAgent    = lipgloss.NewStyle().Foreground(colDim).Italic(true)
-	styleToolHead = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleCard     = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(1, 2)
-	styleCardErr  = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(1, 2)
+	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(1, 2)
+	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(1, 2)
 
 	// Fg-only diff colours, like git diff: a calm green/red on the +/- lines
 	// rather than a loud full-line background.
@@ -76,8 +72,10 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	})
 	defer a.SetToolCallback(userID, nil)
 
-	p := tea.NewProgram(newModel(a, events, cwd),
-		tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// No WithMouseCellMotion: capturing mouse breaks text selection and URL
+	// clicking, which matter more than wheel-scrolling in a chat-like UI.
+	// pgup / pgdown / ctrl+u / ctrl+d still scroll the viewport.
+	p := tea.NewProgram(newModel(a, events, cwd), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
@@ -204,11 +202,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.submit()
 		}
-
-	case tea.MouseMsg:
-		var cmd tea.Cmd
-		m.vp, cmd = m.vp.Update(msg)
-		return m, cmd
 
 	case responseMsg:
 		m.busy = false

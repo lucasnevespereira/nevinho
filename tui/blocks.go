@@ -25,14 +25,14 @@ func (b userBlock) render(w int) string {
 	return styleUserMark.Render("❯") + " " + b.text
 }
 
-// agentBlock is the agent's reply: rendered as markdown, but uniformly
-// soft and italic — the model's voice. Tool cards and approvals stay
-// bright, so it is always clear what is fact and what is the model talking.
+// agentBlock is the agent's reply, rendered as markdown. Glamour gives
+// links, code, and emphasis their normal colours so terminals can pick up
+// URLs as clickable. Tool cards above are what signal tool activity;
+// everything in here is the model talking.
 type agentBlock struct{ text string }
 
 func (b agentBlock) render(w int) string {
-	md := renderMarkdown(strings.TrimRight(b.text, "\n"), w)
-	return styleAgent.Render(md)
+	return renderMarkdown(strings.TrimRight(b.text, "\n"), w)
 }
 
 // hintBlock is dim helper text (the greeting, slash-command output).
@@ -249,11 +249,11 @@ func renderMarkdown(s string, w int) string {
 		return s
 	}
 	if mdRenderer == nil || mdWidth != w {
-		// "notty" strips glamour's own colours so the outer agent style
-		// (dim italic) shows through uniformly. Markdown structure (lists,
-		// code blocks) is still rendered, just colourless.
+		// A fixed dark style, not WithAutoStyle: auto-style queries the
+		// terminal for its background colour, and that reply leaks into
+		// Bubble Tea's input as garbage keystrokes.
 		r, err := glamour.NewTermRenderer(
-			glamour.WithStandardStyle("notty"),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(w-4),
 		)
 		if err != nil {
