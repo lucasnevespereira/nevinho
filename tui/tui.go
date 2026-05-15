@@ -35,10 +35,12 @@ var (
 	colErr    = lipgloss.Color("9")
 	colWarn   = lipgloss.Color("214")
 
-	styleHint      = lipgloss.NewStyle().Foreground(colDim)
-	styleErr       = lipgloss.NewStyle().Foreground(colErr)
-	styleInput     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
-	styleApprove   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colWarn)
+	styleHint = lipgloss.NewStyle().Foreground(colDim)
+	styleErr  = lipgloss.NewStyle().Foreground(colErr)
+	// Flat input bar with hairline rules above and below. Matches the pi
+	// aesthetic of a single-row input instead of a chunky rounded box.
+	styleInput   = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, true, false).BorderForeground(colDim)
+	styleApprove = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, true, false).BorderForeground(colWarn)
 	styleApproveLn = lipgloss.NewStyle().Foreground(colWarn)
 	styleStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
@@ -196,7 +198,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.input.SetWidth(m.contentWidth() - 2)
+		m.input.SetWidth(m.width)
 		if !m.ready {
 			m.ready = true
 			// Print the greeting plus enough blank rows to push the live
@@ -553,7 +555,8 @@ func (m model) View() string {
 	if m.approving {
 		bottom = m.approvalPicker()
 	} else {
-		bottom = styleInput.Width(m.contentWidth() - 2).Render(m.input.View())
+		// Hairline bar spans the full terminal width like pi's input row.
+		bottom = styleInput.Width(m.width).Render(m.input.View())
 	}
 	// Leading blank row keeps the live region from hugging the last
 	// printed block in scrollback.
@@ -580,7 +583,7 @@ func (m model) approvalPicker() string {
 	hint := styleHint.Render("approve?")
 	keys := styleHint.Render("(↑↓ enter · y / n · esc)")
 	line := hint + "  " + yes + "    " + no + "    " + keys
-	return styleApprove.Width(m.contentWidth() - 2).Render(line)
+	return styleApprove.Width(m.width).Render(line)
 }
 
 // workingLine is the one row above the input: the spinner while a turn
