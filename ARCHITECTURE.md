@@ -173,7 +173,7 @@ Evicted messages do not just vanish. The agent asks the LLM to summarize them in
 
 ## Persistence (Elephant)
 
-When `ELEPHANT=on`, the agent writes a summary of each active user's history to disk on shutdown. On next start the summary loads back so the conversation resumes with context intact. Off by default.
+When `ELEPHANT` is on (the default, override with `ELEPHANT=off`), the agent writes a summary of each active user's history to disk on shutdown. On next start the summary loads back so the conversation resumes with context intact.
 
 Files live in `~/.nevinho/summaries/<userID>.md`. `/session` in the TUI dumps the current summary.
 

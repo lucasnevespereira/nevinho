@@ -4,10 +4,6 @@
 
 <h1 align="center">nevinho</h1>
 
-<p align="center"><i><b>
-A personal AI agent you self-host. Reach it from a Discord DM, or run it as a coding agent in your terminal.
-</b></i></p>
-
 <p align="center">
   <a href="https://github.com/lucasnevespereira/nevinho/stargazers"><img src="https://img.shields.io/github/stars/lucasnevespereira/nevinho?style=flat&logo=github" alt="Stars" /></a>
   <a href="https://github.com/lucasnevespereira/nevinho/network/members"><img src="https://img.shields.io/github/forks/lucasnevespereira/nevinho?style=flat&logo=github" alt="Forks" /></a>
@@ -16,7 +12,7 @@ A personal AI agent you self-host. Reach it from a Discord DM, or run it as a co
   <a href="LICENSE"><img src="https://img.shields.io/github/license/lucasnevespereira/nevinho?style=flat&color=green" alt="License" /></a>
 </p>
 
-Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
+A personal AI agent you self-host. Reach it from a Discord DM, or run it as a coding agent in your terminal. Supports Anthropic, OpenAI, Gemini, Groq, OpenRouter, and Ollama.
 Tools for bash, code search, web search, file editing, scheduled tasks.
 
 ## Install
@@ -77,14 +73,14 @@ For development, copy `.env.example` to `.env`, fill `DISCORD_BOT_TOKEN`, `DISCO
 
 Configure one or more LLM backends with `nevinho setup` or the in-session `/config` picker.
 
-| Provider   | Env var               | Default model                                       | Get a key                              |
-| ---------- | --------------------- | --------------------------------------------------- | -------------------------------------- |
-| Anthropic  | `ANTHROPIC_API_KEY`   | claude-haiku-4-5                                    | https://console.anthropic.com          |
-| OpenAI     | `OPENAI_API_KEY`      | gpt-4o-mini                                         | https://platform.openai.com/api-keys   |
-| Gemini     | `GEMINI_API_KEY`      | gemini-2.5-flash                                    | https://aistudio.google.com/app/apikey |
-| Groq       | `GROQ_API_KEY`        | groq:llama-3.3-70b-versatile                        | https://console.groq.com/keys          |
-| OpenRouter | `OPENROUTER_API_KEY`  | openrouter:nvidia/nemotron-3-super-120b-a12b:free   | https://openrouter.ai/keys             |
-| Ollama     | `OLLAMA_MODEL=llama3` | any local model                                     | run locally                            |
+| Provider   | Env var               | Default model                                     | Get a key                              |
+| ---------- | --------------------- | ------------------------------------------------- | -------------------------------------- |
+| Anthropic  | `ANTHROPIC_API_KEY`   | claude-haiku-4-5                                  | https://console.anthropic.com          |
+| OpenAI     | `OPENAI_API_KEY`      | gpt-4o-mini                                       | https://platform.openai.com/api-keys   |
+| Gemini     | `GEMINI_API_KEY`      | gemini-2.5-flash                                  | https://aistudio.google.com/app/apikey |
+| Groq       | `GROQ_API_KEY`        | groq:llama-3.3-70b-versatile                      | https://console.groq.com/keys          |
+| OpenRouter | `OPENROUTER_API_KEY`  | openrouter:nvidia/nemotron-3-super-120b-a12b:free | https://openrouter.ai/keys             |
+| Ollama     | `OLLAMA_MODEL=llama3` | any local model                                   | run locally                            |
 
 Groq and OpenRouter both offer a free tier with daily request quotas. Useful for testing without burning credits.
 
@@ -150,18 +146,18 @@ Voice messages and scheduled tasks are Discord-only for now. They need a long-ru
 
 Slash commands inside the terminal:
 
-| Command         | What it does                                |
-| --------------- | ------------------------------------------- |
-| `/model`        | Pick a model from an interactive list       |
-| `/config`       | Set provider keys, toggle CAVEMAN, ELEPHANT |
-| `/memory`       | Show what nevinho remembers about you       |
-| `/session`      | Show the saved conversation summary         |
-| `/status`       | Model, uptime, token usage, cost            |
-| `/paths`        | List approved paths, enter to revoke one    |
-| `/paths clear`  | Revoke all path permissions                 |
-| `/forget`       | Wipe this conversation and saved summary    |
-| `/help`         | Show the command list                       |
-| `/quit`         | Leave (or ctrl+c)                           |
+| Command        | What it does                                |
+| -------------- | ------------------------------------------- |
+| `/model`       | Pick a model from an interactive list       |
+| `/config`      | Set provider keys, toggle CAVEMAN, ELEPHANT |
+| `/memory`      | Show what nevinho remembers about you       |
+| `/session`     | Show the saved conversation summary         |
+| `/status`      | Model, uptime, token usage, cost            |
+| `/paths`       | List approved paths, enter to revoke one    |
+| `/paths clear` | Revoke all path permissions                 |
+| `/forget`      | Wipe this conversation and saved summary    |
+| `/help`        | Show the command list                       |
+| `/quit`        | Leave (or ctrl+c)                           |
 
 ## Config
 
@@ -181,7 +177,7 @@ chat.log            terminal client runtime log
 
 Set `CAVEMAN=on` via `/config` for a token-saving caveman-style response. Off by default.
 
-Set `ELEPHANT=on` via `/config` to persist conversation summaries across restarts. Off by default. When on, nevinho summarizes your conversation on shutdown and reloads it on the next start.
+Set `ELEPHANT=off` via `/config` to stop persisting conversation summaries across restarts. On by default. When on, nevinho summarizes your conversation on shutdown and reloads it on the next start.
 
 ## Project structure
 
