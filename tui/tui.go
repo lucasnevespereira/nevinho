@@ -33,7 +33,6 @@ var (
 	styleHint      = lipgloss.NewStyle().Foreground(colDim)
 	styleErr       = lipgloss.NewStyle().Foreground(colErr)
 	styleInput     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
-	styleApprove   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colWarn).Foreground(colWarn)
 	styleApproveLn = lipgloss.NewStyle().Foreground(colWarn)
 	styleStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
@@ -204,10 +203,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.add(errorBlock{llm.FriendlyError(msg.err)})
 		case m.agent.HasPendingApproval(userID):
-			// The reply is the agent asking permission. Show it distinctly
-			// and switch the input to a y/n prompt.
+			// The reply is the agent asking permission. The approval block
+			// carries the y/n affordance inline; the input goes inert.
 			m.add(approvalBlock{msg.text})
 			m.approving = true
+			m.input.Placeholder = "answer above — y / n / esc"
 		default:
 			m.add(agentBlock{msg.text})
 		}
@@ -274,10 +274,12 @@ func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "y", "Y":
 		m.approving = false
+		m.input.Placeholder = inputPlaceholder
 		m.busy = true
 		return m, tea.Batch(m.send("yes"), m.spin.Tick)
 	case "n", "N", "esc":
 		m.approving = false
+		m.input.Placeholder = inputPlaceholder
 		m.busy = true
 		return m, tea.Batch(m.send("no"), m.spin.Tick)
 	}
@@ -444,16 +446,11 @@ func (m model) View() string {
 		body := lipgloss.NewStyle().Height(m.height - 1).Render(m.sel.view())
 		return body + "\n" + m.statusBar()
 	}
-	// While approving, the input box is replaced by a y/n prompt of the
-	// same height, so the layout stays put.
-	bottom := styleInput.Width(m.width - 2).Render(m.input.View())
-	if m.approving {
-		bottom = styleApprove.Width(m.width - 2).Render("approve this action?    y  yes    ·    n  no    ·    esc  cancel")
-	}
+	input := styleInput.Width(m.width - 2).Render(m.input.View())
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.vp.View(),
 		m.workingLine(),
-		bottom,
+		input,
 		m.statusBar(),
 	)
 }

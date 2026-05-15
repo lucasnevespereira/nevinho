@@ -45,11 +45,14 @@ func (b errorBlock) render(w int) string {
 }
 
 // approvalBlock is the agent asking permission for an action. It renders in
-// the warning colour; the input switches to a y/n prompt while it is up.
+// the warning colour and carries the y/n affordance inline, so the prompt
+// sits with the action instead of pinned to the bottom of the screen.
 type approvalBlock struct{ text string }
 
 func (b approvalBlock) render(w int) string {
-	return styleApproveLn.Width(w).Render("⏸  " + strings.TrimRight(b.text, "\n"))
+	msg := strings.ReplaceAll(strings.TrimRight(b.text, "\n"), "`", "")
+	prompt := "   y approve   ·   n deny   ·   esc cancel"
+	return styleApproveLn.Width(w).Render("⏸  " + msg + "\n" + prompt)
 }
 
 // toolBlock is a finished tool call: a header line plus a boxed preview of
