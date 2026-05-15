@@ -24,11 +24,17 @@ func (b userBlock) render(w int) string {
 	return styleUser.Width(w).Render(b.text)
 }
 
-// agentBlock is the agent's reply, rendered as markdown.
+// agentBlock is the agent's reply, rendered as markdown with a thin
+// left-edge bar so it is visually distinct from a tool card. If the model
+// narrates a tool call as prose, the bar makes it clear it is still just
+// model text, not a real tool result.
 type agentBlock struct{ text string }
 
 func (b agentBlock) render(w int) string {
-	return renderMarkdown(strings.TrimRight(b.text, "\n"), w)
+	// styleAgentBar adds a 2-col gutter (border + padding) on the left, so
+	// the markdown renderer wraps inside the remaining width.
+	md := renderMarkdown(strings.TrimRight(b.text, "\n"), w-2)
+	return styleAgentBar.Render(md)
 }
 
 // hintBlock is dim helper text (the greeting, slash-command output).

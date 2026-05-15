@@ -38,6 +38,7 @@ var (
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
 	styleSelected  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	styleUser      = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	styleAgentBar  = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(colAccent).PaddingLeft(1)
 	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
 	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
