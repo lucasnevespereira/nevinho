@@ -42,8 +42,10 @@ var (
 	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
 	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 
-	styleDiffAdd  = lipgloss.NewStyle().Background(lipgloss.Color("22")).Foreground(lipgloss.Color("252"))
-	styleDiffDel  = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252"))
+	// Fg-only diff colours, like git diff: a calm green/red on the +/- lines
+	// rather than a loud full-line background.
+	styleDiffAdd  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	styleDiffDel  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleDiffHunk = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	styleDiffMeta = lipgloss.NewStyle().Foreground(colDim)
 )

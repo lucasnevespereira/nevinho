@@ -72,26 +72,25 @@ func (b toolBlock) render(w int) string {
 	if b.isError {
 		card = styleCardErr
 	}
-	// w-2 is the card's content width (the style pads one column each side).
-	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(b.body(w-2))
+	return toolHeader(b.name, b.detail) + "\n" + card.Width(w).Render(b.body())
 }
 
 // body picks what the card shows: the written content for file_write, an
 // old→new diff for file_edit, the tool output for everything else.
-func (b toolBlock) body(width int) string {
+func (b toolBlock) body() string {
 	if !b.isError {
 		switch b.name {
 		case "file_write":
-			if s := writePreview(b.input, width, b.expanded); s != "" {
+			if s := writePreview(b.input, b.expanded); s != "" {
 				return s
 			}
 		case "file_edit":
-			if s := editPreview(b.input, width, b.expanded); s != "" {
+			if s := editPreview(b.input, b.expanded); s != "" {
 				return s
 			}
 		}
 	}
-	return toolBody(b.output, b.expanded, width)
+	return toolBody(b.output, b.expanded)
 }
 
 // toolHeader renders the one-line title of a tool card: a verb plus its
@@ -125,14 +124,14 @@ func toolHeader(name, detail string) string {
 // toolBody renders a tool card's output: the full text when expanded,
 // otherwise a capped preview with a "more" hint. When the output looks
 // like a unified diff, its lines are tinted green/red.
-func toolBody(output string, expanded bool, width int) string {
+func toolBody(output string, expanded bool) string {
 	output = strings.TrimRight(output, "\n")
 	if output == "" {
 		return styleHint.Render("(no output)")
 	}
 	lines, more := capLines(strings.Split(output, "\n"), expanded)
 	if looksLikeDiff(output) {
-		colorizeDiff(lines, width)
+		colorizeDiff(lines)
 	}
 	return joinWithMore(lines, more)
 }
@@ -145,7 +144,7 @@ type editPair struct {
 
 // writePreview renders a file_write card body: the written content, every
 // line tinted green since the whole file is new content.
-func writePreview(input json.RawMessage, width int, expanded bool) string {
+func writePreview(input json.RawMessage, expanded bool) string {
 	var in struct {
 		Content string `json:"content"`
 	}
@@ -154,14 +153,14 @@ func writePreview(input json.RawMessage, width int, expanded bool) string {
 	}
 	lines, more := capLines(strings.Split(strings.TrimRight(in.Content, "\n"), "\n"), expanded)
 	for i, ln := range lines {
-		lines[i] = styleDiffAdd.Width(width).Render(ln)
+		lines[i] = styleDiffAdd.Render(ln)
 	}
 	return joinWithMore(lines, more)
 }
 
 // editPreview renders a file_edit card body: each replacement as a diff,
 // old lines red, new lines green.
-func editPreview(input json.RawMessage, width int, expanded bool) string {
+func editPreview(input json.RawMessage, expanded bool) string {
 	var in struct {
 		OldText string     `json:"old_text"`
 		NewText string     `json:"new_text"`
@@ -180,10 +179,10 @@ func editPreview(input json.RawMessage, width int, expanded bool) string {
 	var lines []string
 	for _, e := range edits {
 		for _, ln := range strings.Split(strings.TrimRight(e.OldText, "\n"), "\n") {
-			lines = append(lines, styleDiffDel.Width(width).Render("- "+ln))
+			lines = append(lines, styleDiffDel.Render("- "+ln))
 		}
 		for _, ln := range strings.Split(strings.TrimRight(e.NewText, "\n"), "\n") {
-			lines = append(lines, styleDiffAdd.Width(width).Render("+ "+ln))
+			lines = append(lines, styleDiffAdd.Render("+ "+ln))
 		}
 	}
 	lines, more := capLines(lines, expanded)
@@ -216,7 +215,7 @@ func looksLikeDiff(s string) bool {
 
 // colorizeDiff tints diff lines in place: green for additions, red for
 // deletions, each padded to the card width so the tint runs full bleed.
-func colorizeDiff(lines []string, width int) {
+func colorizeDiff(lines []string) {
 	for i, ln := range lines {
 		switch {
 		case strings.HasPrefix(ln, "+++") || strings.HasPrefix(ln, "---"):
@@ -224,9 +223,9 @@ func colorizeDiff(lines []string, width int) {
 		case strings.HasPrefix(ln, "@@"):
 			lines[i] = styleDiffHunk.Render(ln)
 		case strings.HasPrefix(ln, "+"):
-			lines[i] = styleDiffAdd.Width(width).Render(ln)
+			lines[i] = styleDiffAdd.Render(ln)
 		case strings.HasPrefix(ln, "-"):
-			lines[i] = styleDiffDel.Width(width).Render(ln)
+			lines[i] = styleDiffDel.Render(ln)
 		}
 	}
 }
