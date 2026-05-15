@@ -36,7 +36,7 @@ nevinho start     # runs as a background service
 
 No Discord bot yet? Follow [SETUP.md](SETUP.md) first to create one.
 
-### Terminal client (any OS)
+### Terminal client
 
 ```bash
 nevinho
