@@ -199,7 +199,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(m.contentWidth() - 2)
 		if !m.ready {
 			m.ready = true
-			return m, m.printBlock(m.greeting())
+			// Print the greeting plus enough blank rows to push the live
+			// region toward the bottom of the terminal. Without this the
+			// input sits right under the greeting and the rest of the
+			// screen reads as dead space. As content grows, tea.Println
+			// pushes new blocks above the live region and the padding
+			// scrolls off naturally.
+			greeting := m.greeting().render(m.contentWidth())
+			liveHeight := 7 // blank row + workingLine + input (3 with border) + statusBar + safety
+			pad := max(m.height-lipgloss.Height(greeting)-liveHeight, 0)
+			return m, tea.Println("\n" + greeting + strings.Repeat("\n", pad))
 		}
 		return m, nil
 
