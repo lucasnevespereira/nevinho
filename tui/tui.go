@@ -243,6 +243,16 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.send(text), m.spin.Tick)
 }
 
+// slashCommands is the canonical list, used for the /help text and the
+// type-ahead hint shown while the input starts with "/".
+var slashCommands = []struct{ name, desc string }{
+	{"/model", "list models, or switch to one"},
+	{"/config", "view config, set a key, or clear it"},
+	{"/forget", "wipe this session's history"},
+	{"/help", "show this list"},
+	{"/quit", "leave (or ctrl+c)"},
+}
+
 // handleSlash runs the in-TUI slash commands. The bool reports whether the
 // input was a slash command and should not go to the agent.
 func (m *model) handleSlash(text string) (tea.Cmd, bool) {
@@ -262,10 +272,45 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 		m.handleConfig(arg)
 		return nil, true
 	case "/help":
-		m.add(hintBlock{"/model [name]    list models, or switch to one\n/config [k v]    list config, set a key, or clear it (no value)\n/forget          wipe this session's history\n/quit            leave (or ctrl+c)\n/help            this"})
+		m.add(hintBlock{commandHelp()})
+		return nil, true
+	}
+	// An unknown slash command is a typo, not a message — keep it out of
+	// the agent and point at /help.
+	if strings.HasPrefix(cmd, "/") {
+		m.add(hintBlock{"unknown command " + cmd + " — /help for the list"})
 		return nil, true
 	}
 	return nil, false
+}
+
+// commandHelp renders the slash-command list for /help.
+func commandHelp() string {
+	var b strings.Builder
+	for _, c := range slashCommands {
+		b.WriteString(c.name)
+		b.WriteString(strings.Repeat(" ", 10-len(c.name)))
+		b.WriteString(c.desc)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// matchCommands returns the slash commands whose name starts with the input
+// word, for the type-ahead hint. Empty unless the input starts with "/".
+func matchCommands(input string) string {
+	input = strings.TrimSpace(input)
+	if !strings.HasPrefix(input, "/") {
+		return ""
+	}
+	word, _, _ := strings.Cut(input, " ")
+	var names []string
+	for _, c := range slashCommands {
+		if strings.HasPrefix(c.name, word) {
+			names = append(names, c.name)
+		}
+	}
+	return strings.Join(names, "  ")
 }
 
 // handleConfig lists config when called bare, sets a key when given a key
@@ -335,13 +380,17 @@ func (m model) View() string {
 	)
 }
 
-// workingLine is the spinner row shown just above the input while a turn
-// runs. It always occupies one row so the layout never jumps.
+// workingLine is the one row above the input: the spinner while a turn
+// runs, the slash-command hint while the input starts with "/", otherwise
+// blank. It always occupies one row so the layout never jumps.
 func (m model) workingLine() string {
-	if !m.busy {
-		return ""
+	if m.busy {
+		return " " + m.spin.View() + " " + styleHint.Render("working…")
 	}
-	return " " + m.spin.View() + " " + styleHint.Render("working…")
+	if hint := matchCommands(m.input.Value()); hint != "" {
+		return " " + styleHint.Render(hint)
+	}
+	return ""
 }
 
 // statusBar renders the bottom bar: working directory on the left, the
