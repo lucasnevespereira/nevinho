@@ -30,6 +30,7 @@ var (
 	styleInput    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
 	styleStatus   = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
 	styleSpin     = lipgloss.NewStyle().Foreground(colAccent)
+	styleSelected = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	styleUser     = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 	styleToolHead = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	styleCard     = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
@@ -82,12 +83,14 @@ type model struct {
 	input textarea.Model
 	spin  spinner.Model
 
-	blocks   []block
-	busy     bool
-	expanded bool // ctrl+o: show full tool output instead of previews
-	width    int
-	height   int
-	ready    bool
+	blocks    []block
+	busy      bool
+	expanded  bool // ctrl+o: show full tool output instead of previews
+	selecting bool // the model picker is open
+	sel       modelSelector
+	width     int
+	height    int
+	ready     bool
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -149,6 +152,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.selecting {
+			return m.updateSelector(msg.String())
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -199,6 +205,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+// updateSelector handles one keypress while the model picker is open.
+func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
+	sel, chosen, open := m.sel.update(key)
+	m.sel = sel
+	if open {
+		return m, nil
+	}
+	m.selecting = false
+	if chosen != "" && chosen != m.agent.Model() {
+		if err := m.agent.SwitchModel(chosen); err != nil {
+			m.add(errorBlock{err.Error()})
+		} else {
+			m.add(hintBlock{"switched to " + chosen})
+		}
+	}
+	return m, nil
 }
 
 // submit sends the current input to the agent, or runs it as a slash command.
@@ -274,16 +298,17 @@ func (m *model) handleConfig(arg string) {
 	}
 }
 
-// handleModel lists the available models when called bare, or switches to
-// the named one.
+// handleModel opens the picker when called bare, or switches directly to
+// the named model.
 func (m *model) handleModel(name string) {
 	if name == "" {
 		models := m.agent.AvailableModels()
 		if len(models) == 0 {
-			m.add(hintBlock{"no models available — configure a provider with `nevinho config`"})
+			m.add(hintBlock{"no models available — configure a provider with /config"})
 			return
 		}
-		m.add(hintBlock{"current: " + m.agent.Model() + "\n\n" + strings.Join(models, "\n") + "\n\nswitch with /model <name>"})
+		m.sel = newModelSelector(models, m.agent.Model())
+		m.selecting = true
 		return
 	}
 	if err := m.agent.SwitchModel(name); err != nil {
@@ -296,6 +321,10 @@ func (m *model) handleModel(name string) {
 func (m model) View() string {
 	if !m.ready {
 		return "starting nevinho…"
+	}
+	if m.selecting {
+		body := lipgloss.NewStyle().Height(m.height - 1).Render(m.sel.view())
+		return body + "\n" + m.statusBar()
 	}
 	input := styleInput.Width(m.width - 2).Render(m.input.View())
 	return lipgloss.JoinVertical(lipgloss.Left,
