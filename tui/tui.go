@@ -39,6 +39,10 @@ var (
 	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
 	styleSelected  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 	styleUserMark  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	// Agent text is the model's voice — soft and italic, like pi's
+	// "thinking". Tool cards and approvals stay bright, so the visual
+	// hierarchy is: bright = facts, dim italic = the model talking.
+	styleAgent     = lipgloss.NewStyle().Foreground(colDim).Italic(true)
 	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(1, 2)
 	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(1, 2)
