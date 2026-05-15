@@ -21,6 +21,9 @@ import (
 // userID namespaces this session's history in the agent.
 const userID = "cli-local"
 
+// inputPlaceholder is the textarea's resting placeholder text.
+const inputPlaceholder = "Ask nevinho anything…"
+
 var (
 	colAccent = lipgloss.Color("12")
 	colDim    = lipgloss.Color("244")
@@ -90,9 +93,11 @@ type model struct {
 	blocks    []block
 	busy      bool
 	expanded  bool // ctrl+o: show full tool output instead of previews
-	selecting bool // the model picker is open
+	selecting bool // a picker (model or config) is open
 	approving bool // a tool action is awaiting y/n
-	sel       modelSelector
+	sel       selector
+	selKind   string // "model" or "config": what the open picker resolves to
+	configKey string // non-empty while the input captures a value for this key
 	width     int
 	height    int
 	ready     bool
@@ -100,7 +105,7 @@ type model struct {
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask nevinho anything…"
+	ta.Placeholder = inputPlaceholder
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
@@ -113,6 +118,9 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	sp.Style = styleSpin
 
 	greeting := hintBlock{"nevinho · " + a.Model() + "\ntype a message · /help for commands · ctrl+c to quit"}
+	if len(a.AvailableModels()) == 0 {
+		greeting = hintBlock{"nevinho — no LLM provider configured yet\ntype /config to add one, then /model to pick a model"}
+	}
 
 	return model{
 		agent:  a,
@@ -173,6 +181,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+o":
 			m.toggleExpand()
 			return m, nil
+		case "esc":
+			if m.configKey != "" {
+				m.configKey = ""
+				m.input.Reset()
+				m.input.Placeholder = inputPlaceholder
+				m.add(hintBlock{"cancelled"})
+			}
+			return m, nil
 		case "enter":
 			return m.submit()
 		}
@@ -229,12 +245,23 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.selecting = false
-	if chosen != "" && chosen != m.agent.Model() {
-		if err := m.agent.SwitchModel(chosen); err != nil {
-			m.add(errorBlock{err.Error()})
-		} else {
-			m.add(hintBlock{"switched to " + chosen})
+	if chosen == "" {
+		return m, nil
+	}
+	switch m.selKind {
+	case "model":
+		if chosen != m.agent.Model() {
+			if err := m.agent.SwitchModel(chosen); err != nil {
+				m.add(errorBlock{err.Error()})
+			} else {
+				m.add(hintBlock{"switched to " + chosen})
+			}
 		}
+	case "config":
+		// chosen is a config key name; capture its value next.
+		m.configKey = chosen
+		m.input.Reset()
+		m.input.Placeholder = "value for " + configLabels[chosen]
 	}
 	return m, nil
 }
@@ -263,6 +290,25 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	text := strings.TrimSpace(m.input.Value())
+
+	// Capturing a value for a config key picked in the /config selector.
+	if m.configKey != "" {
+		key := m.configKey
+		m.configKey = ""
+		m.input.Reset()
+		m.input.Placeholder = inputPlaceholder
+		if text == "" {
+			m.add(hintBlock{"cancelled"})
+			return m, nil
+		}
+		if err := m.agent.SetConfig(key, text); err != nil {
+			m.add(errorBlock{err.Error()})
+		} else {
+			m.add(hintBlock{"set " + key})
+		}
+		return m, nil
+	}
+
 	if text == "" {
 		return m, nil
 	}
@@ -349,18 +395,12 @@ func matchCommands(input string) string {
 // and value, or clears a key when given just a key.
 func (m *model) handleConfig(arg string) {
 	if arg == "" {
-		var b strings.Builder
-		b.WriteString("config — set with /config KEY value, clear with /config KEY\n\n")
-		for _, k := range m.agent.ConfigKeys() {
-			status := "not set"
-			if k.Set {
-				status = "set"
-			}
-			b.WriteString(k.Name + "  " + status + "\n")
-		}
-		m.add(hintBlock{strings.TrimRight(b.String(), "\n")})
+		m.sel = newSelector("configure", configItems(m.agent.ConfigKeys()))
+		m.selKind = "config"
+		m.selecting = true
 		return
 	}
+	// /config KEY value — the direct path for power users.
 	key, value, _ := strings.Cut(arg, " ")
 	key = strings.ToUpper(strings.TrimSpace(key))
 	value = strings.TrimSpace(value)
@@ -381,10 +421,11 @@ func (m *model) handleModel(name string) {
 	if name == "" {
 		models := m.agent.AvailableModels()
 		if len(models) == 0 {
-			m.add(hintBlock{"no models available — configure a provider with /config"})
+			m.add(hintBlock{"no models available — type /config to add a provider"})
 			return
 		}
-		m.sel = newModelSelector(models, m.agent.Model())
+		m.sel = newSelector("pick a model", modelItems(models, m.agent.Model()))
+		m.selKind = "model"
 		m.selecting = true
 		return
 	}
@@ -423,6 +464,9 @@ func (m model) View() string {
 func (m model) workingLine() string {
 	if m.busy {
 		return " " + m.spin.View() + " " + styleHint.Render("working…")
+	}
+	if m.configKey != "" {
+		return " " + styleHint.Render("setting "+configLabels[m.configKey]+" · enter to save · esc to cancel")
 	}
 	if hint := matchCommands(m.input.Value()); hint != "" {
 		return " " + styleHint.Render(hint)
