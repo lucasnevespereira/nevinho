@@ -25,17 +25,20 @@ var (
 	colAccent = lipgloss.Color("12")
 	colDim    = lipgloss.Color("244")
 	colErr    = lipgloss.Color("9")
+	colWarn   = lipgloss.Color("214")
 
-	styleHint     = lipgloss.NewStyle().Foreground(colDim)
-	styleErr      = lipgloss.NewStyle().Foreground(colErr)
-	styleInput    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
-	styleStatus   = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
-	styleSpin     = lipgloss.NewStyle().Foreground(colAccent)
-	styleSelected = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
-	styleUser     = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
-	styleToolHead = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleCard     = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
-	styleCardErr  = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	styleHint      = lipgloss.NewStyle().Foreground(colDim)
+	styleErr       = lipgloss.NewStyle().Foreground(colErr)
+	styleInput     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colDim)
+	styleApprove   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colWarn).Foreground(colWarn)
+	styleApproveLn = lipgloss.NewStyle().Foreground(colWarn)
+	styleStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
+	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
+	styleSelected  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	styleUser      = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(0, 1)
+	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(0, 1)
+	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(0, 1)
 )
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
@@ -88,6 +91,7 @@ type model struct {
 	busy      bool
 	expanded  bool // ctrl+o: show full tool output instead of previews
 	selecting bool // the model picker is open
+	approving bool // a tool action is awaiting y/n
 	sel       modelSelector
 	width     int
 	height    int
@@ -156,6 +160,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selecting {
 			return m.updateSelector(msg.String())
 		}
+		if m.approving {
+			return m.updateApproval(msg.String())
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -177,9 +184,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		m.busy = false
-		if msg.err != nil {
+		switch {
+		case msg.err != nil:
 			m.add(errorBlock{llm.FriendlyError(msg.err)})
-		} else {
+		case m.agent.HasPendingApproval(userID):
+			// The reply is the agent asking permission. Show it distinctly
+			// and switch the input to a y/n prompt.
+			m.add(approvalBlock{msg.text})
+			m.approving = true
+		default:
 			m.add(agentBlock{msg.text})
 		}
 		return m, nil
@@ -224,6 +237,24 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateApproval handles one keypress while a tool action awaits y/n. The
+// decision routes through the agent's existing approval text protocol.
+func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "y", "Y":
+		m.approving = false
+		m.busy = true
+		return m, tea.Batch(m.send("yes"), m.spin.Tick)
+	case "n", "N", "esc":
+		m.approving = false
+		m.busy = true
+		return m, tea.Batch(m.send("no"), m.spin.Tick)
+	}
+	return m, nil // ignore everything else while a decision is pending
 }
 
 // submit sends the current input to the agent, or runs it as a slash command.
@@ -372,11 +403,16 @@ func (m model) View() string {
 		body := lipgloss.NewStyle().Height(m.height - 1).Render(m.sel.view())
 		return body + "\n" + m.statusBar()
 	}
-	input := styleInput.Width(m.width - 2).Render(m.input.View())
+	// While approving, the input box is replaced by a y/n prompt of the
+	// same height, so the layout stays put.
+	bottom := styleInput.Width(m.width - 2).Render(m.input.View())
+	if m.approving {
+		bottom = styleApprove.Width(m.width - 2).Render("approve this action?    y  yes    ·    n  no    ·    esc  cancel")
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.vp.View(),
 		m.workingLine(),
-		input,
+		bottom,
 		m.statusBar(),
 	)
 }

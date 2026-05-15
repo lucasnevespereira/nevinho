@@ -44,6 +44,14 @@ func (b errorBlock) render(w int) string {
 	return styleErr.Width(w).Render("⚠ " + b.msg)
 }
 
+// approvalBlock is the agent asking permission for an action. It renders in
+// the warning colour; the input switches to a y/n prompt while it is up.
+type approvalBlock struct{ text string }
+
+func (b approvalBlock) render(w int) string {
+	return styleApproveLn.Width(w).Render("⏸  " + strings.TrimRight(b.text, "\n"))
+}
+
 // toolBlock is a finished tool call: a header line plus a boxed preview of
 // the output, tinted red when the tool errored. expanded shows the full
 // output instead of the preview; ctrl+o toggles it.
