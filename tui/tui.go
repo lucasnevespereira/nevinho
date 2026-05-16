@@ -92,9 +92,14 @@ type model struct {
 	history    []string
 	historyIdx int // -1 means "not browsing", otherwise an index into history
 
-	// pendingInput is the prompt text saved while the @-mention picker
-	// is open, so cancel restores it and pick splices the path back in.
-	pendingInput string
+	// File-mention state. The picker renders above the input bar; the
+	// user keeps typing into the textarea and the text after @ becomes
+	// the filter. mentionPrefix is the input value at the moment @ was
+	// pressed, so we can splice the chosen path back in.
+	mentioning     bool
+	mentionPrefix  string
+	mentionItems   []string
+	mentionCursor  int
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -202,6 +207,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.agent.Cancel(userID)
 				return m, nil
 			}
+			if m.mentioning {
+				m.mentioning = false
+				return m, nil
+			}
 			if m.configKey != "" {
 				m.configKey = ""
 				m.input.Reset()
@@ -210,6 +219,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			if m.mentioning {
+				return m.acceptMention()
+			}
 			return m.submit()
 		case "ctrl+j", "shift+enter":
 			// Insert a newline at the end of the current value and grow
@@ -222,15 +234,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resizeInput()
 			return m, nil
 		case "@":
+			// Flag mention mode but let @ flow into the textarea so the
+			// user sees what they typed. The filter follows the @ in the
+			// input value.
 			if m.canMention() {
-				m.openMention()
-				return m, nil
+				m.mentioning = true
+				m.mentionPrefix = m.input.Value()
+				m.mentionItems = listProjectFiles(m.cwd)
+				m.mentionCursor = 0
 			}
 		case "up":
+			if m.mentioning {
+				if m.mentionCursor > 0 {
+					m.mentionCursor--
+				}
+				return m, nil
+			}
 			if m.historyPrev() {
 				return m, nil
 			}
 		case "down":
+			if m.mentioning {
+				if m.mentionCursor < len(m.filteredMentions())-1 {
+					m.mentionCursor++
+				}
+				return m, nil
+			}
 			if m.historyNext() {
 				return m, nil
 			}
@@ -275,6 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	m.resizeInput()
+	m.refreshMention()
 	return m, cmd
 }
 
@@ -324,14 +354,6 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		m.configKey = chosen
 		m.input.Reset()
 		m.input.Placeholder = "value for " + configLabels[chosen]
-	case "mention":
-		// Splice the picked path back into the prompt where the @ was
-		// typed. A trailing space lets the user keep typing without
-		// gluing the next word onto the path.
-		next := m.pendingInput + chosen + " "
-		m.pendingInput = ""
-		m.input.SetValue(next)
-		m.input.CursorEnd()
 	case "paths":
 		if m.agent.RevokePath(chosen) {
 			return m, m.printBlock(hintBlock{"revoked " + chosen})
@@ -387,11 +409,11 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.send(answer), m.spin.Tick)
 }
 
-// canMention reports whether typing @ should open the file picker. Only
+// canMention reports whether typing @ should arm the file picker. Only
 // triggers at a word boundary so paths can still contain a literal @ (an
 // email-like token mid-word stays out of the picker).
 func (m model) canMention() bool {
-	if m.busy || m.selecting || m.approving || m.configKey != "" {
+	if m.busy || m.mentioning || m.selecting || m.approving || m.configKey != "" {
 		return false
 	}
 	v := m.input.Value()
@@ -402,13 +424,64 @@ func (m model) canMention() bool {
 	return last == ' ' || last == '\n' || last == '\t'
 }
 
-// openMention saves the live prompt and opens the file picker. On pick,
-// updateSelector splices the chosen path into the saved prompt.
-func (m *model) openMention() {
-	m.pendingInput = m.input.Value()
-	m.sel = newSelector("mention a file", fileMentionItems(m.cwd))
-	m.selKind = "mention"
-	m.selecting = true
+// refreshMention checks whether the mention picker still makes sense
+// after each keystroke. If the user erased past @ or typed a space, the
+// picker closes; otherwise the cursor is clamped to the filtered list.
+func (m *model) refreshMention() {
+	if !m.mentioning {
+		return
+	}
+	v := m.input.Value()
+	want := m.mentionPrefix + "@"
+	if !strings.HasPrefix(v, want) {
+		m.mentioning = false
+		return
+	}
+	filter := v[len(want):]
+	if strings.ContainsAny(filter, " \n\t") {
+		m.mentioning = false
+		return
+	}
+	items := m.filteredMentions()
+	if m.mentionCursor >= len(items) {
+		m.mentionCursor = max(len(items)-1, 0)
+	}
+}
+
+// filteredMentions returns the project files matching the current
+// filter (the text after @ in the input).
+func (m model) filteredMentions() []string {
+	v := m.input.Value()
+	want := m.mentionPrefix + "@"
+	if !strings.HasPrefix(v, want) {
+		return m.mentionItems
+	}
+	filter := strings.ToLower(v[len(want):])
+	if filter == "" {
+		return m.mentionItems
+	}
+	out := make([]string, 0, len(m.mentionItems))
+	for _, p := range m.mentionItems {
+		if strings.Contains(strings.ToLower(p), filter) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// acceptMention splices the picked path into the prompt where @ was
+// typed, replacing the @filter span and adding a trailing space so the
+// user can keep typing without gluing the next word onto the path.
+func (m model) acceptMention() (tea.Model, tea.Cmd) {
+	items := m.filteredMentions()
+	if m.mentionCursor >= len(items) {
+		m.mentioning = false
+		return m, nil
+	}
+	m.input.SetValue(m.mentionPrefix + items[m.mentionCursor] + " ")
+	m.input.CursorEnd()
+	m.mentioning = false
+	return m, nil
 }
 
 // historyMax caps how many prompts we keep in the up/down recall ring.
@@ -694,6 +767,14 @@ func (m model) View() string {
 		m.resizeInput()
 		bottom = styleInput.Width(m.width).Render(m.input.View())
 	}
+	if m.mentioning {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			"",
+			m.mentionPickerView(),
+			bottom,
+			m.statusBar(),
+		)
+	}
 	// Leading blank row keeps the live region from hugging the last
 	// printed block in scrollback.
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -702,6 +783,35 @@ func (m model) View() string {
 		bottom,
 		m.statusBar(),
 	)
+}
+
+// mentionPickerRows caps how many file rows the @-picker shows at once.
+const mentionPickerRows = 8
+
+// mentionPickerView renders the inline file list shown above the input
+// while the user is typing an @ mention. The selected row is accented;
+// the others dim, with a "+ " bullet that reads like pi's picker.
+func (m model) mentionPickerView() string {
+	items := m.filteredMentions()
+	if len(items) == 0 {
+		return styleHint.Render("  no match")
+	}
+	start := 0
+	if m.mentionCursor >= mentionPickerRows {
+		start = m.mentionCursor - mentionPickerRows + 1
+	}
+	end := min(start+mentionPickerRows, len(items))
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		row := "+ " + items[i]
+		if i == m.mentionCursor {
+			b.WriteString(styleSelected.Render(row))
+		} else {
+			b.WriteString(styleHint.Render(row))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // approvalPicker renders the yes/no chooser shown in place of the input

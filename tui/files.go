@@ -71,12 +71,3 @@ func walkProject(cwd string) []string {
 	return paths
 }
 
-// fileMentionItems wraps the project file list as selector rows.
-func fileMentionItems(cwd string) []selectorItem {
-	paths := listProjectFiles(cwd)
-	items := make([]selectorItem, len(paths))
-	for i, p := range paths {
-		items[i] = selectorItem{label: p, value: p}
-	}
-	return items
-}
