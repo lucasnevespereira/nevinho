@@ -86,6 +86,11 @@ type model struct {
 	width          int
 	height         int
 	ready          bool
+
+	// Submitted prompts, newest last. Up/down on an empty input walks
+	// this list so the user can re-send or edit a recent turn.
+	history    []string
+	historyIdx int // -1 means "not browsing", otherwise an index into history
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -103,11 +108,12 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	sp.Style = styleSpin
 
 	return model{
-		agent:  a,
-		events: events,
-		cwd:    cwd,
-		input:  ta,
-		spin:   sp,
+		agent:      a,
+		events:     events,
+		cwd:        cwd,
+		input:      ta,
+		spin:       sp,
+		historyIdx: -1,
 	}
 }
 
@@ -201,6 +207,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			return m.submit()
+		case "up":
+			if m.historyPrev() {
+				return m, nil
+			}
+		case "down":
+			if m.historyNext() {
+				return m, nil
+			}
 		}
 
 	case responseMsg:
@@ -333,6 +347,67 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.send(answer), m.spin.Tick)
 }
 
+// historyMax caps how many prompts we keep in the up/down recall ring.
+const historyMax = 100
+
+// recordHistory appends a submitted prompt to the recall ring. Duplicates
+// of the most recent entry are skipped so up-arrow lands on a new line
+// instead of the same one twice in a row.
+func (m *model) recordHistory(text string) {
+	if n := len(m.history); n > 0 && m.history[n-1] == text {
+		m.historyIdx = -1
+		return
+	}
+	m.history = append(m.history, text)
+	if len(m.history) > historyMax {
+		m.history = m.history[len(m.history)-historyMax:]
+	}
+	m.historyIdx = -1
+}
+
+// historyPrev loads the previous submitted prompt into the input. Returns
+// false when there is nothing earlier to load, so the caller can let the
+// keypress fall through to the textarea (which moves the cursor up).
+func (m *model) historyPrev() bool {
+	if len(m.history) == 0 {
+		return false
+	}
+	// Only intercept when the user is not mid-edit, so up-arrow inside a
+	// long pasted prompt still moves the textarea cursor.
+	if m.historyIdx == -1 && strings.TrimSpace(m.input.Value()) != "" {
+		return false
+	}
+	next := m.historyIdx - 1
+	if m.historyIdx == -1 {
+		next = len(m.history) - 1
+	}
+	if next < 0 {
+		return true // already at the oldest, swallow the keypress
+	}
+	m.historyIdx = next
+	m.input.SetValue(m.history[next])
+	m.input.CursorEnd()
+	return true
+}
+
+// historyNext walks forward through recall toward the live empty input.
+// At the newest entry one more press clears the input and exits recall.
+func (m *model) historyNext() bool {
+	if m.historyIdx == -1 {
+		return false
+	}
+	next := m.historyIdx + 1
+	if next >= len(m.history) {
+		m.historyIdx = -1
+		m.input.Reset()
+		return true
+	}
+	m.historyIdx = next
+	m.input.SetValue(m.history[next])
+	m.input.CursorEnd()
+	return true
+}
+
 // submit sends the current input to the agent, or runs it as a slash command.
 func (m model) submit() (tea.Model, tea.Cmd) {
 	if m.busy {
@@ -358,6 +433,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return m, nil
 	}
+	m.recordHistory(text)
 	m.input.Reset()
 	if cmd, handled := m.handleSlash(text); handled {
 		// Echo known commands so the transcript shows what the user
