@@ -4,20 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const findDefaultLimit = 500
+const (
+	findDefaultLimit    = 500
+	findDefaultMaxDepth = 8
+)
 
 type findInput struct {
-	Pattern string `json:"pattern"`
-	Path    string `json:"path"`
-	Type    string `json:"type"`
-	Limit   int    `json:"limit"`
+	Pattern  string `json:"pattern"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Limit    int    `json:"limit"`
+	MaxDepth int    `json:"max_depth"`
 }
 
 func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID string) string {
@@ -47,21 +53,33 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 		findType = "d"
 	}
 
+	maxDepth := in.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = findDefaultMaxDepth
+	}
+
 	args := []string{
 		resolved,
+		"-maxdepth", strconv.Itoa(maxDepth),
 		"-type", findType,
-		"-name", in.Pattern,
+		"-iname", in.Pattern,
 		"-not", "-path", "*/.git/*",
 		"-not", "-path", "*/node_modules/*",
 		"-not", "-path", "*/__pycache__/*",
 		"-not", "-path", "*/.venv/*",
+		"-not", "-path", "*/Library/*",
+		"-not", "-path", "*/.Trash/*",
+		"-not", "-path", "*/.cache/*",
 	}
 
 	tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	// Discard stderr so permission-denied noise from system trees does not
+	// leak into the result the model has to read.
 	cmd := exec.CommandContext(tctx, "find", args...)
-	output, err := cmd.CombinedOutput()
+	cmd.Stderr = io.Discard
+	output, err := cmd.Output()
 	result := strings.TrimRight(string(output), "\n")
 
 	if err != nil {

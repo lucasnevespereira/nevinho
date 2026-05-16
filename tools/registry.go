@@ -241,19 +241,21 @@ Errors (literal prefixes):
 		},
 		{
 			Name: "find",
-			Description: `Find files or directories by name pattern (shell glob). Excludes .git, node_modules, __pycache__, .venv.
+			Description: `Find files or directories by name pattern (shell glob). Case-insensitive. Excludes .git, node_modules, __pycache__, .venv, Library, .Trash, .cache.
 Rules:
-- Default search root is the current working directory. Only pass path when the user explicitly references a different location (e.g. "in ~/apps").
+- Default search root is the current working directory. Only pass path when the user explicitly references a different location (e.g. "in ~/apps", "under ~/dev").
+- Never search from "/". Start from $HOME or a known subtree. Walking the whole filesystem times out.
 - Use type="d" for directories, "f" (default) for files.
+- Default max_depth is 8. Raise it only when a project is known to be deeply nested.
 - Default limit is 500.
 - To list a directory, use file_list. find is for locating specific names.
 Output: one relative path per line. Appends "[<N> results limit reached. Use limit=<M> for more, or refine pattern]" when capped.
 Errors (literal prefixes):
 - "invalid input: ...", "invalid path: ...", "pattern is required ...".
-- "no files found matching pattern" pattern did not hit.
-- "find timed out after 30s ..." narrow the path or pattern.
+- "no files found matching pattern" pattern did not hit. Try a broader path or a wildcarded pattern like "*name*".
+- "find timed out after 30s ..." narrow the path, lower max_depth, or refine pattern.
 - "find failed: ..." other error.`,
-			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\", \"myproject\""},"path":{"type":"string","description":"Directory to search in (defaults to current directory)"},"type":{"type":"string","description":"Type: \"f\" for files (default), \"d\" for directories"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern"]}`,
+			Schema: `{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern, e.g. \"*.go\", \"Makefile\", \"nevinho\". Case-insensitive."},"path":{"type":"string","description":"Directory to search in (defaults to current directory). Prefer narrow roots like ~/dev over $HOME."},"type":{"type":"string","description":"Type: \"f\" for files (default), \"d\" for directories"},"max_depth":{"type":"integer","description":"Max directory depth to walk (default 8)"},"limit":{"type":"integer","description":"Max results (default 500)"}},"required":["pattern"]}`,
 		},
 		{
 			Name: "schedule",
