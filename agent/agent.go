@@ -345,27 +345,65 @@ func (a *Agent) Status() string {
 	return sb.String()
 }
 
+// estimateCost returns an approximate USD cost for a turn given a model
+// name and token counts. Prices are per 1M tokens, taken from each
+// provider's public pricing page. Local and unknown models return 0.
+//
+// Free OpenRouter variants (suffix ":free") return 0 even if the base
+// model is paid, so the status bar reads honestly while testing.
 func estimateCost(model string, tokensIn, tokensOut int) float64 {
-	var inPer1M, outPer1M float64
-	switch {
-	case strings.Contains(model, "haiku"):
-		inPer1M, outPer1M = 0.80, 4.00
-	case strings.Contains(model, "sonnet"):
-		inPer1M, outPer1M = 3.00, 15.00
-	case strings.Contains(model, "opus"):
-		inPer1M, outPer1M = 15.00, 75.00
-	case strings.Contains(model, "gpt-4o-mini"):
-		inPer1M, outPer1M = 0.15, 0.60
-	case strings.Contains(model, "gpt-4o"):
-		inPer1M, outPer1M = 2.50, 10.00
-	case strings.Contains(model, "o3-mini"):
-		inPer1M, outPer1M = 1.10, 4.40
-	case strings.Contains(model, "o4-mini"):
-		inPer1M, outPer1M = 1.10, 4.40
-	default:
-		return 0 // local models / unknown
+	if strings.HasSuffix(model, ":free") {
+		return 0
+	}
+	inPer1M, outPer1M := priceFor(model)
+	if inPer1M == 0 && outPer1M == 0 {
+		return 0
 	}
 	return (float64(tokensIn) * inPer1M / 1_000_000) + (float64(tokensOut) * outPer1M / 1_000_000)
+}
+
+// priceFor looks up per-1M token prices for a model. The matcher is a
+// loose substring check so versioned ids ("claude-haiku-4-5-20251001",
+// "gemini-2.5-pro-preview") fall onto the same row as the base name.
+func priceFor(model string) (in, out float64) {
+	switch {
+	// Anthropic.
+	case strings.Contains(model, "haiku"):
+		return 0.80, 4.00
+	case strings.Contains(model, "sonnet"):
+		return 3.00, 15.00
+	case strings.Contains(model, "opus"):
+		return 15.00, 75.00
+
+	// OpenAI.
+	case strings.Contains(model, "gpt-4o-mini"):
+		return 0.15, 0.60
+	case strings.Contains(model, "gpt-4o"):
+		return 2.50, 10.00
+	case strings.Contains(model, "o3-mini"), strings.Contains(model, "o4-mini"):
+		return 1.10, 4.40
+
+	// Google Gemini.
+	case strings.Contains(model, "gemini-2.5-pro"):
+		return 1.25, 10.00
+	case strings.Contains(model, "gemini-2.5-flash-lite"):
+		return 0.10, 0.40
+	case strings.Contains(model, "gemini-2.5-flash"):
+		return 0.30, 2.50
+	case strings.Contains(model, "gemini-1.5-pro"):
+		return 1.25, 5.00
+	case strings.Contains(model, "gemini-1.5-flash"):
+		return 0.075, 0.30
+
+	// Groq. Pricing scales with model family.
+	case strings.Contains(model, "llama-3.3-70b"), strings.Contains(model, "llama3-70b"):
+		return 0.59, 0.79
+	case strings.Contains(model, "llama-3.1-8b"), strings.Contains(model, "llama3-8b"):
+		return 0.05, 0.08
+	case strings.Contains(model, "mixtral"):
+		return 0.24, 0.24
+	}
+	return 0, 0
 }
 
 func formatDuration(d time.Duration) string {
