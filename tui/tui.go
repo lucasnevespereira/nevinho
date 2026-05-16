@@ -360,8 +360,15 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	if cmd, handled := m.handleSlash(text); handled {
-		// Echo the command into scrollback so the transcript shows what
-		// the user typed, same as a normal turn.
+		// Echo known commands so the transcript shows what the user
+		// typed, same as a normal turn. Typos go straight to the hint
+		// without a user bubble.
+		if !isKnownSlash(text) {
+			if cmd == nil {
+				return m, nil
+			}
+			return m, cmd
+		}
 		echo := m.printBlock(userBlock{text})
 		if cmd == nil {
 			return m, echo
@@ -374,6 +381,22 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		m.send(text),
 		m.spin.Tick,
 	)
+}
+
+// isKnownSlash reports whether the leading word of text matches one of
+// the registered slash commands. Used to gate the user-bubble echo so
+// typos do not leave a stray transcript entry.
+func isKnownSlash(text string) bool {
+	cmd, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+	if cmd == "/q" {
+		return true
+	}
+	for _, c := range slashCommands {
+		if cmd == c.name {
+			return true
+		}
+	}
+	return false
 }
 
 // slashCommands is the canonical list, used for the /help text and the
