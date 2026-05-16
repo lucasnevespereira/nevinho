@@ -16,11 +16,27 @@ import (
 )
 
 func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
+	return a.chat(userID, text, isVoice, images, tools.SourceInteractive)
+}
+
+// ChatScheduled is the entry point the schedule runner uses. It tags the
+// turn with SourceScheduled so the tool registry filters out shell and
+// write tools and the dispatch layer refuses them by capability.
+func (a *Agent) ChatScheduled(userID, prompt string) (string, error) {
+	return a.chat(userID, prompt, false, nil, tools.SourceScheduled)
+}
+
+func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source) (string, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), chatTimeout)
+	ctx = tools.WithExecContext(ctx, tools.ExecContext{
+		Source: source,
+		Caps:   tools.DefaultCaps[source],
+		UserID: userID,
+	})
 	a.mu.Lock()
 	a.cancelFn[userID] = cancel
 	a.mu.Unlock()
@@ -108,7 +124,7 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 		resp, err := a.llm.Complete(ctx, &llm.Request{
 			SystemPrompt: prompt,
 			Messages:     a.history[userID],
-			Tools:        a.tools.Defs(),
+			Tools:        a.tools.DefsFor(ctx),
 			MaxTokens:    maxOutputTokens,
 		})
 		if err != nil {
