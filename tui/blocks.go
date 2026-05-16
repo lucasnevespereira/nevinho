@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 )
 
 // cardPreviewLines caps how many lines of tool output a card shows.
@@ -235,6 +237,21 @@ func colorizeDiff(lines []string) {
 	}
 }
 
+// prosePalette returns a glamour style derived from the dark default,
+// with the inline code pill restyled to fit nevinho's palette.
+func prosePalette() ansi.StyleConfig {
+	cfg := styles.DarkStyleConfig
+	codeBg := "#1f2522"
+	codeFg := "#7fa6c9"
+	cfg.Code = ansi.StyleBlock{
+		StylePrimitive: ansi.StylePrimitive{
+			Color:           &codeFg,
+			BackgroundColor: &codeBg,
+		},
+	}
+	return cfg
+}
+
 // mdRenderer is cached across blocks and rebuilt only when the width changes.
 var (
 	mdRenderer *glamour.TermRenderer
@@ -248,11 +265,13 @@ func renderMarkdown(s string, w int) string {
 		return s
 	}
 	if mdRenderer == nil || mdWidth != w {
-		// A fixed dark style, not WithAutoStyle: auto-style queries the
-		// terminal for its background colour, and that reply leaks into
-		// Bubble Tea's input as garbage keystrokes.
+		// A fixed style patched from the dark default. Auto-style queries
+		// the terminal for its background colour, and that reply leaks
+		// into Bubble Tea's input as garbage keystrokes. The patch swaps
+		// the loud red inline-code pill for a calm accent on a muted
+		// surface, so `code` spans blend with the rest of the palette.
 		r, err := glamour.NewTermRenderer(
-			glamour.WithStandardStyle("dark"),
+			glamour.WithStyles(prosePalette()),
 			glamour.WithWordWrap(w-4),
 		)
 		if err != nil {

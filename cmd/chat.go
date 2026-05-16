@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
@@ -25,6 +28,15 @@ func Chat(configDir, version, selfDoc string) {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	// Keep boot-time logger.Info lines out of the TUI. Route them to
+	// chat.log if possible, otherwise drop them. The model is already in
+	// the status bar so the user does not need the boot line on screen.
+	if f, err := os.OpenFile(filepath.Join(configDir, "chat.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+		log.SetOutput(f)
+	} else {
+		log.SetOutput(io.Discard)
+	}
+
 	provider := detectProvider(cfg)
 	// Local mode: the agent knows it is in a terminal on the user's own
 	// machine, which sets its prompt and gates every bash command behind
