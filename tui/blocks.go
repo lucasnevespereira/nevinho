@@ -123,7 +123,7 @@ func toolHeader(name, detail string) string {
 	}
 	head := styleToolHead.Render(verb)
 	if detail != "" {
-		head += "  " + styleHint.Render(detail)
+		head += " " + styleHint.Render(detail)
 	}
 	return head
 }
