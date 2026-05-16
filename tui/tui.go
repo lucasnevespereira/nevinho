@@ -86,6 +86,20 @@ type model struct {
 	width          int
 	height         int
 	ready          bool
+
+	// Submitted prompts, newest last. Up/down on an empty input walks
+	// this list so the user can re-send or edit a recent turn.
+	history    []string
+	historyIdx int // -1 means "not browsing", otherwise an index into history
+
+	// File-mention state. The picker renders above the input bar; the
+	// user keeps typing into the textarea and the text after @ becomes
+	// the filter. mentionPrefix is the input value at the moment @ was
+	// pressed, so we can splice the chosen path back in.
+	mentioning     bool
+	mentionPrefix  string
+	mentionItems   []string
+	mentionCursor  int
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -103,11 +117,12 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	sp.Style = styleSpin
 
 	return model{
-		agent:  a,
-		events: events,
-		cwd:    cwd,
-		input:  ta,
-		spin:   sp,
+		agent:      a,
+		events:     events,
+		cwd:        cwd,
+		input:      ta,
+		spin:       sp,
+		historyIdx: -1,
 	}
 }
 
@@ -192,6 +207,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.agent.Cancel(userID)
 				return m, nil
 			}
+			if m.mentioning {
+				m.mentioning = false
+				return m, nil
+			}
 			if m.configKey != "" {
 				m.configKey = ""
 				m.input.Reset()
@@ -200,7 +219,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			if m.mentioning {
+				return m.acceptMention()
+			}
 			return m.submit()
+		case "ctrl+j", "shift+enter":
+			// Insert a newline at the end of the current value and grow
+			// the textarea so the user can compose a multi-paragraph
+			// prompt before pressing enter to send. Most terminals only
+			// emit shift+enter when the kitty keyboard protocol is on,
+			// so ctrl+j is the portable fallback.
+			m.input.SetValue(m.input.Value() + "\n")
+			m.input.CursorEnd()
+			m.resizeInput()
+			return m, nil
+		case "@":
+			// Flag mention mode but let @ flow into the textarea so the
+			// user sees what they typed. The filter follows the @ in the
+			// input value.
+			if m.canMention() {
+				m.mentioning = true
+				m.mentionPrefix = m.input.Value()
+				m.mentionItems = listProjectFiles(m.cwd)
+				m.mentionCursor = 0
+			}
+		case "up":
+			if m.mentioning {
+				if m.mentionCursor > 0 {
+					m.mentionCursor--
+				}
+				return m, nil
+			}
+			if m.historyPrev() {
+				return m, nil
+			}
+		case "down":
+			if m.mentioning {
+				if m.mentionCursor < len(m.filteredMentions())-1 {
+					m.mentionCursor++
+				}
+				return m, nil
+			}
+			if m.historyNext() {
+				return m, nil
+			}
 		}
 
 	case responseMsg:
@@ -241,7 +303,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.resizeInput()
+	m.refreshMention()
 	return m, cmd
+}
+
+// inputMaxRows caps how tall the input grows. Past this the textarea
+// scrolls inside its own box rather than pushing the live region up.
+const inputMaxRows = 6
+
+// resizeInput keeps the textarea height in sync with its content. A
+// single-line prompt stays compact, a paste or ctrl+j grows it up to
+// inputMaxRows so the user sees what they typed.
+func (m *model) resizeInput() {
+	rows := min(max(strings.Count(m.input.Value(), "\n")+1, 1), inputMaxRows)
+	m.input.SetHeight(rows)
 }
 
 // updateSelector handles one keypress while a picker is open. A non-empty
@@ -333,6 +409,142 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.send(answer), m.spin.Tick)
 }
 
+// canMention reports whether typing @ should arm the file picker. Only
+// triggers at a word boundary so paths can still contain a literal @ (an
+// email-like token mid-word stays out of the picker).
+func (m model) canMention() bool {
+	if m.busy || m.mentioning || m.selecting || m.approving || m.configKey != "" {
+		return false
+	}
+	v := m.input.Value()
+	if v == "" {
+		return true
+	}
+	last := v[len(v)-1]
+	return last == ' ' || last == '\n' || last == '\t'
+}
+
+// refreshMention checks whether the mention picker still makes sense
+// after each keystroke. If the user erased past @ or typed a space, the
+// picker closes; otherwise the cursor is clamped to the filtered list.
+func (m *model) refreshMention() {
+	if !m.mentioning {
+		return
+	}
+	v := m.input.Value()
+	want := m.mentionPrefix + "@"
+	if !strings.HasPrefix(v, want) {
+		m.mentioning = false
+		return
+	}
+	filter := v[len(want):]
+	if strings.ContainsAny(filter, " \n\t") {
+		m.mentioning = false
+		return
+	}
+	items := m.filteredMentions()
+	if m.mentionCursor >= len(items) {
+		m.mentionCursor = max(len(items)-1, 0)
+	}
+}
+
+// filteredMentions returns the project files matching the current
+// filter (the text after @ in the input).
+func (m model) filteredMentions() []string {
+	v := m.input.Value()
+	want := m.mentionPrefix + "@"
+	if !strings.HasPrefix(v, want) {
+		return m.mentionItems
+	}
+	filter := strings.ToLower(v[len(want):])
+	if filter == "" {
+		return m.mentionItems
+	}
+	out := make([]string, 0, len(m.mentionItems))
+	for _, p := range m.mentionItems {
+		if strings.Contains(strings.ToLower(p), filter) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// acceptMention splices the picked path into the prompt where @ was
+// typed, replacing the @filter span and adding a trailing space so the
+// user can keep typing without gluing the next word onto the path.
+func (m model) acceptMention() (tea.Model, tea.Cmd) {
+	items := m.filteredMentions()
+	if m.mentionCursor >= len(items) {
+		m.mentioning = false
+		return m, nil
+	}
+	m.input.SetValue(m.mentionPrefix + items[m.mentionCursor] + " ")
+	m.input.CursorEnd()
+	m.mentioning = false
+	return m, nil
+}
+
+// historyMax caps how many prompts we keep in the up/down recall ring.
+const historyMax = 100
+
+// recordHistory appends a submitted prompt to the recall ring. Duplicates
+// of the most recent entry are skipped so up-arrow lands on a new line
+// instead of the same one twice in a row.
+func (m *model) recordHistory(text string) {
+	if n := len(m.history); n > 0 && m.history[n-1] == text {
+		m.historyIdx = -1
+		return
+	}
+	m.history = append(m.history, text)
+	if len(m.history) > historyMax {
+		m.history = m.history[len(m.history)-historyMax:]
+	}
+	m.historyIdx = -1
+}
+
+// historyPrev loads the previous submitted prompt into the input. Returns
+// false when there is nothing earlier to load, so the caller can let the
+// keypress fall through to the textarea (which moves the cursor up).
+func (m *model) historyPrev() bool {
+	if len(m.history) == 0 {
+		return false
+	}
+	// Only intercept when the user is not mid-edit, so up-arrow inside a
+	// long pasted prompt still moves the textarea cursor.
+	if m.historyIdx == -1 && strings.TrimSpace(m.input.Value()) != "" {
+		return false
+	}
+	next := m.historyIdx - 1
+	if m.historyIdx == -1 {
+		next = len(m.history) - 1
+	}
+	if next < 0 {
+		return true // already at the oldest, swallow the keypress
+	}
+	m.historyIdx = next
+	m.input.SetValue(m.history[next])
+	m.input.CursorEnd()
+	return true
+}
+
+// historyNext walks forward through recall toward the live empty input.
+// At the newest entry one more press clears the input and exits recall.
+func (m *model) historyNext() bool {
+	if m.historyIdx == -1 {
+		return false
+	}
+	next := m.historyIdx + 1
+	if next >= len(m.history) {
+		m.historyIdx = -1
+		m.input.Reset()
+		return true
+	}
+	m.historyIdx = next
+	m.input.SetValue(m.history[next])
+	m.input.CursorEnd()
+	return true
+}
+
 // submit sends the current input to the agent, or runs it as a slash command.
 func (m model) submit() (tea.Model, tea.Cmd) {
 	if m.busy {
@@ -358,10 +570,18 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return m, nil
 	}
+	m.recordHistory(text)
 	m.input.Reset()
 	if cmd, handled := m.handleSlash(text); handled {
-		// Echo the command into scrollback so the transcript shows what
-		// the user typed, same as a normal turn.
+		// Echo known commands so the transcript shows what the user
+		// typed, same as a normal turn. Typos go straight to the hint
+		// without a user bubble.
+		if !isKnownSlash(text) {
+			if cmd == nil {
+				return m, nil
+			}
+			return m, cmd
+		}
 		echo := m.printBlock(userBlock{text})
 		if cmd == nil {
 			return m, echo
@@ -376,15 +596,31 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	)
 }
 
+// isKnownSlash reports whether the leading word of text matches one of
+// the registered slash commands. Used to gate the user-bubble echo so
+// typos do not leave a stray transcript entry.
+func isKnownSlash(text string) bool {
+	cmd, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+	if cmd == "/q" {
+		return true
+	}
+	for _, c := range slashCommands {
+		if cmd == c.name {
+			return true
+		}
+	}
+	return false
+}
+
 // slashCommands is the canonical list, used for the /help text and the
 // type-ahead hint shown while the input starts with "/".
 var slashCommands = []struct{ name, desc string }{
-	{"/model", "list models, or switch to one"},
-	{"/config", "view config, set a key, or clear it"},
+	{"/model", "pick a model, or /model <name> to switch directly"},
+	{"/config", "open the config picker, or /config KEY value to set"},
 	{"/memory", "show what nevinho remembers about you"},
 	{"/session", "show the saved session summary"},
 	{"/status", "model, tokens, cost, approved paths"},
-	{"/paths", "list approved paths, pick one to revoke"},
+	{"/paths", "pick an approved path to revoke, or /paths clear"},
 	{"/forget", "wipe this session's history"},
 	{"/help", "show this list"},
 	{"/quit", "leave (or ctrl+c)"},
@@ -526,7 +762,18 @@ func (m model) View() string {
 		bottom = m.approvalPicker()
 	} else {
 		// Hairline bar spans the full terminal width like pi's input row.
+		// resizeInput keeps the height honest after Reset/SetValue paths
+		// that ran outside the keystroke loop.
+		m.resizeInput()
 		bottom = styleInput.Width(m.width).Render(m.input.View())
+	}
+	if m.mentioning {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			"",
+			m.mentionPickerView(),
+			bottom,
+			m.statusBar(),
+		)
 	}
 	// Leading blank row keeps the live region from hugging the last
 	// printed block in scrollback.
@@ -536,6 +783,35 @@ func (m model) View() string {
 		bottom,
 		m.statusBar(),
 	)
+}
+
+// mentionPickerRows caps how many file rows the @-picker shows at once.
+const mentionPickerRows = 8
+
+// mentionPickerView renders the inline file list shown above the input
+// while the user is typing an @ mention. The selected row is accented;
+// the others dim, with a "+ " bullet that reads like pi's picker.
+func (m model) mentionPickerView() string {
+	items := m.filteredMentions()
+	if len(items) == 0 {
+		return styleHint.Render("  no match")
+	}
+	start := 0
+	if m.mentionCursor >= mentionPickerRows {
+		start = m.mentionCursor - mentionPickerRows + 1
+	}
+	end := min(start+mentionPickerRows, len(items))
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		row := "+ " + items[i]
+		if i == m.mentionCursor {
+			b.WriteString(styleSelected.Render(row))
+		} else {
+			b.WriteString(styleHint.Render(row))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // approvalPicker renders the yes/no chooser shown in place of the input
@@ -577,7 +853,7 @@ func (m model) workingLine() string {
 func (m model) statusBar() string {
 	left := " " + shortenHome(m.cwd)
 	if in, out, cost := m.agent.Usage(); in > 0 || out > 0 {
-		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.3f", humanCount(in), humanCount(out), cost)
+		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.2f", humanCount(in), humanCount(out), cost)
 	}
 	right := m.agent.Model() + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
