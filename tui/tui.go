@@ -29,35 +29,6 @@ const userID = "terminal"
 // inputPlaceholder is the textarea's resting placeholder text.
 const inputPlaceholder = "Ask nevinho anything…"
 
-var (
-	colAccent = lipgloss.Color("12")
-	colDim    = lipgloss.Color("244")
-	colErr    = lipgloss.Color("9")
-	colWarn   = lipgloss.Color("214")
-
-	styleHint = lipgloss.NewStyle().Foreground(colDim)
-	styleErr  = lipgloss.NewStyle().Foreground(colErr)
-	// Flat input bar with hairline rules above and below. Matches the pi
-	// aesthetic of a single-row input instead of a chunky rounded box.
-	styleInput   = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, true, false).BorderForeground(colDim)
-	styleApprove = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, true, false).BorderForeground(colWarn)
-	styleApproveLn = lipgloss.NewStyle().Foreground(colWarn)
-	styleStatus    = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("236"))
-	styleSpin      = lipgloss.NewStyle().Foreground(colAccent)
-	styleSelected  = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
-	styleUser      = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("252")).Padding(1, 2)
-	styleToolHead  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	styleCard      = lipgloss.NewStyle().Background(lipgloss.Color("234")).Foreground(lipgloss.Color("250")).Padding(1, 2)
-	styleCardErr   = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("252")).Padding(1, 2)
-
-	// Fg-only diff colours, like git diff: a calm green/red on the +/- lines
-	// rather than a loud full-line background.
-	styleDiffAdd  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	styleDiffDel  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	styleDiffHunk = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	styleDiffMeta = lipgloss.NewStyle().Foreground(colDim)
-)
-
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
 // the status bar. configDir is where the agent's log file is written.
 func Run(a *agent.Agent, cwd, configDir string) error {
@@ -164,17 +135,9 @@ func (m model) send(text string) tea.Cmd {
 	}
 }
 
-// maxContentWidth caps how wide rendered blocks get on wide terminals, so
-// long lines stay readable instead of stretching edge to edge. Matches the
-// ~100-col content width used by Claude Code and pi.
-const maxContentWidth = 100
-
-// contentWidth is the width passed to block renders: terminal width clamped
-// to maxContentWidth.
+// contentWidth is the width passed to block renders. Blocks stretch the
+// full terminal width, matching pi's edge-to-edge layout.
 func (m model) contentWidth() int {
-	if m.width > maxContentWidth {
-		return maxContentWidth
-	}
 	return m.width
 }
 
@@ -202,16 +165,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(m.width)
 		if !m.ready {
 			m.ready = true
-			// Print the greeting plus enough blank rows to push the live
-			// region toward the bottom of the terminal. Without this the
-			// input sits right under the greeting and the rest of the
-			// screen reads as dead space. As content grows, tea.Println
-			// pushes new blocks above the live region and the padding
-			// scrolls off naturally.
-			greeting := m.greeting().render(m.contentWidth())
-			liveHeight := 7 // blank row + workingLine + input (3 with border) + statusBar + safety
-			pad := max(m.height-lipgloss.Height(greeting)-liveHeight, 0)
-			return m, tea.Println("\n" + greeting + strings.Repeat("\n", pad))
+			// Print the greeting straight into scrollback. The live region
+			// sits right under it, and as content arrives new blocks push
+			// the greeting up naturally.
+			return m, tea.Println(m.greeting().render(m.contentWidth()))
 		}
 		return m, nil
 
@@ -403,7 +360,13 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	}
 	m.input.Reset()
 	if cmd, handled := m.handleSlash(text); handled {
-		return m, cmd
+		// Echo the command into scrollback so the transcript shows what
+		// the user typed, same as a normal turn.
+		echo := m.printBlock(userBlock{text})
+		if cmd == nil {
+			return m, echo
+		}
+		return m, tea.Sequence(echo, cmd)
 	}
 	m.busy = true
 	return m, tea.Batch(
