@@ -402,12 +402,12 @@ func isKnownSlash(text string) bool {
 // slashCommands is the canonical list, used for the /help text and the
 // type-ahead hint shown while the input starts with "/".
 var slashCommands = []struct{ name, desc string }{
-	{"/model", "list models, or switch to one"},
-	{"/config", "view config, set a key, or clear it"},
+	{"/model", "pick a model, or /model <name> to switch directly"},
+	{"/config", "open the config picker, or /config KEY value to set"},
 	{"/memory", "show what nevinho remembers about you"},
 	{"/session", "show the saved session summary"},
 	{"/status", "model, tokens, cost, approved paths"},
-	{"/paths", "list approved paths, pick one to revoke"},
+	{"/paths", "pick an approved path to revoke, or /paths clear"},
 	{"/forget", "wipe this session's history"},
 	{"/help", "show this list"},
 	{"/quit", "leave (or ctrl+c)"},
