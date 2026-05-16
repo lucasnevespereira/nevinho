@@ -94,13 +94,17 @@ The TUI is the primary surface when nevinho is used as a coding agent. After the
 
 ### Scheduled tasks: follow-ups
 
-Foundation shipped. Remaining work:
+Foundation shipped. Capability-scoped execution contexts (PR #64) replaced the brittle approval-needs-a-human path: scheduled fires now run with a read-only tool set (`web_read`, `web_search`, `file_read`, `file_list`, `grep`, `find`) and cannot deadlock on approval. Remaining work, in priority order:
 
-- [ ] `pause` / `resume` actions on the agent tool.
-- [ ] `/schedules` Discord command (slash + plain text).
-- [ ] Non-interactive bash allowlist mode during scheduled runs so safe commands (read-only) can complete without an approval prompt.
-- [ ] `last_run` and `next_run` exposed in `/status`.
-- [ ] Surface failed-run history (last N errors per schedule).
+- [ ] **TUI scheduler.** `nevinho chat` does not start a runner today, so schedules created from the terminal never fire. Wire `startScheduler` into `cmd/chat.go` behind a flag (or always, but cleanly stop on exit). Decide where results land when the TUI is the origin: stream into the active session if one is open, otherwise queue and replay on next launch.
+- [ ] **Transport-aware notify.** Schedule carries no `Origin` today, so `notifyFn` hardcodes Discord owner DM. Add `Origin` (`discord` | `slack` | `telegram` | `tui`) at create time and route notify by origin. Slack/Telegram transports already in scope of `transport/` interface refactor (see Later).
+- [ ] **`run_now` action.** Lets the user test a schedule immediately instead of waiting for the next cron window. Implement as a buffered channel on `Runner` that the Store signals via a callback set on `Runner.Start`.
+- [ ] **Human-readable cron.** `/schedules` and the create response should show "Daily at 18:00 (Europe/Paris)" instead of "0 18 * * *". Small lookup that handles the common shapes (`@daily`, `@every Xh`, `0 H * * *`, `0 H * * 1-5`, etc.) and falls back to the raw expression.
+- [ ] **Retry on transient failures.** Classify 5xx, timeouts, and rate limits inside `safeRun`. Retry twice with backoff (30s / 2m) before declaring a run failed and sending the failure DM.
+- [ ] **`pause` / `resume`** actions on the agent tool.
+- [ ] **`/schedules`** Discord slash command (in addition to the existing plain-text variant).
+- [ ] **`last_run` and `next_run`** exposed in `/status`.
+- [ ] **Failed-run history** surfaced in the schedule tool (last N errors per schedule).
 
 ## Later
 
