@@ -81,6 +81,17 @@ The terminal client uses one shared summary today, so context from project A lea
 - [ ] `/forget` clears just the current cwd's summary, not all of them.
 - [ ] `/session` in the terminal mentions which cwd is currently active.
 
+### Terminal UI follow-ups
+
+The TUI is the primary surface when nevinho is used as a coding agent. After the recent DX pass, these are the remaining rough edges.
+
+- [ ] Mask API key values while typing through `/config`. The textarea echoes whatever is typed; a paste shows the key on screen until enter clears the input.
+- [ ] Slash-command autocomplete picker. The inline hint shows matching names; a real picker on `/` would let the user pick instead of finishing the word.
+- [ ] Tool card expand. Print the full output of the previous tool call without tailing `chat.log`. Either a `/last` command or a keystroke on the last card.
+- [ ] `/diff` to show pending `file_edit` and `file_write` changes the agent staged but the user has not approved.
+- [ ] `/cd <path>` to change the agent's working directory without restarting nevinho.
+- [ ] Session list and `/load <id>` to resume a past saved summary instead of starting cold.
+
 ### Scheduled tasks: follow-ups
 
 Foundation shipped. Remaining work:
@@ -131,3 +142,4 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Strict approval mode for the terminal.** Every bash command and every write outside the current directory asks via an inline yes/no picker. Deny path tells the model to stop instead of retrying.
 - [x] **Path management UI.** `/paths` lists approved paths and revokes one at a time. `/paths clear` wipes all. Backed by `tools.Registry.RevokePath`.
 - [x] **Filesystem-aware upgrade and uninstall.** Detect daemon vs terminal use via the presence of the systemd unit file. A terminal-only Linux user never gets a service they did not ask for.
+- [x] **Terminal DX pass.** `@file` picker inserts a project path into the prompt (git-aware, falls back to walk). Up/down arrows recall prior prompts (100-entry ring). Multi-line input via ctrl+j (or shift+enter on terminals with the kitty protocol), auto-grows up to 6 rows. Slash-command typos no longer leave a user bubble in scrollback. `/help` lists subcommand syntax. Cost table covers Gemini, Groq, and free OpenRouter variants so the status bar reads honestly. Status bar cost rounded to two decimals.
