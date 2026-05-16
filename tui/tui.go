@@ -91,6 +91,10 @@ type model struct {
 	// this list so the user can re-send or edit a recent turn.
 	history    []string
 	historyIdx int // -1 means "not browsing", otherwise an index into history
+
+	// pendingInput is the prompt text saved while the @-mention picker
+	// is open, so cancel restores it and pick splices the path back in.
+	pendingInput string
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
@@ -217,6 +221,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.CursorEnd()
 			m.resizeInput()
 			return m, nil
+		case "@":
+			if m.canMention() {
+				m.openMention()
+				return m, nil
+			}
 		case "up":
 			if m.historyPrev() {
 				return m, nil
@@ -315,6 +324,14 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 		m.configKey = chosen
 		m.input.Reset()
 		m.input.Placeholder = "value for " + configLabels[chosen]
+	case "mention":
+		// Splice the picked path back into the prompt where the @ was
+		// typed. A trailing space lets the user keep typing without
+		// gluing the next word onto the path.
+		next := m.pendingInput + chosen + " "
+		m.pendingInput = ""
+		m.input.SetValue(next)
+		m.input.CursorEnd()
 	case "paths":
 		if m.agent.RevokePath(chosen) {
 			return m, m.printBlock(hintBlock{"revoked " + chosen})
@@ -368,6 +385,30 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	}
 	m.busy = true
 	return m, tea.Batch(m.send(answer), m.spin.Tick)
+}
+
+// canMention reports whether typing @ should open the file picker. Only
+// triggers at a word boundary so paths can still contain a literal @ (an
+// email-like token mid-word stays out of the picker).
+func (m model) canMention() bool {
+	if m.busy || m.selecting || m.approving || m.configKey != "" {
+		return false
+	}
+	v := m.input.Value()
+	if v == "" {
+		return true
+	}
+	last := v[len(v)-1]
+	return last == ' ' || last == '\n' || last == '\t'
+}
+
+// openMention saves the live prompt and opens the file picker. On pick,
+// updateSelector splices the chosen path into the saved prompt.
+func (m *model) openMention() {
+	m.pendingInput = m.input.Value()
+	m.sel = newSelector("mention a file", fileMentionItems(m.cwd))
+	m.selKind = "mention"
+	m.selecting = true
 }
 
 // historyMax caps how many prompts we keep in the up/down recall ring.
