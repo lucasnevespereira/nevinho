@@ -600,7 +600,7 @@ func (m model) workingLine() string {
 func (m model) statusBar() string {
 	left := " " + shortenHome(m.cwd)
 	if in, out, cost := m.agent.Usage(); in > 0 || out > 0 {
-		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.3f", humanCount(in), humanCount(out), cost)
+		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.2f", humanCount(in), humanCount(out), cost)
 	}
 	right := m.agent.Model() + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
