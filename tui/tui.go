@@ -207,6 +207,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			return m.submit()
+		case "ctrl+j", "shift+enter":
+			// Insert a newline at the end of the current value and grow
+			// the textarea so the user can compose a multi-paragraph
+			// prompt before pressing enter to send. Most terminals only
+			// emit shift+enter when the kitty keyboard protocol is on,
+			// so ctrl+j is the portable fallback.
+			m.input.SetValue(m.input.Value() + "\n")
+			m.input.CursorEnd()
+			m.resizeInput()
+			return m, nil
 		case "up":
 			if m.historyPrev() {
 				return m, nil
@@ -255,7 +265,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.resizeInput()
 	return m, cmd
+}
+
+// inputMaxRows caps how tall the input grows. Past this the textarea
+// scrolls inside its own box rather than pushing the live region up.
+const inputMaxRows = 6
+
+// resizeInput keeps the textarea height in sync with its content. A
+// single-line prompt stays compact, a paste or ctrl+j grows it up to
+// inputMaxRows so the user sees what they typed.
+func (m *model) resizeInput() {
+	rows := min(max(strings.Count(m.input.Value(), "\n")+1, 1), inputMaxRows)
+	m.input.SetHeight(rows)
 }
 
 // updateSelector handles one keypress while a picker is open. A non-empty
@@ -625,6 +648,9 @@ func (m model) View() string {
 		bottom = m.approvalPicker()
 	} else {
 		// Hairline bar spans the full terminal width like pi's input row.
+		// resizeInput keeps the height honest after Reset/SetValue paths
+		// that ran outside the keystroke loop.
+		m.resizeInput()
 		bottom = styleInput.Width(m.width).Render(m.input.View())
 	}
 	// Leading blank row keeps the live region from hugging the last
