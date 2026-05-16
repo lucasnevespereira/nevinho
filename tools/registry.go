@@ -83,6 +83,13 @@ func (r *Registry) isStrict() bool {
 }
 
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) string {
+	if req := requirementFor(name); req != "" {
+		ec := ExecContextOf(ctx)
+		if !ec.Caps.Has(req) {
+			return fmt.Sprintf("blocked: tool %q requires capability %q, not granted in %s context",
+				name, req, ec.Source)
+		}
+	}
 	switch name {
 	case "web_read":
 		return r.webRead(input)
@@ -262,7 +269,11 @@ Errors (literal prefixes):
 			Description: `Manage recurring prompts that nevinho runs on a cron timetable.
 Use to set up "every morning at 9 summarize hacker news", "every Monday list my open PRs", etc.
 Translate the user's natural language into a cron expression yourself. Do not ask the user to write cron.
-Schedules run without an interactive approval prompt, so refuse to create schedules whose prompts would normally need approval (destructive bash, file writes outside approved paths). Suggest a safer prompt instead.
+
+Prompt rules:
+- The "prompt" field must be a natural-language instruction (e.g. "Fetch the top 5 Hacker News stories and reply with a bulleted list of titles and links"). Not shell, not code. The agent picks tools fresh on every fire.
+- Scheduled fires run with read-only capabilities: web_read, web_search, file_read, file_list, grep, find. Bash, file writes, and creating more schedules are not available. If a user request needs those, suggest a safer phrasing instead.
+
 Cron accepts standard 5-field expressions ("0 9 * * *"), descriptors (@daily, @hourly, @weekly), and durations (@every 30m, @every 6h). Minimum interval is 5 minutes. Maximum 10 schedules total.
 Timezones: pass an IANA name (e.g. "Europe/Paris", "America/New_York") via the timezone argument when the user mentions a city or zone. The cron expression is then evaluated in that timezone. Without a timezone, the server's local time is used.
 Actions:
@@ -276,6 +287,43 @@ Output: human readable text. Errors are prefixed with "failed: " or "invalid inp
 			Schema: `{"type":"object","properties":{"action":{"type":"string","enum":["list","create","delete","pause","resume","logs"],"description":"Action to perform"},"name":{"type":"string","description":"Unique schedule name. Required for create, delete, pause, resume, and logs."},"cron":{"type":"string","description":"Cron expression. Required for create. Examples: \"0 9 * * *\", \"@daily\", \"@every 30m\"."},"prompt":{"type":"string","description":"What nevinho should run on each fire. Required for create."},"timezone":{"type":"string","description":"Optional IANA timezone (e.g. \"Europe/Paris\"). When set, the cron is evaluated in this zone."}},"required":["action"]}`,
 		},
 	}
+}
+
+// requirementFor returns the capability a named tool needs to run, or
+// "" when a tool is always permitted. This is the single source of
+// truth for tool capabilities; DefsFor and Execute both consult it.
+// Keep it in sync when adding or renaming tools.
+func requirementFor(name string) Capability {
+	switch name {
+	case "web_read", "web_search":
+		return CapNetRead
+	case "bash":
+		return CapShellExec
+	case "file_read", "file_list", "grep", "find":
+		return CapFSRead
+	case "file_write", "file_edit":
+		return CapFSWrite
+	case "schedule":
+		return CapScheduleMut
+	}
+	return ""
+}
+
+// DefsFor returns the tool definitions available under the ExecContext
+// attached to ctx. Tools whose required capability is not granted are
+// filtered out so the model does not even see them. This is the
+// primary safety mechanism; Execute also re-checks at dispatch.
+func (r *Registry) DefsFor(ctx context.Context) []llm.ToolDef {
+	ec := ExecContextOf(ctx)
+	all := r.Defs()
+	out := make([]llm.ToolDef, 0, len(all))
+	for _, d := range all {
+		req := requirementFor(d.Name)
+		if req == "" || ec.Caps.Has(req) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func (r *Registry) ApprovedPaths() []string {
