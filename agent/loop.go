@@ -22,7 +22,14 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 // ChatScheduled is the entry point the schedule runner uses. It tags the
 // turn with SourceScheduled so the tool registry filters out shell and
 // write tools and the dispatch layer refuses them by capability.
+//
+// Scheduled fires are independent jobs, not an ongoing conversation. Keep
+// their prompts isolated from manual chat and from previous fires. This also
+// avoids provider-specific history constraints: Gemini rejects a request if
+// history trimming leaves a model functionCall turn without its immediately
+// preceding user/functionResponse turn.
 func (a *Agent) ChatScheduled(userID, prompt string) (string, error) {
+	a.ClearHistory(userID)
 	return a.chat(userID, prompt, false, nil, tools.SourceScheduled)
 }
 
