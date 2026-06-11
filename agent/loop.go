@@ -16,7 +16,11 @@ import (
 )
 
 func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
-	return a.chat(userID, text, isVoice, images, tools.SourceInteractive)
+	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, nil)
+}
+
+func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (string, error) {
+	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, cb)
 }
 
 // ChatScheduled is the entry point the schedule runner uses. It tags the
@@ -30,10 +34,10 @@ func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (str
 // preceding user/functionResponse turn.
 func (a *Agent) ChatScheduled(userID, prompt string) (string, error) {
 	a.ClearHistory(userID)
-	return a.chat(userID, prompt, false, nil, tools.SourceScheduled)
+	return a.chat(userID, prompt, false, nil, tools.SourceScheduled, nil)
 }
 
-func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source) (string, error) {
+func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback) (string, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -128,12 +132,23 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		if ctx.Err() != nil {
 			return "Cancelled.", nil
 		}
-		resp, err := a.llm.Complete(ctx, &llm.Request{
+		req := &llm.Request{
 			SystemPrompt: prompt,
 			Messages:     a.history[userID],
 			Tools:        a.tools.DefsFor(ctx),
 			MaxTokens:    maxOutputTokens,
-		})
+		}
+		var resp *llm.Response
+		var err error
+		if streamCb != nil {
+			if sp, ok := a.llm.(llm.StreamingProvider); ok {
+				resp, err = sp.StreamComplete(ctx, req, streamCb)
+			} else {
+				resp, err = a.llm.Complete(ctx, req)
+			}
+		} else {
+			resp, err = a.llm.Complete(ctx, req)
+		}
 		if err != nil {
 			logger.Err(err)
 			return "", err

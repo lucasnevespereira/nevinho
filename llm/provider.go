@@ -22,6 +22,12 @@ type Provider interface {
 	Model() string
 }
 
+type StreamCallback func(delta string)
+
+type StreamingProvider interface {
+	StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error)
+}
+
 type Request struct {
 	SystemPrompt string
 	Messages     []json.RawMessage

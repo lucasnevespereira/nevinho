@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type OpenAI struct {
@@ -89,6 +90,113 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 		})
 	}
 
+	return resp, nil
+}
+
+func (o *OpenAI) StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error) {
+	sysMsg, _ := json.Marshal(map[string]interface{}{
+		"role": "system", "content": req.SystemPrompt,
+	})
+	messages := append([]json.RawMessage{sysMsg}, ensureSlice(req.Messages)...)
+
+	body := map[string]interface{}{
+		"model":                 o.model,
+		"max_completion_tokens": req.MaxTokens,
+		"messages":              messages,
+		"tools":                 o.formatTools(req.Tools),
+		"stream":                true,
+		"stream_options":        map[string]bool{"include_usage": true},
+	}
+
+	resp := &Response{}
+	var text strings.Builder
+	var finish string
+	toolParts := map[int]*openAIToolCall{}
+	err := doSSE(ctx, o.baseURL+"/v1/chat/completions", body, map[string]string{
+		"Authorization": "Bearer " + o.apiKey,
+		"Content-Type":  "application/json",
+	}, func(data []byte) error {
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Role      string `json:"role"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return fmt.Errorf("parse stream chunk: %w", err)
+		}
+		if chunk.Usage.PromptTokens != 0 || chunk.Usage.CompletionTokens != 0 {
+			resp.Usage = Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens}
+		}
+		for _, ch := range chunk.Choices {
+			if ch.Delta.Content != "" {
+				text.WriteString(ch.Delta.Content)
+				if cb != nil {
+					cb(ch.Delta.Content)
+				}
+			}
+			for _, tc := range ch.Delta.ToolCalls {
+				part := toolParts[tc.Index]
+				if part == nil {
+					part = &openAIToolCall{}
+					toolParts[tc.Index] = part
+				}
+				if tc.ID != "" {
+					part.ID = tc.ID
+				}
+				if tc.Type != "" {
+					part.Type = tc.Type
+				}
+				if tc.Function.Name != "" {
+					part.Function.Name += tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					part.Function.Arguments += tc.Function.Arguments
+				}
+			}
+			if ch.FinishReason != "" {
+				finish = ch.FinishReason
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp.Text = text.String()
+	resp.StopReason = openAIStopReason(finish)
+	msg := struct {
+		Role      string           `json:"role"`
+		Content   *string          `json:"content"`
+		ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+	}{Role: "assistant"}
+	if resp.Text != "" {
+		msg.Content = &resp.Text
+	}
+	for i := 0; i < len(toolParts); i++ {
+		if tc := toolParts[i]; tc != nil {
+			msg.ToolCalls = append(msg.ToolCalls, *tc)
+			resp.ToolCalls = append(resp.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Input: json.RawMessage(tc.Function.Arguments)})
+		}
+	}
+	assistantMsg, _ := json.Marshal(msg)
+	resp.AssistantMessage = assistantMsg
 	return resp, nil
 }
 

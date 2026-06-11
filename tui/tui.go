@@ -42,6 +42,7 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	// Buffered so the agent's tool callback never blocks on a slow UI. a
 	// full buffer just drops an event, which only costs a missed card.
 	events := make(chan agent.ToolEvent, 64)
+	stream := make(chan string, 256)
 	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
 		select {
 		case events <- ev:
@@ -53,7 +54,7 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 	// Inline rendering, not alt-screen. The terminal owns scrollback,
 	// selection, and URL clicks. Bubble Tea only manages the bottom live
 	// region (input, status, pickers).
-	p := tea.NewProgram(newModel(a, events, cwd))
+	p := tea.NewProgram(newModel(a, events, stream, cwd))
 	_, err := p.Run()
 	return err
 }
@@ -68,9 +69,12 @@ type responseMsg struct {
 // channel into the Bubble Tea message loop.
 type toolEventMsg agent.ToolEvent
 
+type streamDeltaMsg string
+
 type model struct {
 	agent  *agent.Agent
 	events chan agent.ToolEvent
+	stream chan string
 	cwd    string
 
 	input textarea.Model
@@ -86,6 +90,7 @@ type model struct {
 	width          int
 	height         int
 	ready          bool
+	liveResponse   string
 
 	// Submitted prompts, newest last. Up/down on an empty input walks
 	// this list so the user can re-send or edit a recent turn.
@@ -96,13 +101,13 @@ type model struct {
 	// user keeps typing into the textarea and the text after @ becomes
 	// the filter. mentionPrefix is the input value at the moment @ was
 	// pressed, so we can splice the chosen path back in.
-	mentioning     bool
-	mentionPrefix  string
-	mentionItems   []string
-	mentionCursor  int
+	mentioning    bool
+	mentionPrefix string
+	mentionItems  []string
+	mentionCursor int
 }
 
-func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
+func newModel(a *agent.Agent, events chan agent.ToolEvent, stream chan string, cwd string) model {
 	ta := textarea.New()
 	ta.Placeholder = inputPlaceholder
 	ta.Prompt = ""
@@ -119,6 +124,7 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 	return model{
 		agent:      a,
 		events:     events,
+		stream:     stream,
 		cwd:        cwd,
 		input:      ta,
 		spin:       sp,
@@ -127,7 +133,7 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, cwd string) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.listen())
+	return tea.Batch(textarea.Blink, m.listen(), m.listenStream())
 }
 
 // listen pulls the next tool event off the channel. It re-issues itself on
@@ -142,10 +148,25 @@ func (m model) listen() tea.Cmd {
 	}
 }
 
+func (m model) listenStream() tea.Cmd {
+	return func() tea.Msg {
+		delta, ok := <-m.stream
+		if !ok {
+			return nil
+		}
+		return streamDeltaMsg(delta)
+	}
+}
+
 // send runs one blocking agent turn off the UI goroutine.
 func (m model) send(text string) tea.Cmd {
 	return func() tea.Msg {
-		out, err := m.agent.Chat(userID, text, false, nil)
+		out, err := m.agent.ChatStream(userID, text, false, nil, func(delta string) {
+			select {
+			case m.stream <- delta:
+			default:
+			}
+		})
 		return responseMsg{text: out, err: err}
 	}
 }
@@ -267,6 +288,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		m.busy = false
+		m.liveResponse = ""
 		switch {
 		case msg.err != nil:
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
@@ -280,6 +302,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			return m, m.printBlock(agentBlock{msg.text})
 		}
+
+	case streamDeltaMsg:
+		if m.busy {
+			m.liveResponse += string(msg)
+		}
+		return m, m.listenStream()
 
 	case toolEventMsg:
 		ev := agent.ToolEvent(msg)
@@ -406,6 +434,7 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 		answer = "yes"
 	}
 	m.busy = true
+	m.liveResponse = ""
 	return m, tea.Batch(m.send(answer), m.spin.Tick)
 }
 
@@ -589,6 +618,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(echo, cmd)
 	}
 	m.busy = true
+	m.liveResponse = ""
 	return m, tea.Batch(
 		m.printBlock(userBlock{text}),
 		m.send(text),
@@ -777,12 +807,12 @@ func (m model) View() string {
 	}
 	// Leading blank row keeps the live region from hugging the last
 	// printed block in scrollback.
-	return lipgloss.JoinVertical(lipgloss.Left,
-		"",
-		m.workingLine(),
-		bottom,
-		m.statusBar(),
-	)
+	parts := []string{""}
+	if m.liveResponse != "" {
+		parts = append(parts, agentBlock{m.liveResponse}.render(m.contentWidth()))
+	}
+	parts = append(parts, m.workingLine(), bottom, m.statusBar())
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 // mentionPickerRows caps how many file rows the @-picker shows at once.
