@@ -139,7 +139,15 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 			Type         string                 `json:"type"`
 			Index        int                    `json:"index"`
 			ContentBlock map[string]interface{} `json:"content_block"`
-			Delta        struct {
+			Message      struct {
+				Usage struct {
+					InputTokens              int `json:"input_tokens"`
+					OutputTokens             int `json:"output_tokens"`
+					CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+					CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				PartialJSON string `json:"partial_json"`
@@ -155,18 +163,10 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 		if err := json.Unmarshal(data, &ev); err != nil {
 			return fmt.Errorf("parse stream chunk: %w", err)
 		}
-		if ev.Usage.InputTokens != 0 {
-			resp.Usage.In = ev.Usage.InputTokens
-		}
-		if ev.Usage.OutputTokens != 0 {
-			resp.Usage.Out = ev.Usage.OutputTokens
-		}
-		if ev.Usage.CacheCreationInputTokens != 0 {
-			resp.Usage.CacheWrite = ev.Usage.CacheCreationInputTokens
-		}
-		if ev.Usage.CacheReadInputTokens != 0 {
-			resp.Usage.CacheRead = ev.Usage.CacheReadInputTokens
-		}
+		applyAnthropicUsage(&resp.Usage, ev.Message.Usage.InputTokens, ev.Message.Usage.OutputTokens,
+			ev.Message.Usage.CacheCreationInputTokens, ev.Message.Usage.CacheReadInputTokens)
+		applyAnthropicUsage(&resp.Usage, ev.Usage.InputTokens, ev.Usage.OutputTokens,
+			ev.Usage.CacheCreationInputTokens, ev.Usage.CacheReadInputTokens)
 		switch ev.Type {
 		case "content_block_start":
 			blocks[ev.Index] = ev.ContentBlock
@@ -221,6 +221,21 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 	assistantMsg, _ := json.Marshal(map[string]interface{}{"role": "assistant", "content": content})
 	resp.AssistantMessage = assistantMsg
 	return resp, nil
+}
+
+func applyAnthropicUsage(u *Usage, in, out, cacheWrite, cacheRead int) {
+	if in != 0 {
+		u.In = in
+	}
+	if out != 0 {
+		u.Out = out
+	}
+	if cacheWrite != 0 {
+		u.CacheWrite = cacheWrite
+	}
+	if cacheRead != 0 {
+		u.CacheRead = cacheRead
+	}
 }
 
 // anthropicStopReason maps Anthropic's stop_reason onto the normalized set.

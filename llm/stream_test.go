@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,6 +46,88 @@ func TestAnthropicStreamComplete(t *testing.T) {
 	}
 	if resp.StopReason != StopEndTurn {
 		t.Fatalf("stop=%q", resp.StopReason)
+	}
+	if resp.Usage.In != 7 || resp.Usage.Out != 2 {
+		t.Fatalf("usage=%+v", resp.Usage)
+	}
+}
+
+func TestOpenAIStreamCompleteText(t *testing.T) {
+	srv := sseServer(t, "/v1/chat/completions", strings.Join([]string{
+		`data: {"choices":[{"delta":{"role":"assistant"}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"content":"hel"}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}`,
+		``,
+		`data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n"))
+	defer srv.Close()
+
+	p := NewOpenAI("key", srv.URL, "gpt-test")
+	var gotDelta string
+	resp, err := p.StreamComplete(context.Background(), &Request{SystemPrompt: "s", MaxTokens: 10}, func(d string) { gotDelta += d })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "hello" || gotDelta != "hello" {
+		t.Fatalf("text=%q delta=%q, want hello", resp.Text, gotDelta)
+	}
+	if resp.StopReason != StopEndTurn {
+		t.Fatalf("stop=%q", resp.StopReason)
+	}
+	if resp.Usage.In != 5 || resp.Usage.Out != 2 {
+		t.Fatalf("usage=%+v", resp.Usage)
+	}
+	var msg struct {
+		Role    string  `json:"role"`
+		Content *string `json:"content"`
+	}
+	if err := json.Unmarshal(resp.AssistantMessage, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Role != "assistant" || msg.Content == nil || *msg.Content != "hello" {
+		t.Fatalf("assistant message=%s", resp.AssistantMessage)
+	}
+}
+
+func TestOpenAIStreamCompleteToolCall(t *testing.T) {
+	srv := sseServer(t, "/v1/chat/completions", strings.Join([]string{
+		`data: {"choices":[{"delta":{"role":"assistant"}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"file_","arguments":"{\"path\""}}]}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read","arguments":":\"README.md\"}"}}]},"finish_reason":"tool_calls"}]}`,
+		``,
+		`data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":4}}`,
+		``,
+	}, "\n"))
+	defer srv.Close()
+
+	p := NewOpenAI("key", srv.URL, "gpt-test")
+	var gotDelta string
+	resp, err := p.StreamComplete(context.Background(), &Request{SystemPrompt: "s", MaxTokens: 10}, func(d string) { gotDelta += d })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDelta != "" || resp.Text != "" {
+		t.Fatalf("text=%q delta=%q, want no user-visible stream", resp.Text, gotDelta)
+	}
+	if resp.StopReason != StopToolUse {
+		t.Fatalf("stop=%q", resp.StopReason)
+	}
+	if resp.Usage.In != 9 || resp.Usage.Out != 4 {
+		t.Fatalf("usage=%+v", resp.Usage)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("tool calls=%+v", resp.ToolCalls)
+	}
+	tc := resp.ToolCalls[0]
+	if tc.ID != "call_1" || tc.Name != "file_read" || string(tc.Input) != `{"path":"README.md"}` {
+		t.Fatalf("tool call=%+v input=%s", tc, tc.Input)
 	}
 }
 
