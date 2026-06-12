@@ -9,19 +9,33 @@ import (
 )
 
 type OpenAI struct {
-	apiKey  string
-	baseURL string
-	model   string
+	apiKey             string
+	baseURL            string
+	model              string
+	streamIncludeUsage bool
 }
 
 func NewOpenAI(apiKey, baseURL, model string) *OpenAI {
+	return newOpenAI(apiKey, baseURL, model, true)
+}
+
+func NewOpenAICompatible(apiKey, baseURL, model string) *OpenAI {
+	return newOpenAI(apiKey, baseURL, model, false)
+}
+
+func newOpenAI(apiKey, baseURL, model string, streamIncludeUsage bool) *OpenAI {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
-	return &OpenAI{apiKey: apiKey, baseURL: baseURL, model: model}
+	return &OpenAI{
+		apiKey:             apiKey,
+		baseURL:            baseURL,
+		model:              model,
+		streamIncludeUsage: streamIncludeUsage,
+	}
 }
 
 func (o *OpenAI) Model() string { return o.model }
@@ -105,7 +119,9 @@ func (o *OpenAI) StreamComplete(ctx context.Context, req *Request, cb StreamCall
 		"messages":              messages,
 		"tools":                 o.formatTools(req.Tools),
 		"stream":                true,
-		"stream_options":        map[string]bool{"include_usage": true},
+	}
+	if o.streamIncludeUsage {
+		body["stream_options"] = map[string]bool{"include_usage": true}
 	}
 
 	resp := &Response{}

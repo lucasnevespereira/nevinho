@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,6 +130,47 @@ func TestOpenAIStreamCompleteToolCall(t *testing.T) {
 	if tc.ID != "call_1" || tc.Name != "file_read" || string(tc.Input) != `{"path":"README.md"}` {
 		t.Fatalf("tool call=%+v input=%s", tc, tc.Input)
 	}
+}
+
+func TestOpenAIStreamCompleteIncludesUsageOption(t *testing.T) {
+	body := openAIStreamBody(t, NewOpenAI("key", "", "gpt-test"))
+	options, ok := body["stream_options"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stream_options missing or wrong type: %#v", body["stream_options"])
+	}
+	if options["include_usage"] != true {
+		t.Fatalf("include_usage=%#v, want true", options["include_usage"])
+	}
+}
+
+func TestOpenAICompatibleStreamCompleteOmitsUsageOption(t *testing.T) {
+	body := openAIStreamBody(t, NewOpenAICompatible("key", "", "gpt-test"))
+	if _, ok := body["stream_options"]; ok {
+		t.Fatalf("compatible provider should omit stream_options: %#v", body["stream_options"])
+	}
+}
+
+func openAIStreamBody(t *testing.T, p *OpenAI) map[string]interface{} {
+	t.Helper()
+	var got map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(b, &got); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}` + "\n\n"))
+	}))
+	defer srv.Close()
+	p.baseURL = srv.URL
+
+	if _, err := p.StreamComplete(context.Background(), &Request{SystemPrompt: "s", MaxTokens: 10}, nil); err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 func TestGeminiStreamComplete(t *testing.T) {

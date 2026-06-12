@@ -162,7 +162,7 @@ func detectProvider(cfg *config.Config) llm.Provider {
 	switch {
 	case cfg.OllamaModel != "":
 		logger.Info("provider: ollama (" + cfg.OllamaModel + ")")
-		return llm.NewOpenAI("", pc.OllamaURL, cfg.OllamaModel)
+		return llm.NewOpenAICompatible("", pc.OllamaURL, cfg.OllamaModel)
 	case pc.AnthropicKey != "":
 		logger.Info("provider: anthropic")
 		return llm.NewAnthropic(pc.AnthropicKey, "", "")
