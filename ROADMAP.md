@@ -89,6 +89,7 @@ The TUI is the primary surface when nevinho is used as a coding agent. After the
 - [ ] Slash-command autocomplete picker. The inline hint shows matching names; a real picker on `/` would let the user pick instead of finishing the word.
 - [ ] Tool card expand. Print the full output of the previous tool call without tailing `chat.log`. Either a `/last` command or a keystroke on the last card.
 - [ ] `/diff` to show pending `file_edit` and `file_write` changes the agent staged but the user has not approved.
+- [ ] Response time in the TUI. Surface the last turn duration directly in the terminal UI, likely in the status bar or final assistant block metadata. Start with total turn duration using the existing `logger.Done` timing path; later split out time-to-first-token if streaming latency becomes important.
 - [ ] `/cd <path>` to change the agent's working directory without restarting nevinho.
 - [ ] Session list and `/load <id>` to resume a past saved summary instead of starting cold.
 
