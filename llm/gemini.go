@@ -117,6 +117,86 @@ func (g *Gemini) Complete(ctx context.Context, req *Request) (*Response, error) 
 	return resp, nil
 }
 
+func (g *Gemini) StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error) {
+	body := geminiBody(req)
+	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s", g.baseURL, g.model, g.apiKey)
+	resp := &Response{}
+	var parts []json.RawMessage
+	err := doSSE(ctx, url, body, map[string]string{"Content-Type": "application/json"}, func(data []byte) error {
+		var raw struct {
+			Candidates []struct {
+				Content struct {
+					Role  string            `json:"role"`
+					Parts []json.RawMessage `json:"parts"`
+				} `json:"content"`
+				FinishReason string `json:"finishReason"`
+			} `json:"candidates"`
+			UsageMetadata struct {
+				PromptTokenCount     int `json:"promptTokenCount"`
+				CandidatesTokenCount int `json:"candidatesTokenCount"`
+			} `json:"usageMetadata"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("parse stream chunk: %w", err)
+		}
+		if raw.UsageMetadata.PromptTokenCount != 0 {
+			resp.Usage.In = raw.UsageMetadata.PromptTokenCount
+		}
+		if raw.UsageMetadata.CandidatesTokenCount != 0 {
+			resp.Usage.Out = raw.UsageMetadata.CandidatesTokenCount
+		}
+		if len(raw.Candidates) == 0 {
+			return nil
+		}
+		cand := raw.Candidates[0]
+		if cand.FinishReason != "" {
+			resp.StopReason = geminiStopReason(cand.FinishReason, len(resp.ToolCalls) > 0)
+		}
+		for _, part := range cand.Content.Parts {
+			parts = append(parts, part)
+			var p struct {
+				Text         string `json:"text"`
+				FunctionCall *struct {
+					Name string          `json:"name"`
+					Args json.RawMessage `json:"args"`
+				} `json:"functionCall"`
+			}
+			json.Unmarshal(part, &p)
+			if p.Text != "" {
+				resp.Text += p.Text
+				if cb != nil {
+					cb(p.Text)
+				}
+			}
+			if p.FunctionCall != nil {
+				resp.ToolCalls = append(resp.ToolCalls, ToolCall{ID: p.FunctionCall.Name, Name: p.FunctionCall.Name, Input: p.FunctionCall.Args})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.StopReason == "" {
+		resp.StopReason = geminiStopReason("STOP", len(resp.ToolCalls) > 0)
+	}
+	assistantMsg, _ := json.Marshal(map[string]interface{}{"role": "model", "parts": parts})
+	resp.AssistantMessage = assistantMsg
+	return resp, nil
+}
+
+func geminiBody(req *Request) map[string]interface{} {
+	body := map[string]interface{}{"contents": ensureSlice(req.Messages)}
+	if req.SystemPrompt != "" {
+		body["system_instruction"] = map[string]interface{}{"parts": []map[string]interface{}{{"text": req.SystemPrompt}}}
+	}
+	if len(req.Tools) > 0 {
+		g := &Gemini{}
+		body["tools"] = []map[string]interface{}{{"function_declarations": g.formatTools(req.Tools)}}
+	}
+	return body
+}
+
 // geminiStopReason maps Gemini's finishReason onto the normalized set.
 // Gemini keeps finishReason as "STOP" even when the turn carries function
 // calls, so tool use is detected from the parsed parts, not the reason.

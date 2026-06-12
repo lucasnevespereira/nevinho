@@ -22,6 +22,12 @@ type Provider interface {
 	Model() string
 }
 
+type StreamCallback func(delta string)
+
+type StreamingProvider interface {
+	StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error)
+}
+
 type Request struct {
 	SystemPrompt string
 	Messages     []json.RawMessage
@@ -116,12 +122,12 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		if pc.GroqKey == "" {
 			return nil, fmt.Errorf("GROQ_API_KEY not configured")
 		}
-		return NewOpenAI(pc.GroqKey, "https://api.groq.com/openai", strings.TrimPrefix(name, "groq:")), nil
+		return NewOpenAICompatible(pc.GroqKey, "https://api.groq.com/openai", strings.TrimPrefix(name, "groq:")), nil
 	case strings.HasPrefix(name, "openrouter:"):
 		if pc.OpenRouterKey == "" {
 			return nil, fmt.Errorf("OPENROUTER_API_KEY not configured")
 		}
-		return NewOpenAI(pc.OpenRouterKey, "https://openrouter.ai/api", strings.TrimPrefix(name, "openrouter:")), nil
+		return NewOpenAICompatible(pc.OpenRouterKey, "https://openrouter.ai/api", strings.TrimPrefix(name, "openrouter:")), nil
 	case strings.HasPrefix(name, "gpt-") || strings.HasPrefix(name, "o1-") || strings.HasPrefix(name, "o3-") || strings.HasPrefix(name, "o4-"):
 		if pc.OpenAIKey == "" {
 			return nil, fmt.Errorf("OPENAI_API_KEY not configured")
@@ -148,7 +154,7 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		return NewGemini(pc.GeminiKey, "", name), nil
 	default:
 		if pc.OllamaURL != "" {
-			return NewOpenAI("", pc.OllamaURL, name), nil
+			return NewOpenAICompatible("", pc.OllamaURL, name), nil
 		}
 		if pc.OpenAIKey != "" {
 			return nil, fmt.Errorf("unknown model %q (no Ollama URL, model does not look like a known cloud model)", name)

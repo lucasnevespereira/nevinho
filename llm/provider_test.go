@@ -89,6 +89,7 @@ func TestResolveAllowsKnownOpenAI(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected provider, got nil")
 	}
+	assertOpenAIStreamUsage(t, p, true)
 }
 
 func TestResolveAllowsAnyOllamaModel(t *testing.T) {
@@ -99,6 +100,7 @@ func TestResolveAllowsAnyOllamaModel(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected provider, got nil")
 	}
+	assertOpenAIStreamUsage(t, p, false)
 }
 
 func TestResolveGroqRoutesAnyModelAfterPrefix(t *testing.T) {
@@ -109,6 +111,7 @@ func TestResolveGroqRoutesAnyModelAfterPrefix(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected provider, got nil")
 	}
+	assertOpenAIStreamUsage(t, p, false)
 
 	// Any name after the prefix should resolve. The Groq catalog is large.
 	if _, err := Resolve("groq:something-new-tomorrow", config.ProviderConfig{GroqKey: "k"}); err != nil {
@@ -130,6 +133,18 @@ func TestResolveOpenRouterRoutesAnyModelAfterPrefix(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("expected provider, got nil")
+	}
+	assertOpenAIStreamUsage(t, p, false)
+}
+
+func assertOpenAIStreamUsage(t *testing.T, p Provider, want bool) {
+	t.Helper()
+	o, ok := p.(*OpenAI)
+	if !ok {
+		t.Fatalf("provider type %T, want *OpenAI", p)
+	}
+	if o.streamIncludeUsage != want {
+		t.Fatalf("streamIncludeUsage=%v, want %v", o.streamIncludeUsage, want)
 	}
 }
 
