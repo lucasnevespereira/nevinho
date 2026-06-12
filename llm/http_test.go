@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -60,5 +62,54 @@ func TestSleepWithContext_Cancellation(t *testing.T) {
 	}
 	if elapsed > 100*time.Millisecond {
 		t.Errorf("took %v, should return immediately on cancelled context", elapsed)
+	}
+}
+
+func TestDoSSERetriesRetryableStatus(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "try again", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"ok\":true}\n\n"))
+	}))
+	defer srv.Close()
+
+	var got string
+	err := doSSE(context.Background(), srv.URL, map[string]string{"hello": "world"}, nil, func(data []byte) error {
+		got = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d, want 2", calls)
+	}
+	if got != `{"ok":true}` {
+		t.Fatalf("got data %q", got)
+	}
+}
+
+func TestDoSSEDoesNotRetryNonRetryableStatus(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	err := doSSE(context.Background(), srv.URL, map[string]string{"hello": "world"}, nil, func(data []byte) error {
+		t.Fatalf("unexpected data: %s", data)
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d, want 1", calls)
 	}
 }

@@ -64,14 +64,7 @@ func doHTTP(ctx context.Context, url string, body interface{}, headers map[strin
 			return nil, lastErr
 		}
 
-		delay := backoffDelay(attempt)
-		if resp.StatusCode == 429 {
-			if ra := resp.Header.Get("Retry-After"); ra != "" {
-				if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs <= 60 {
-					delay = time.Duration(secs) * time.Second
-				}
-			}
-		}
+		delay := retryDelay(attempt, resp)
 		logger.Info(fmt.Sprintf("retry %d/%d: API %d", attempt+1, maxRetries-1, resp.StatusCode))
 		if !sleepWithContext(ctx, delay) {
 			return nil, ctx.Err()
@@ -86,6 +79,19 @@ func isRetryable(code int) bool {
 
 func backoffDelay(attempt int) time.Duration {
 	return time.Duration(1<<attempt) * time.Second
+}
+
+func retryDelay(attempt int, resp *http.Response) time.Duration {
+	delay := backoffDelay(attempt)
+	if resp.StatusCode != 429 {
+		return delay
+	}
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil && secs > 0 && secs <= 60 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return delay
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) bool {
@@ -104,28 +110,58 @@ func doSSE(ctx context.Context, url string, body interface{}, headers map[string
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
-	if err != nil {
-		return err
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
+
+	var lastErr error
+	for attempt := range maxRetries {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+		if err != nil {
+			return err
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if attempt < maxRetries-1 {
+				logger.Info(fmt.Sprintf("retry %d/%d: %v", attempt+1, maxRetries-1, err))
+				if !sleepWithContext(ctx, backoffDelay(attempt)) {
+					return ctx.Err()
+				}
+			}
+			continue
+		}
+
+		if resp.StatusCode == 200 {
+			err := readSSE(ctx, resp.Body, onData)
+			resp.Body.Close()
+			return err
+		}
+
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		lastErr = fmt.Errorf("API %d: %s", resp.StatusCode, string(respBody))
+
+		if !isRetryable(resp.StatusCode) || attempt == maxRetries-1 {
+			return lastErr
+		}
+
+		delay := retryDelay(attempt, resp)
+		logger.Info(fmt.Sprintf("retry %d/%d: API %d", attempt+1, maxRetries-1, resp.StatusCode))
+		if !sleepWithContext(ctx, delay) {
 			return ctx.Err()
 		}
-		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API %d: %s", resp.StatusCode, string(b))
-	}
+	return lastErr
+}
 
-	scanner := bufio.NewScanner(resp.Body)
+func readSSE(ctx context.Context, r io.Reader, onData func([]byte) error) error {
+	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var event strings.Builder
 	flush := func() error {
