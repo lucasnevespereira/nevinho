@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -61,8 +62,9 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 
 // responseMsg carries the result of one finished agent turn.
 type responseMsg struct {
-	text string
-	err  error
+	text     string
+	err      error
+	duration time.Duration
 }
 
 // toolEventMsg is one tool-call event lifted from the agent's callback
@@ -91,6 +93,7 @@ type model struct {
 	height         int
 	ready          bool
 	liveResponse   string
+	lastTurnTime   time.Duration
 
 	// Submitted prompts, newest last. Up/down on an empty input walks
 	// this list so the user can re-send or edit a recent turn.
@@ -161,13 +164,14 @@ func (m model) listenStream() tea.Cmd {
 // send runs one blocking agent turn off the UI goroutine.
 func (m model) send(text string) tea.Cmd {
 	return func() tea.Msg {
+		start := time.Now()
 		out, err := m.agent.ChatStream(userID, text, false, nil, func(delta string) {
 			select {
 			case m.stream <- delta:
 			default:
 			}
 		})
-		return responseMsg{text: out, err: err}
+		return responseMsg{text: out, err: err, duration: time.Since(start)}
 	}
 }
 
@@ -289,6 +293,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.busy = false
 		m.liveResponse = ""
+		m.lastTurnTime = msg.duration
 		switch {
 		case msg.err != nil:
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
@@ -885,10 +890,25 @@ func (m model) statusBar() string {
 	if in, out, cost := m.agent.Usage(); in > 0 || out > 0 {
 		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.2f", humanCount(in), humanCount(out), cost)
 	}
+	if m.lastTurnTime > 0 {
+		left += "  ·  last " + humanDuration(m.lastTurnTime)
+	}
 	right := m.agent.Model() + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	bar := left + strings.Repeat(" ", gap) + right
 	return styleStatus.Width(m.width).Render(bar)
+}
+
+// humanDuration formats a completed turn duration for the compact status bar.
+func humanDuration(d time.Duration) string {
+	d = d.Round(100 * time.Millisecond)
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return d.Truncate(time.Second).String()
 }
 
 // humanCount formats a token count compactly: 500, 2.8k, 30k.
