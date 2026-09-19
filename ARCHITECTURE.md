@@ -2,22 +2,24 @@
 
 How nevinho is laid out, how a message flows through it, and how the context window stays small.
 
-The same agent core powers two transports. The Discord bot runs on a VPS and serves the owner over DMs. The TUI runs locally and talks to the same agent over the terminal. Everything below the transport boundary is shared.
+The same agent core powers two transports. The Discord bot runs on a VPS and serves the owner over DMs. The TUI runs locally and talks to the same agent over the terminal. On the VPS, a schedule runner is a third caller. Everything below the transport boundary is shared.
 
 ---
 
 ## System Overview
 
+![nevinho architecture overview](assets/diagrams/overview.png)
+
 ```
-   Local terminal (TUI)        VPS daemon (Discord)
-   --------------------        --------------------
+   Local terminal (TUI)        VPS daemon (Discord + scheduler)
+   --------------------        --------------------------------
    nevinho                     nevinho start
         \                            /
          \                          /
           v                        v
         +----------------------------+
         |  Agent.Chat(userID, text)  |
-        |  one core, two callers     |
+        |  one core, three callers   |
         |   . per-user lock          |
         |   . cancellable context    |
         |   . approval gate          |
@@ -65,14 +67,41 @@ The only thing that differs is `RunMode`, set when the agent is constructed.
 
 Both modes pass the same `userID` through `Chat()`. Local always uses `cli-local`. Discord uses the Discord user ID. Per-user state (history, locks, pending approvals) is keyed by this string.
 
+### The scheduler
+
+In daemon mode, `schedule.Runner` ticks once a minute and fires due jobs through `Agent.ChatScheduled`. Each job runs under its own `scheduler:<id>` user, so its history never mixes with the owner's chat. The history is cleared before every run, and the result is sent to the owner as a Discord DM. Jobs live encrypted in `~/.nevinho/schedules.enc`.
+
+### Capabilities
+
+Every turn carries an `ExecContext` with a source and a capability set. The registry only runs a tool whose capability is in that set.
+
+| Source        | Capabilities                                              |
+| ------------- | --------------------------------------------------------- |
+| `interactive` | net.read, fs.read, fs.write, shell.exec, schedule.mut     |
+| `scheduled`   | net.read, fs.read                                         |
+
+Scheduled runs are read-only on purpose. A job cannot run bash, write files, or create more jobs.
+
+### Voice and images
+
+Discord only. A voice note is downloaded, converted to WAV with ffmpeg, and transcribed by a local whisper.cpp binary (`voice/`). The transcript reaches `Chat()` as plain text with `isVoice` set, which only changes how it is logged. `nevinho setup` downloads the whisper binary and model. Image attachments are passed to `Chat()` as `llm.Image` values.
+
 ---
 
 ## The Agentic Loop
 
 This is the heart of `agent.Chat()`. One user message can trigger many LLM calls as the model uses tools.
 
+![nevinho agent loop](assets/diagrams/agent-loop.png)
+
 ```
 User sends message
+    |
+    v
+pending approval? yes runs the held call, no drops it
+    |
+    v
+build system prompt (+ memory.md, cwd, home)
     |
     v
 appendHistory(user message)
@@ -84,9 +113,9 @@ appendHistory(user message)
 |  ctx cancelled? return             |
 |         |                          |
 |         v                          |
-|  llm.Complete(                     |
+|  Complete / StreamComplete(        |
 |    system prompt, history,         |
-|    tool defs                       |
+|    tool defs allowed by caps       |
 |  )                                 |
 |         |                          |
 |         v                          |
@@ -177,6 +206,8 @@ When `ELEPHANT` is on (the default, override with `ELEPHANT=off`), the agent wri
 
 Files live in `~/.nevinho/summaries/<userID>.md`. `/session` in the TUI dumps the current summary.
 
+Schedules live in `~/.nevinho/schedules.enc`, encrypted like the config. Every write to disk goes through `safeio.WriteFile` (temp file, fsync, rename), so a crash mid-write leaves the old file or the new one, never a truncated mix.
+
 User preferences detected from corrections (the model picking up "always", "never", "remember") are stored separately in `~/.nevinho/memory.md` and survive `/forget`. `/memory` in the TUI dumps them.
 
 ---
@@ -225,9 +256,14 @@ In `ModeLocal`, every bash command goes through this gate. In `ModeDaemon`, only
 
 The TUI uses Bubble Tea but does not enter the alternate screen. Conversation blocks are pushed straight into the terminal's regular scrollback with `tea.Println`. The terminal handles wheel scroll, text selection, and URL clicking natively, the same way Claude Code and opencode do it.
 
-Only the live region at the bottom (input box, working line, status bar, pickers) is managed by Bubble Tea. Blocks rendered to scrollback are capped at 100 columns so wide terminals stay readable.
+Only the live region at the bottom (input box, working line, status bar, pickers) is managed by Bubble Tea. Blocks stretch the full terminal width.
 
-Tool events come from the agent over a buffered channel (capacity 64). The TUI listens on it and prints a card per `ToolDone` event. A full channel drops the event rather than blocking the agent.
+The agent talks to the TUI over two buffered channels. Neither ever blocks the agent: a full channel drops the value.
+
+- Tool events (capacity 64). The TUI prints a card per `ToolDone` event.
+- Stream deltas (capacity 256). The TUI calls `ChatStream`, and text deltas render live in the working region. When the turn ends, the full reply is printed to scrollback as one block, and the status bar shows how long the turn took.
+
+Providers that implement `llm.StreamingProvider` stream. Others fall back to a plain `Complete` call. Discord never streams.
 
 ---
 
@@ -265,8 +301,8 @@ The cached prefix (~900 tokens) is essentially free after the first turn. The re
 | `maxToolResult` | 4,000 | Max bytes per tool result in history |
 | `chatTimeout` | 5 min | Whole-turn timeout |
 | `bashTimeout` | 120 s | Bash command timeout |
-| `httpTimeout` | 15 s | HTTP request timeout |
-| `maxContentWidth` | 100 | TUI block render cap |
+| `httpTimeout` | 15 s | Web tool HTTP timeout |
+| `RunTimeout` | 5 min | Scheduled run timeout |
 
 ---
 
@@ -277,22 +313,27 @@ nevinho/
   main.go                CLI entry point. nevinho with no args launches the TUI.
   cmd/
     chat.go              nevinho chat. Same as no-arg launch.
-    serve.go             nevinho start. Discord daemon.
-    service.go           nevinho service install/uninstall. systemd unit.
+    serve.go             Discord daemon. Wires the bot, agent, and
+                         schedule runner.
+    service.go           nevinho start/stop/status/logs. systemd unit.
     config.go            nevinho config get/set/clear.
     upgrade.go           nevinho upgrade. Self-update.
+    uninstall.go         nevinho uninstall.
+    version.go           nevinho version.
   agent/
     agent.go             Agent struct, constructors, public API (Model,
                          SwitchModel, SetConfig, Usage, AvailableModels,
                          Status, RevokePath, and others).
-    loop.go              Chat(), the agentic loop, approval handshake,
-                         tool execution, nudgeForReply.
+    loop.go              Chat(), ChatStream(), ChatScheduled(), the
+                         agentic loop, approval handshake, tool
+                         execution, nudgeForReply.
     history.go           appendHistory, trimHistoryByTokens,
                          summarizeAndPrepend, MemoryView, SummaryView,
                          ClearHistory.
     persistence.go       Per-user summary path helpers, sanitization.
   llm/
-    provider.go          Provider interface, message types, stop reasons.
+    provider.go          Provider and StreamingProvider interfaces,
+                         message types, stop reasons.
     anthropic.go         Anthropic Messages API plus prompt caching.
     openai.go            OpenAI chat completions (plus Ollama via the
                          compatible endpoint).
@@ -305,11 +346,13 @@ nevinho/
   tools/
     registry.go          Tool dispatch, approval bookkeeping,
                          approved-path persistence.
+    capabilities.go      ExecContext, sources, capability presets.
     bash.go              Shell execution and danger pattern detection.
     file.go              file_read/write/edit/list with path sandboxing.
     find.go, grep.go     Code search.
     web.go               Tavily search and page fetch.
-    schedule.go          Cron scheduler (daemon only).
+    schedule.go          schedule tool: create, list, delete jobs
+                         (daemon only).
   tui/
     tui.go               Bubble Tea model, inline rendering, slash
                          commands, pickers.
@@ -317,8 +360,11 @@ nevinho/
                          and tool blocks.
     selector.go          Filterable picker. Backs /model, /config,
                          /paths.
+    files.go             File list for @ mentions (git ls-files).
+    theme.go             Colour palette and styles.
   discord/
     bot.go, messages.go  Discord session, message handling.
+    format.go            Markdown and message splitting for Discord.
     commands.go          Slash commands.
     indicator.go         Typing indicator while a turn runs.
     attachments.go       Image and voice handling.
@@ -332,6 +378,14 @@ nevinho/
     logger.go            Coloured terminal output for the daemon.
   memory/
     memory.go            User preference detection and storage.
+  safeio/
+    safeio.go            Atomic file writes (temp, fsync, rename).
   schedule/
-    store.go             Cron job persistence.
+    schedule.go          Encrypted job store, run log.
+    cron.go              Cron parsing with timezones.
+    runner.go            Ticks every minute, fires due jobs, notifies.
+  voice/
+    transcribe.go        ffmpeg to WAV, then local whisper.cpp.
+    setup.go             Downloads the whisper binary and model.
+  assets/diagrams/       Diagram PNGs and their Archify JSON sources.
 ```
