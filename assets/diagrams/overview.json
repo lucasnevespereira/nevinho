@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "nevinho architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1260,
+      620
+    ],
+    "repository": {
+      "url": "https://github.com/lucasnevespereira/nevinho",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "cb01a625354152dff553596f63dffb23d64b4737"
+    }
+  },
+  "components": [
+    {
+      "id": "tui",
+      "type": "frontend",
+      "label": "Terminal TUI",
+      "sublabel": "ModeLocal",
+      "sources": [
+        {
+          "path": "tui/tui.go"
+        }
+      ],
+      "pos": [
+        260,
+        120
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "discord",
+      "type": "frontend",
+      "label": "Discord bot",
+      "sublabel": "ModeDaemon on VPS",
+      "brand": "discord",
+      "sources": [
+        {
+          "path": "discord/bot.go"
+        }
+      ],
+      "pos": [
+        260,
+        280
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "whisper",
+      "type": "backend",
+      "label": "whisper.cpp",
+      "sublabel": "local, via ffmpeg",
+      "sources": [
+        {
+          "path": "voice/transcribe.go"
+        }
+      ],
+      "pos": [
+        40,
+        280
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "scheduler",
+      "type": "backend",
+      "label": "Schedule runner",
+      "sublabel": "ticks every minute",
+      "sources": [
+        {
+          "path": "schedule/runner.go"
+        }
+      ],
+      "pos": [
+        260,
+        440
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent.Chat",
+      "sublabel": "loop, max 25 turns",
+      "sources": [
+        {
+          "path": "agent/loop.go"
+        }
+      ],
+      "pos": [
+        540,
+        280
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "LLM provider layer",
+      "sublabel": "caching, retry",
+      "sources": [
+        {
+          "path": "llm/provider.go"
+        }
+      ],
+      "pos": [
+        810,
+        280
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "external",
+      "label": "Model APIs",
+      "sublabel": "Anthropic, OpenAI, Gemini...",
+      "pos": [
+        1060,
+        280
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "~/.nevinho",
+      "sublabel": "summaries, memory.md",
+      "sources": [
+        {
+          "path": "agent/persistence.go"
+        }
+      ],
+      "pos": [
+        540,
+        90
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "config",
+      "type": "security",
+      "label": "Encrypted config",
+      "sublabel": "AES-256-GCM",
+      "sources": [
+        {
+          "path": "config/config.go"
+        }
+      ],
+      "pos": [
+        810,
+        90
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "Tool registry",
+      "sublabel": "approval gate",
+      "sources": [
+        {
+          "path": "tools/registry.go"
+        }
+      ],
+      "pos": [
+        540,
+        470
+      ],
+      "size": [
+        170,
+        68
+      ]
+    },
+    {
+      "id": "tavily",
+      "type": "external",
+      "label": "Tavily",
+      "sublabel": "web search",
+      "sources": [
+        {
+          "path": "tools/web.go"
+        }
+      ],
+      "pos": [
+        810,
+        470
+      ],
+      "size": [
+        170,
+        68
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "tui-to-agent",
+      "from": "tui",
+      "to": "agent",
+      "label": "cli-local",
+      "variant": "emphasis"
+    },
+    {
+      "id": "discord-to-agent",
+      "from": "discord",
+      "to": "agent",
+      "label": "DM",
+      "variant": "emphasis",
+      "labelDx": -30
+    },
+    {
+      "id": "discord-to-whisper",
+      "from": "discord",
+      "to": "whisper",
+      "label": "voice note"
+    },
+    {
+      "id": "scheduler-to-agent",
+      "from": "scheduler",
+      "to": "agent",
+      "label": "scheduled prompt"
+    },
+    {
+      "id": "scheduler-to-discord",
+      "from": "scheduler",
+      "to": "discord",
+      "label": "notify",
+      "variant": "dashed"
+    },
+    {
+      "id": "agent-to-llm",
+      "from": "agent",
+      "to": "llm",
+      "label": "Complete",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llm-to-providers",
+      "from": "llm",
+      "to": "providers",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-to-memory",
+      "from": "agent",
+      "to": "memory",
+      "label": "summaries"
+    },
+    {
+      "id": "config-to-llm",
+      "from": "config",
+      "to": "llm",
+      "label": "API keys",
+      "variant": "security",
+      "labelAt": [
+        895,
+        219
+      ]
+    },
+    {
+      "id": "agent-to-tools",
+      "from": "agent",
+      "to": "tools",
+      "label": "tool calls",
+      "labelAt": [
+        625,
+        409
+      ]
+    },
+    {
+      "id": "tools-to-tavily",
+      "from": "tools",
+      "to": "tavily",
+      "label": "web_search",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Three callers, one core",
+      "items": [
+        "TUI, Discord, and scheduler all call Agent.Chat",
+        "RunMode only changes approvals and prompt"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Context stays small",
+      "items": [
+        "Cached system prompt and tool defs",
+        "30k token history, evictions summarized"
+      ]
+    }
+  ]
+}

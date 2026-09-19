@@ -1,0 +1,215 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "nevinho agent loop",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "transport",
+      "label": "Transport"
+    },
+    {
+      "id": "agent",
+      "label": "Agent.chat"
+    },
+    {
+      "id": "work",
+      "label": "Tools and context"
+    }
+  ],
+  "groups": [
+    {
+      "id": "loop",
+      "label": "Loop, max 25 turns",
+      "lane": "agent",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": [
+    "msg",
+    "prep",
+    "llm",
+    "decide",
+    "reply"
+  ],
+  "nodes": [
+    {
+      "id": "msg",
+      "lane": "transport",
+      "col": 0,
+      "type": "frontend",
+      "label": "User message",
+      "sublabel": "TUI, Discord, scheduler",
+      "width": 140
+    },
+    {
+      "id": "reply",
+      "lane": "transport",
+      "col": 5,
+      "type": "frontend",
+      "label": "Reply",
+      "sublabel": "finish(): tokens, cost",
+      "width": 140
+    },
+    {
+      "id": "prep",
+      "lane": "agent",
+      "col": 1,
+      "type": "backend",
+      "label": "Prepare turn",
+      "sublabel": "lock, prompt, memory",
+      "width": 140
+    },
+    {
+      "id": "llm",
+      "lane": "agent",
+      "col": 2,
+      "type": "backend",
+      "label": "LLM call",
+      "sublabel": "Complete or stream",
+      "width": 140
+    },
+    {
+      "id": "decide",
+      "lane": "agent",
+      "col": 3,
+      "type": "backend",
+      "label": "Tool calls?",
+      "sublabel": "check response",
+      "width": 140
+    },
+    {
+      "id": "tools",
+      "lane": "work",
+      "col": 3,
+      "type": "backend",
+      "label": "Run tools",
+      "sublabel": "cap 4 KB each",
+      "width": 140
+    },
+    {
+      "id": "history",
+      "lane": "work",
+      "col": 1,
+      "type": "database",
+      "label": "History",
+      "sublabel": "trim at 30k tokens",
+      "width": 140
+    },
+    {
+      "id": "nudge",
+      "lane": "agent",
+      "col": 4,
+      "type": "messagebus",
+      "label": "Nudge",
+      "sublabel": "empty turn, tools off",
+      "width": 140
+    },
+    {
+      "id": "approval",
+      "lane": "work",
+      "col": 5,
+      "type": "security",
+      "label": "Approval prompt",
+      "sublabel": "NEEDS_APPROVAL",
+      "width": 140
+    }
+  ],
+  "edges": [
+    {
+      "id": "msg-prep",
+      "from": "msg",
+      "to": "prep",
+      "variant": "emphasis"
+    },
+    {
+      "id": "prep-history",
+      "from": "prep",
+      "to": "history",
+      "label": "append, trim"
+    },
+    {
+      "id": "prep-llm",
+      "from": "prep",
+      "to": "llm",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llm-decide",
+      "from": "llm",
+      "to": "decide",
+      "variant": "emphasis"
+    },
+    {
+      "id": "decide-reply",
+      "from": "decide",
+      "to": "reply",
+      "label": "text only",
+      "variant": "emphasis"
+    },
+    {
+      "id": "decide-tools",
+      "from": "decide",
+      "to": "tools",
+      "label": "yes"
+    },
+    {
+      "id": "tools-llm",
+      "from": "tools",
+      "to": "llm",
+      "label": "next turn",
+      "role": "return"
+    },
+    {
+      "id": "decide-nudge",
+      "from": "decide",
+      "to": "nudge",
+      "label": "empty",
+      "role": "error",
+      "variant": "dashed"
+    },
+    {
+      "id": "nudge-reply",
+      "from": "nudge",
+      "to": "reply",
+      "variant": "dashed"
+    },
+    {
+      "id": "tools-approval",
+      "from": "tools",
+      "to": "approval",
+      "label": "gated",
+      "role": "error",
+      "variant": "security"
+    },
+    {
+      "id": "approval-reply",
+      "from": "approval",
+      "to": "reply",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Approval spans two turns",
+      "items": [
+        "Gated tool returns NEEDS_APPROVAL and the turn ends",
+        "Next message yes/no runs or drops the pending call"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Other exits",
+      "items": [
+        "Cancel or timeout returns \"Cancelled.\"",
+        "25 loops without a text reply ends the turn"
+      ]
+    }
+  ]
+}
