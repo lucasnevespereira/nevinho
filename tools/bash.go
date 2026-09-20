@@ -90,22 +90,22 @@ type bashInput struct {
 	Command string `json:"command"`
 }
 
-func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID string) string {
+func (r *Registry) runBash(ctx context.Context, input json.RawMessage, userID string) Result {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	// On a VPS only commands that trip the dangerous-pattern heuristic need
 	// approval. In strict mode (running on the user's own machine) every
 	// command does, since the heuristic cannot catch everything.
 	if r.isStrict() || isDangerous(in.Command) != "" {
-		if err := r.checkCodePermission(userID, in.Command, input); err != nil {
-			return err.Error()
+		if paused := r.checkCodePermission(userID, in.Command, input); paused != nil {
+			return *paused
 		}
 	}
 
-	return r.executeBashCtx(ctx, in.Command)
+	return ok(r.executeBashCtx(ctx, in.Command))
 }
 
 // executeBashCtx runs a command with cancellation and timeout.

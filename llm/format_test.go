@@ -7,9 +7,8 @@ import (
 )
 
 func TestAnthropicFormatUserMessage(t *testing.T) {
-	a := NewAnthropic("k", "", "claude-haiku-4-5")
 	img := Image{MediaType: "image/png", Data: []byte("PNG\x00bytes")}
-	raw := a.FormatUserMessage("hello", []Image{img})
+	raw := anthropicUserMessage("hello", []Image{img})
 
 	var msg struct {
 		Role    string                   `json:"role"`
@@ -44,9 +43,8 @@ func TestAnthropicFormatUserMessage(t *testing.T) {
 }
 
 func TestAnthropicFormatUserMessageEmptyText(t *testing.T) {
-	a := NewAnthropic("k", "", "claude-haiku-4-5")
 	img := Image{MediaType: "image/jpeg", Data: []byte("JPG")}
-	raw := a.FormatUserMessage("", []Image{img})
+	raw := anthropicUserMessage("", []Image{img})
 
 	var msg struct {
 		Content []map[string]interface{} `json:"content"`
@@ -63,8 +61,7 @@ func TestAnthropicFormatUserMessageEmptyText(t *testing.T) {
 }
 
 func TestAnthropicFormatUserMessageNoImagesIsString(t *testing.T) {
-	a := NewAnthropic("k", "", "claude-haiku-4-5")
-	raw := a.FormatUserMessage("plain", nil)
+	raw := anthropicUserMessage("plain", nil)
 
 	var msg struct {
 		Role    string          `json:"role"`
@@ -83,9 +80,8 @@ func TestAnthropicFormatUserMessageNoImagesIsString(t *testing.T) {
 }
 
 func TestOpenAIFormatUserMessage(t *testing.T) {
-	o := NewOpenAI("k", "", "gpt-4o-mini")
 	img := Image{MediaType: "image/png", Data: []byte("PNG\x00bytes")}
-	raw := o.FormatUserMessage("look", []Image{img})
+	raw := openAIUserMessage("look", []Image{img})
 
 	var msg struct {
 		Role    string                   `json:"role"`
@@ -117,8 +113,7 @@ func TestOpenAIFormatUserMessage(t *testing.T) {
 }
 
 func TestOpenAIFormatUserMessageNoImagesIsString(t *testing.T) {
-	o := NewOpenAI("k", "", "gpt-4o-mini")
-	raw := o.FormatUserMessage("plain", nil)
+	raw := openAIUserMessage("plain", nil)
 
 	var msg struct {
 		Content json.RawMessage `json:"content"`
@@ -132,5 +127,40 @@ func TestOpenAIFormatUserMessageNoImagesIsString(t *testing.T) {
 	}
 	if s != "plain" {
 		t.Errorf("content = %q, want plain", s)
+	}
+}
+
+func TestEncodeSkipsEmptyAssistantTurn(t *testing.T) {
+	msgs := []Message{
+		UserMessage("hi", nil),
+		{Role: RoleAssistant},
+		UserMessage("still there?", nil),
+	}
+	if got := len(anthropicEncode(msgs)); got != 2 {
+		t.Errorf("anthropic encoded %d messages, want 2", got)
+	}
+	if got := len(geminiEncode(msgs)); got != 2 {
+		t.Errorf("gemini encoded %d messages, want 2", got)
+	}
+}
+
+func TestEncodeRoundTripsToolCallsAndResults(t *testing.T) {
+	msgs := []Message{
+		UserMessage("run it", nil),
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Input: []byte(`{"command":"ls"}`)}}},
+		ToolResultMessage([]ToolResult{{ID: "c1", Output: "file.txt"}}),
+	}
+	for name, encoded := range map[string][]json.RawMessage{
+		"anthropic": anthropicEncode(msgs),
+		"openai":    openAIEncode(msgs),
+		"gemini":    geminiEncode(msgs),
+	} {
+		joined := ""
+		for _, m := range encoded {
+			joined += string(m)
+		}
+		if !strings.Contains(joined, "bash") || !strings.Contains(joined, "file.txt") {
+			t.Errorf("%s lost the tool call or its result: %s", name, joined)
+		}
 	}
 }

@@ -26,26 +26,26 @@ type grepInput struct {
 	Limit        int    `json:"limit"`
 }
 
-func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID string) string {
+func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID string) Result {
 	var in grepInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	if in.Pattern == "" {
-		return "pattern is required"
+		return fail("pattern is required")
 	}
 	if in.Path == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return "path is required — use an absolute path"
+			return fail("path is required — use an absolute path")
 		}
 		in.Path = cwd
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
 	args := []string{"-rn", "--binary-files=without-match"}
@@ -69,20 +69,20 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 
 	if err != nil {
 		if tctx.Err() == context.DeadlineExceeded {
-			return "grep timed out after 30s — try a more specific pattern or path"
+			return fail("grep timed out after 30s — try a more specific pattern or path")
 		}
 		// grep exits 1 when no matches found
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return "no matches found"
+		if exitErr, isExit := err.(*exec.ExitError); isExit && exitErr.ExitCode() == 1 {
+			return Result{Output: "no matches found", Status: StatusOK}
 		}
 		if result != "" {
-			return result
+			return ok(result)
 		}
-		return fmt.Sprintf("grep failed: %v", err)
+		return fail("grep failed: %v", err)
 	}
 
 	if result == "" {
-		return "no matches found"
+		return ok("no matches found")
 	}
 
 	result = makePathsRelative(result, resolved)
@@ -111,7 +111,7 @@ func (r *Registry) grepSearch(ctx context.Context, input json.RawMessage, userID
 		result += fmt.Sprintf("\n[Some lines truncated to %d chars]", grepMaxLineLength)
 	}
 
-	return result
+	return ok(result)
 }
 
 func makePathsRelative(output, basePath string) string {

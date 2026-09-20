@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 )
@@ -122,7 +123,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	indicator := newActivityIndicator(s, m.ChannelID)
 	b.agent.SetToolCallback(m.Author.ID, indicator.onEvent)
 
-	response, err := b.agent.Chat(m.Author.ID, text, isVoice, images)
+	turn, err := b.agent.Chat(m.Author.ID, text, isVoice, images)
 	b.agent.SetToolCallback(m.Author.ID, nil)
 	indicator.Close()
 	stopTyping()
@@ -132,7 +133,7 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	for _, f := range b.agent.DrainFileDisplays(m.Author.ID) {
+	for _, f := range turn.Files {
 		block := "```" + f.Lang + "\n" + f.Content + "\n```"
 		hasNestedFences := strings.Contains(f.Content, "```")
 		if !hasNestedFences && len(block) <= maxMessageLen {
@@ -149,22 +150,13 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
+	response := turn.Text
 	if response == "" {
 		response = "Done. (no text response)"
 	}
 
-	if b.agent.HasPendingApproval(m.Author.ID) {
-		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
-			Content: cleanForDiscord(response),
-			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{
-					Components: []discordgo.MessageComponent{
-						discordgo.Button{Label: "Approve", Style: discordgo.SuccessButton, CustomID: "approve"},
-						discordgo.Button{Label: "Deny", Style: discordgo.DangerButton, CustomID: "deny"},
-					},
-				},
-			},
-		})
+	if turn.Kind == agent.TurnApproval {
+		b.sendApprovalPrompt(s, m.ChannelID, response)
 		return
 	}
 

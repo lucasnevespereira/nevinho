@@ -104,7 +104,7 @@ func TestFileReadPagination(t *testing.T) {
 				"offset": tt.offset,
 				"limit":  tt.limit,
 			})
-			got := r.fileRead(input, "u1")
+			got := r.fileRead(input, "u1").Output
 			if !strings.Contains(got, tt.contains) {
 				t.Errorf("expected %q in result\ngot: %s", tt.contains, got)
 			}
@@ -127,7 +127,7 @@ func TestFileList(t *testing.T) {
 	}
 
 	input := marshalInput(t, map[string]string{"path": dir})
-	got := r.fileList(input, "u1")
+	got := r.fileList(input, "u1").Output
 
 	if !strings.Contains(got, "subdir/") {
 		t.Errorf("expected directory entry 'subdir/'\ngot: %s", got)
@@ -140,7 +140,7 @@ func TestFileList(t *testing.T) {
 func TestFileListDefaultsToCurrentDir(t *testing.T) {
 	r, _ := newTestRegistry(t)
 	input := marshalInput(t, map[string]string{})
-	got := r.fileList(input, "u1")
+	got := r.fileList(input, "u1").Output
 	// Should list current directory instead of returning an error
 	if strings.Contains(got, "path is required") {
 		t.Errorf("should default to current directory, got error: %s", got)
@@ -165,7 +165,7 @@ func TestFileEdit(t *testing.T) {
 			"old_text": "foo bar",
 			"new_text": "baz qux",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected success message, got: %s", got)
 		}
@@ -192,7 +192,7 @@ func TestFileEdit(t *testing.T) {
 			"old_text": "does not exist",
 			"new_text": "replacement",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "Could not find") {
 			t.Errorf("expected 'Could not find', got: %s", got)
 		}
@@ -205,7 +205,7 @@ func TestFileEdit(t *testing.T) {
 			"old_text": "x",
 			"new_text": "y",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "3 occurrences") {
 			t.Errorf("expected ambiguity error, got: %s", got)
 		}
@@ -226,7 +226,7 @@ func TestFileEditMultiEdit(t *testing.T) {
 				{"old_text": "ddd", "new_text": "DDD"},
 			},
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "2 blocks replaced") {
 			t.Errorf("expected 2 blocks, got: %s", got)
 		}
@@ -249,7 +249,7 @@ func TestFileEditMultiEdit(t *testing.T) {
 				{"old_text": "def ghi", "new_text": "Y"},
 			},
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "overlap") {
 			t.Errorf("expected overlap error, got: %s", got)
 		}
@@ -268,7 +268,7 @@ func TestFileEditFuzzyMatch(t *testing.T) {
 			"old_text": "hello world\nfoo bar",
 			"new_text": "goodbye\nfoo baz",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected fuzzy match success, got: %s", got)
 		}
@@ -286,7 +286,7 @@ func TestFileEditFuzzyMatch(t *testing.T) {
 			"old_text": "say \"hello\"",
 			"new_text": "say \"world\"",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected fuzzy match on smart quotes, got: %s", got)
 		}
@@ -300,7 +300,7 @@ func TestFileEditFuzzyMatch(t *testing.T) {
 			"old_text": "value - 100",
 			"new_text": "value = 200",
 		})
-		got := r.fileEdit(input, "u1")
+		got := r.fileEdit(input, "u1").Output
 		if !strings.Contains(got, "edited") {
 			t.Errorf("expected fuzzy match on dashes, got: %s", got)
 		}
@@ -319,7 +319,7 @@ func TestFileEditBOM(t *testing.T) {
 		"old_text": "hello world",
 		"new_text": "goodbye world",
 	})
-	got := r.fileEdit(input, "u1")
+	got := r.fileEdit(input, "u1").Output
 	if !strings.Contains(got, "edited") {
 		t.Errorf("expected success with BOM, got: %s", got)
 	}
@@ -345,7 +345,7 @@ func TestFileEditCRLF(t *testing.T) {
 		"old_text": "line two",
 		"new_text": "LINE TWO",
 	})
-	got := r.fileEdit(input, "u1")
+	got := r.fileEdit(input, "u1").Output
 	if !strings.Contains(got, "edited") {
 		t.Errorf("expected success with CRLF, got: %s", got)
 	}
@@ -373,7 +373,7 @@ func TestFileEditPreservesMode(t *testing.T) {
 		"old_text": "echo hi",
 		"new_text": "echo bye",
 	})
-	got := r.fileEdit(input, "u1")
+	got := r.fileEdit(input, "u1").Output
 	if !strings.Contains(got, "edited") {
 		t.Fatalf("expected success, got: %s", got)
 	}
@@ -398,7 +398,7 @@ func TestFileEditRejectsOversizeFile(t *testing.T) {
 		"old_text": "x",
 		"new_text": "y",
 	})
-	got := r.fileEdit(input, "u1")
+	got := r.fileEdit(input, "u1").Output
 	if !strings.Contains(got, "too large") {
 		t.Errorf("expected size cap error, got: %s", got)
 	}

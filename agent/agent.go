@@ -94,6 +94,7 @@ type ToolEvent struct {
 	Detail  string
 	Input   json.RawMessage // raw tool input, for richer rendering of write/edit
 	Output  string          // set on ToolDone
+	Status  tools.Status    // set on ToolDone
 	IsError bool            // set on ToolDone
 }
 
@@ -109,7 +110,7 @@ type Agent struct {
 	mode    RunMode
 
 	mu            sync.Mutex
-	history       map[string][]json.RawMessage
+	history       map[string][]llm.Message
 	userLock      map[string]*sync.Mutex
 	cancelFn      map[string]context.CancelFunc
 	toolCb        map[string]ToolCallback
@@ -133,7 +134,7 @@ func New(provider llm.Provider, cfg *config.Config, version, selfDoc string, mod
 		version:       version,
 		selfDoc:       strings.TrimSpace(selfDoc),
 		mode:          mode,
-		history:       make(map[string][]json.RawMessage),
+		history:       make(map[string][]llm.Message),
 		userLock:      make(map[string]*sync.Mutex),
 		cancelFn:      make(map[string]context.CancelFunc),
 		toolCb:        make(map[string]ToolCallback),
@@ -230,7 +231,7 @@ func (a *Agent) SwitchModel(name string) error {
 
 	a.mu.Lock()
 	a.llm = p
-	a.history = make(map[string][]json.RawMessage)
+	a.history = make(map[string][]llm.Message)
 	a.mu.Unlock()
 
 	if err := a.cfg.Set("MODEL", name); err != nil {

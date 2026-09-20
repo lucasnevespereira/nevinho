@@ -44,7 +44,7 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 	sysMsg, _ := json.Marshal(map[string]interface{}{
 		"role": "system", "content": req.SystemPrompt,
 	})
-	messages := append([]json.RawMessage{sysMsg}, ensureSlice(req.Messages)...)
+	messages := append([]json.RawMessage{sysMsg}, openAIEncode(req.Messages)...)
 
 	body := map[string]interface{}{
 		"model":                 o.model,
@@ -89,9 +89,6 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 		StopReason: openAIStopReason(choice.FinishReason),
 	}
 
-	assistantMsg, _ := json.Marshal(choice.Message)
-	resp.AssistantMessage = assistantMsg
-
 	if choice.Message.Content != nil {
 		resp.Text = *choice.Message.Content
 	}
@@ -103,6 +100,7 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 			Input: json.RawMessage(tc.Function.Arguments),
 		})
 	}
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 
 	return resp, nil
 }
@@ -111,7 +109,7 @@ func (o *OpenAI) StreamComplete(ctx context.Context, req *Request, cb StreamCall
 	sysMsg, _ := json.Marshal(map[string]interface{}{
 		"role": "system", "content": req.SystemPrompt,
 	})
-	messages := append([]json.RawMessage{sysMsg}, ensureSlice(req.Messages)...)
+	messages := append([]json.RawMessage{sysMsg}, openAIEncode(req.Messages)...)
 
 	body := map[string]interface{}{
 		"model":                 o.model,
@@ -197,22 +195,12 @@ func (o *OpenAI) StreamComplete(ctx context.Context, req *Request, cb StreamCall
 	}
 	resp.Text = text.String()
 	resp.StopReason = openAIStopReason(finish)
-	msg := struct {
-		Role      string           `json:"role"`
-		Content   *string          `json:"content"`
-		ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
-	}{Role: "assistant"}
-	if resp.Text != "" {
-		msg.Content = &resp.Text
-	}
 	for i := 0; i < len(toolParts); i++ {
 		if tc := toolParts[i]; tc != nil {
-			msg.ToolCalls = append(msg.ToolCalls, *tc)
 			resp.ToolCalls = append(resp.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Input: json.RawMessage(tc.Function.Arguments)})
 		}
 	}
-	assistantMsg, _ := json.Marshal(msg)
-	resp.AssistantMessage = assistantMsg
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 	return resp, nil
 }
 
@@ -231,7 +219,7 @@ func openAIStopReason(s string) StopReason {
 	}
 }
 
-func (o *OpenAI) FormatUserMessage(text string, images []Image) json.RawMessage {
+func openAIUserMessage(text string, images []Image) json.RawMessage {
 	if len(images) == 0 {
 		msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
 		return msg
@@ -251,36 +239,42 @@ func (o *OpenAI) FormatUserMessage(text string, images []Image) json.RawMessage 
 	return msg
 }
 
-func (o *OpenAI) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	for i := len(history) - 1; i >= 0; i-- {
-		var msg map[string]interface{}
-		if err := json.Unmarshal(history[i], &msg); err != nil {
-			continue
+// encode turns history into OpenAI's wire shape. Each tool result is its
+// own message, unlike Anthropic where they share one.
+func openAIEncode(msgs []Message) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case RoleUser:
+			out = append(out, openAIUserMessage(m.Text, m.Images))
+		case RoleTool:
+			for _, r := range m.ToolResults {
+				msg, _ := json.Marshal(map[string]interface{}{
+					"role": "tool", "tool_call_id": r.ID, "content": r.Output,
+				})
+				out = append(out, msg)
+			}
+		case RoleAssistant:
+			entry := map[string]interface{}{"role": "assistant", "content": m.Text}
+			if len(m.ToolCalls) > 0 {
+				calls := make([]map[string]interface{}, 0, len(m.ToolCalls))
+				for _, c := range m.ToolCalls {
+					calls = append(calls, map[string]interface{}{
+						"id":   c.ID,
+						"type": "function",
+						"function": map[string]interface{}{
+							"name":      c.Name,
+							"arguments": string(c.Input),
+						},
+					})
+				}
+				entry["tool_calls"] = calls
+			}
+			msg, _ := json.Marshal(entry)
+			out = append(out, msg)
 		}
-		if role, _ := msg["role"].(string); role != "tool" {
-			continue
-		}
-		if id, _ := msg["tool_call_id"].(string); id != toolUseID {
-			continue
-		}
-		msg["content"] = newOutput
-		if rebuilt, err := json.Marshal(msg); err == nil {
-			history[i] = rebuilt
-		}
-		return history
 	}
-	return history
-}
-
-func (o *OpenAI) FormatToolResults(results []ToolResult) []json.RawMessage {
-	var msgs []json.RawMessage
-	for _, r := range results {
-		msg, _ := json.Marshal(map[string]interface{}{
-			"role": "tool", "tool_call_id": r.ID, "content": r.Output,
-		})
-		msgs = append(msgs, msg)
-	}
-	return msgs
+	return out
 }
 
 func (o *OpenAI) formatTools(defs []ToolDef) []map[string]interface{} {

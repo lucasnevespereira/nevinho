@@ -26,7 +26,7 @@ func NewGemini(apiKey, baseURL, model string) *Gemini {
 func (g *Gemini) Model() string { return g.model }
 
 func (g *Gemini) Complete(ctx context.Context, req *Request) (*Response, error) {
-	contents := ensureSlice(req.Messages)
+	contents := geminiEncode(req.Messages)
 
 	// Gemini doesn't have a separate "system" message in the history.
 	// We can use system_instruction in the request body.
@@ -86,9 +86,6 @@ func (g *Gemini) Complete(ctx context.Context, req *Request) (*Response, error) 
 		},
 	}
 
-	assistantMsg, _ := json.Marshal(cand.Content)
-	resp.AssistantMessage = assistantMsg
-
 	for _, part := range cand.Content.Parts {
 		var p struct {
 			Text         string `json:"text"`
@@ -114,6 +111,7 @@ func (g *Gemini) Complete(ctx context.Context, req *Request) (*Response, error) 
 	}
 
 	resp.StopReason = geminiStopReason(cand.FinishReason, len(resp.ToolCalls) > 0)
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 	return resp, nil
 }
 
@@ -180,13 +178,12 @@ func (g *Gemini) StreamComplete(ctx context.Context, req *Request, cb StreamCall
 	if resp.StopReason == "" {
 		resp.StopReason = geminiStopReason("STOP", len(resp.ToolCalls) > 0)
 	}
-	assistantMsg, _ := json.Marshal(map[string]interface{}{"role": "model", "parts": parts})
-	resp.AssistantMessage = assistantMsg
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 	return resp, nil
 }
 
 func geminiBody(req *Request) map[string]interface{} {
-	body := map[string]interface{}{"contents": ensureSlice(req.Messages)}
+	body := map[string]interface{}{"contents": geminiEncode(req.Messages)}
 	if req.SystemPrompt != "" {
 		body["system_instruction"] = map[string]interface{}{"parts": []map[string]interface{}{{"text": req.SystemPrompt}}}
 	}
@@ -214,7 +211,7 @@ func geminiStopReason(s string, hasToolCalls bool) StopReason {
 	}
 }
 
-func (g *Gemini) FormatUserMessage(text string, images []Image) json.RawMessage {
+func geminiUserMessage(text string, images []Image) json.RawMessage {
 	var parts []map[string]interface{}
 	if text != "" {
 		parts = append(parts, map[string]interface{}{"text": text})
@@ -234,47 +231,7 @@ func (g *Gemini) FormatUserMessage(text string, images []Image) json.RawMessage 
 	return msg
 }
 
-func (g *Gemini) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	for i := len(history) - 1; i >= 0; i-- {
-		var msg struct {
-			Role  string                   `json:"role"`
-			Parts []map[string]interface{} `json:"parts"`
-		}
-		if err := json.Unmarshal(history[i], &msg); err != nil {
-			continue
-		}
-		// Tool results live in user-role turns; the functionResponse part
-		// check below skips ordinary user messages.
-		if msg.Role != "user" {
-			continue
-		}
-		changed := false
-		for j, part := range msg.Parts {
-			fnRes, ok := part["functionResponse"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if name, _ := fnRes["name"].(string); name == toolUseID {
-				msg.Parts[j]["functionResponse"] = map[string]interface{}{
-					"name": name,
-					"response": map[string]interface{}{
-						"output": newOutput,
-					},
-				}
-				changed = true
-			}
-		}
-		if changed {
-			if rebuilt, err := json.Marshal(msg); err == nil {
-				history[i] = rebuilt
-			}
-			return history
-		}
-	}
-	return history
-}
-
-func (g *Gemini) FormatToolResults(results []ToolResult) []json.RawMessage {
+func geminiToolResults(results []ToolResult) json.RawMessage {
 	var parts []interface{}
 	for _, r := range results {
 		parts = append(parts, map[string]interface{}{
@@ -293,7 +250,40 @@ func (g *Gemini) FormatToolResults(results []ToolResult) []json.RawMessage {
 		"role":  "user",
 		"parts": parts,
 	})
-	return []json.RawMessage{msg}
+	return msg
+}
+
+// encode turns history into Gemini's wire shape. The assistant is "model"
+// here, and tool results ride inside user turns.
+func geminiEncode(msgs []Message) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case RoleUser:
+			out = append(out, geminiUserMessage(m.Text, m.Images))
+		case RoleTool:
+			out = append(out, geminiToolResults(m.ToolResults))
+		case RoleAssistant:
+			var parts []map[string]interface{}
+			if m.Text != "" {
+				parts = append(parts, map[string]interface{}{"text": m.Text})
+			}
+			for _, c := range m.ToolCalls {
+				parts = append(parts, map[string]interface{}{
+					"functionCall": map[string]interface{}{
+						"name": c.Name,
+						"args": json.RawMessage(c.Input),
+					},
+				})
+			}
+			if len(parts) == 0 {
+				continue // the API rejects an empty model turn
+			}
+			msg, _ := json.Marshal(map[string]interface{}{"role": "model", "parts": parts})
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func (g *Gemini) formatTools(defs []ToolDef) []map[string]interface{} {

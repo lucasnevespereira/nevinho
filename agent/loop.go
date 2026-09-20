@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -15,12 +13,30 @@ import (
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
-func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
-	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, nil)
+// TurnKind says how a finished turn ended, so a transport renders it
+// without asking follow-up questions.
+type TurnKind string
+
+const (
+	TurnText     TurnKind = "text"     // an ordinary reply
+	TurnApproval TurnKind = "approval" // the reply asks permission
+)
+
+// Turn is the outcome of one agent turn.
+type Turn struct {
+	Kind  TurnKind
+	Text  string
+	Usage llm.Usage
+	Files []tools.FileDisplay
+	Took  time.Duration
 }
 
-func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (string, error) {
-	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, cb)
+func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (Turn, error) {
+	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, nil, answerIn(text))
+}
+
+func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (Turn, error) {
+	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, cb, answerIn(text))
 }
 
 // ChatScheduled is the entry point the schedule runner uses. It tags the
@@ -32,12 +48,12 @@ func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image
 // avoids provider-specific history constraints: Gemini rejects a request if
 // history trimming leaves a model functionCall turn without its immediately
 // preceding user/functionResponse turn.
-func (a *Agent) ChatScheduled(userID, prompt string) (string, error) {
+func (a *Agent) ChatScheduled(userID, prompt string) (Turn, error) {
 	a.ClearHistory(userID)
-	return a.chat(userID, prompt, false, nil, tools.SourceScheduled, nil)
+	return a.chat(userID, prompt, false, nil, tools.SourceScheduled, nil, nil)
 }
 
-func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback) (string, error) {
+func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback, answer *Answer) (Turn, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -58,28 +74,8 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		a.mu.Unlock()
 	}()
 
-	if p := a.tools.PendingApproval(userID); p != nil {
-		switch {
-		case looksLikeApproval(text):
-			switch p.Kind {
-			case "path":
-				a.tools.ApprovePending(userID)
-				logger.Info(fmt.Sprintf("approved: %s", p.Detail))
-				text = text + "\n[Access granted to " + p.Detail + ". Retry the file operation.]"
-			case "code":
-				logger.Info("approved: code execution")
-				output := a.tools.ExecutePendingCode(ctx, userID)
-				a.replacePendingToolResult(userID, output)
-				text = text + "\n[Code execution approved. Output:\n" + output + "]"
-			}
-		case looksLikeDenial(text):
-			// Clear the pending action and let the model see it was
-			// declined, so it acknowledges and moves on instead of looping.
-			logger.Info("denied: " + p.Detail)
-			a.tools.ClearPending(userID)
-			a.replacePendingToolResult(userID, "denied by user")
-			text = text + "\n[The user declined that action. Do not retry it. Acknowledge and move on.]"
-		}
+	if answer != nil {
+		text += a.applyAnswer(ctx, userID, *answer)
 	}
 
 	if isVoice {
@@ -123,14 +119,14 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 	a.maybeLoadSummary(userID)
 
-	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text, images)); len(evicted) > 2 {
+	if evicted := a.appendHistory(userID, llm.UserMessage(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
 
 	var lastText string
 	for range maxLoops {
 		if ctx.Err() != nil {
-			return "Cancelled.", nil
+			return Turn{Kind: TurnText, Text: "Cancelled.", Took: time.Since(start)}, nil
 		}
 		req := &llm.Request{
 			SystemPrompt: prompt,
@@ -151,13 +147,13 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		}
 		if err != nil {
 			logger.Err(err)
-			return "", err
+			return Turn{}, err
 		}
 
 		usage.In += resp.Usage.In
 		usage.Out += resp.Usage.Out
 		cacheRead += resp.Usage.CacheRead
-		a.appendHistory(userID, resp.AssistantMessage)
+		a.appendHistory(userID, resp.Assistant)
 		if resp.Text != "" {
 			lastText = resp.Text
 		}
@@ -185,7 +181,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			if resp.StopReason == llm.StopMaxTokens && reply == resp.Text {
 				reply += "\n\n_(cut off at the length limit. Ask me to continue.)_"
 			}
-			return a.finish(start, usage, cacheRead, toolsUsed, reply)
+			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, reply)
 		}
 
 		var results []llm.ToolResult
@@ -195,42 +191,46 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
 			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail, Input: tc.Input})
-			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
-			if len(output) > maxToolResult {
-				output = output[:maxToolResult] + "\n...(truncated)"
+			res := a.executeTool(ctx, tc.Name, tc.Input, userID)
+			if len(res.Output) > maxToolResult {
+				res.Output = res.Output[:maxToolResult] + "\n...(truncated)"
 			}
-			errored := isToolError(output)
-			logger.ToolResult(tc.Name, output, errored)
-			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: output, IsError: errored})
-			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
-			results = append(results, result)
-			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
+			errored := res.IsError()
+			logger.ToolResult(tc.Name, res.Output, errored)
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: res.Output, Status: res.Status, IsError: errored})
+			results = append(results, llm.ToolResult{ID: tc.ID, Output: res.Output, IsError: errored})
+			if res.Status == tools.StatusNeedsApproval {
 				needsApproval = true
-				a.mu.Lock()
-				a.pendingToolID[userID] = tc.ID
-				a.mu.Unlock()
+				a.holdForApproval(userID, tc.ID)
 			}
 		}
 
-		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
+		a.appendHistory(userID, llm.ToolResultMessage(results))
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
-			return a.finish(start, usage, cacheRead, toolsUsed, approvalMessage(p))
+			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnApproval, approvalMessage(p))
 		}
 	}
 
-	return a.finish(start, usage, cacheRead, toolsUsed, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
+	return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
 }
 
 // finish records token usage, logs the completed turn, and returns the
 // reply. Every terminal path in Chat goes through it so accounting and
 // logging stay identical no matter which exit the loop takes.
-func (a *Agent) finish(start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, reply string) (string, error) {
+func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, kind TurnKind, reply string) (Turn, error) {
 	a.addTokens(usage.In, usage.Out)
 	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
-	return reply, nil
+	usage.CacheRead = cacheRead
+	return Turn{
+		Kind:  kind,
+		Text:  reply,
+		Usage: usage,
+		Files: a.tools.DrainFileDisplays(userID),
+		Took:  time.Since(start),
+	}, nil
 }
 
 // nudgeForReply runs one extra completion with tools disabled, used when
@@ -238,7 +238,7 @@ func (a *Agent) finish(start time.Time, usage llm.Usage, cacheRead int, toolsUse
 // to reach for, it has to answer in plain text. Returns "" if even this
 // comes back empty, leaving the caller to fall back.
 func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (string, llm.Usage) {
-	a.appendHistory(userID, a.llm.FormatUserMessage(
+	a.appendHistory(userID, llm.UserMessage(
 		"[Your last turn was empty. Reply to the user now in plain text. Summarize what you did and answer them.]", nil))
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: prompt,
@@ -249,68 +249,18 @@ func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (strin
 		logger.Err(fmt.Errorf("reply nudge failed: %w", err))
 		return "", llm.Usage{}
 	}
-	a.appendHistory(userID, resp.AssistantMessage)
+	a.appendHistory(userID, resp.Assistant)
 	return resp.Text, resp.Usage
 }
 
-// replacePendingToolResult swaps the stale NEEDS_APPROVAL placeholder in
-// history with the real output once the user approves. Without this the LLM
-// sees the original tool_use as never-executed and re-emits it, causing an
-// approval loop.
-func (a *Agent) replacePendingToolResult(userID, output string) {
-	a.mu.Lock()
-	id := a.pendingToolID[userID]
-	delete(a.pendingToolID, userID)
-	hist := a.history[userID]
-	a.mu.Unlock()
-	if id == "" || len(hist) == 0 {
-		return
-	}
-	updated := a.llm.ReplaceToolResult(hist, id, output)
-	a.mu.Lock()
-	a.history[userID] = updated
-	a.mu.Unlock()
-}
-
-func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (output string) {
+func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (res tools.Result) {
 	defer func() {
 		if r := recover(); r != nil {
-			output = fmt.Sprintf("tool crashed: %v", r)
+			res = tools.Result{Output: fmt.Sprintf("tool crashed: %v", r), Status: tools.StatusFailed}
 			logger.Err(fmt.Errorf("panic in %s: %v", name, r))
 		}
 	}()
 	return a.tools.Execute(ctx, name, input, userID)
-}
-
-func isToolError(output string) bool {
-	for _, s := range []string{
-		"invalid input:",
-		"invalid path:",
-		"tool crashed:",
-		"Could not find",
-		"failed:",
-		"(timed out",
-		"(cancelled)",
-	} {
-		if strings.Contains(output, s) {
-			return true
-		}
-	}
-	return false
-}
-
-func approvalMessage(p *tools.Pending) string {
-	if p == nil {
-		return "Something needs approval."
-	}
-	switch p.Kind {
-	case "path":
-		return fmt.Sprintf("I need permission to write to `%s`.", p.Detail)
-	case "code":
-		return fmt.Sprintf("I want to run this:\n```\n%s\n```", p.Detail)
-	default:
-		return "Something needs approval."
-	}
 }
 
 func toolDetail(name string, input json.RawMessage) string {
@@ -343,26 +293,6 @@ func toolDetail(name string, input json.RawMessage) string {
 	default:
 		return ""
 	}
-}
-
-var approvalWords = []string{"yes", "yep", "yeah", "sure", "ok", "okay", "go ahead", "allow", "approve", "y", "oui"}
-
-func looksLikeApproval(text string) bool {
-	return slices.Contains(approvalWords, strings.ToLower(strings.TrimSpace(text)))
-}
-
-var denialWords = []string{"no", "nope", "nah", "deny", "cancel", "stop", "n", "non"}
-
-func looksLikeDenial(text string) bool {
-	return slices.Contains(denialWords, strings.ToLower(strings.TrimSpace(text)))
-}
-
-func (a *Agent) HasPendingApproval(userID string) bool {
-	return a.tools.PendingApproval(userID) != nil
-}
-
-func (a *Agent) DrainFileDisplays(userID string) []tools.FileDisplay {
-	return a.tools.DrainFileDisplays(userID)
 }
 
 func (a *Agent) ClearPending(userID string) {

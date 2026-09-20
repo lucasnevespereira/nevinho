@@ -22,6 +22,7 @@ import (
 
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/tools"
 )
 
 // userID namespaces this session's history in the agent.
@@ -62,9 +63,8 @@ func Run(a *agent.Agent, cwd, configDir string) error {
 
 // responseMsg carries the result of one finished agent turn.
 type responseMsg struct {
-	text     string
-	err      error
-	duration time.Duration
+	turn agent.Turn
+	err  error
 }
 
 // toolEventMsg is one tool-call event lifted from the agent's callback
@@ -161,17 +161,29 @@ func (m model) listenStream() tea.Cmd {
 	}
 }
 
-// send runs one blocking agent turn off the UI goroutine.
-func (m model) send(text string) tea.Cmd {
+// resolve answers a pending approval off the UI goroutine.
+func (m model) resolve(answer agent.Answer) tea.Cmd {
 	return func() tea.Msg {
-		start := time.Now()
-		out, err := m.agent.ChatStream(userID, text, false, nil, func(delta string) {
+		turn, err := m.agent.ResolveStream(userID, answer, func(delta string) {
 			select {
 			case m.stream <- delta:
 			default:
 			}
 		})
-		return responseMsg{text: out, err: err, duration: time.Since(start)}
+		return responseMsg{turn: turn, err: err}
+	}
+}
+
+// send runs one blocking agent turn off the UI goroutine.
+func (m model) send(text string) tea.Cmd {
+	return func() tea.Msg {
+		turn, err := m.agent.ChatStream(userID, text, false, nil, func(delta string) {
+			select {
+			case m.stream <- delta:
+			default:
+			}
+		})
+		return responseMsg{turn: turn, err: err}
 	}
 }
 
@@ -293,19 +305,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.busy = false
 		m.liveResponse = ""
-		m.lastTurnTime = msg.duration
+		m.lastTurnTime = msg.turn.Took
 		switch {
 		case msg.err != nil:
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
-		case m.agent.HasPendingApproval(userID):
-			// The reply is the agent asking permission. The picker at the
-			// bottom resolves the yes/no decision. The message itself goes
-			// to scrollback like any other block.
+		case msg.turn.Kind == agent.TurnApproval:
+			// The picker at the bottom resolves the decision. The message
+			// itself goes to scrollback like any other block.
 			m.approving = true
 			m.approvalCursor = 0
-			return m, m.printBlock(approvalBlock{msg.text})
+			return m, m.printBlock(approvalBlock{msg.turn.Text})
 		default:
-			return m, m.printBlock(agentBlock{msg.text})
+			return m, m.printBlock(agentBlock{msg.turn.Text})
 		}
 
 	case streamDeltaMsg:
@@ -316,10 +327,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolEventMsg:
 		ev := agent.ToolEvent(msg)
-		// A card is the result of a finished tool. NEEDS_APPROVAL is the
-		// approval handshake, not a real result, so skip it. The agent's
-		// reply carries the approval prompt instead.
-		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
+		// A paused call is the approval handshake, not a result. The
+		// agent's reply carries the prompt instead.
+		if ev.Phase == agent.ToolDone && ev.Status != tools.StatusNeedsApproval {
 			card := toolBlock{name: ev.Name, detail: ev.Detail, input: ev.Input, output: ev.Output, isError: ev.IsError}
 			return m, tea.Batch(m.printBlock(card), m.listen())
 		}
@@ -431,16 +441,16 @@ func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	return m, nil // ignore everything else while a decision is pending
 }
 
-// decideApproval exits approval mode and sends the chosen answer.
+// decideApproval exits approval mode and resolves the pending call.
 func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	m.approving = false
-	answer := "no"
+	answer := agent.Denied
 	if approve {
-		answer = "yes"
+		answer = agent.Approved
 	}
 	m.busy = true
 	m.liveResponse = ""
-	return m, tea.Batch(m.send(answer), m.spin.Tick)
+	return m, tea.Batch(m.resolve(answer), m.spin.Tick)
 }
 
 // canMention reports whether typing @ should arm the file picker. Only

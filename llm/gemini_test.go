@@ -14,7 +14,7 @@ func TestGemini_Complete(t *testing.T) {
 		if r.URL.Query().Get("key") != "test-key" {
 			t.Errorf("expected API key test-key, got %s", r.URL.Query().Get("key"))
 		}
-		
+
 		resp := map[string]interface{}{
 			"candidates": []map[string]interface{}{
 				{
@@ -39,7 +39,7 @@ func TestGemini_Complete(t *testing.T) {
 	g := NewGemini("test-key", server.URL, "gemini-2.5-flash")
 	req := &Request{
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []json.RawMessage{json.RawMessage(`{"role":"user","parts":[{"text":"Hi"}]}`)},
+		Messages:     []Message{UserMessage("Hi", nil)},
 		MaxTokens:    100,
 	}
 
@@ -57,8 +57,7 @@ func TestGemini_Complete(t *testing.T) {
 }
 
 func TestGemini_FormatUserMessage(t *testing.T) {
-	g := NewGemini("test-key", "", "gemini-2.5-flash")
-	msg := g.FormatUserMessage("Hello", []Image{
+	msg := geminiUserMessage("Hello", []Image{
 		{Data: []byte("fake-image"), MediaType: "image/png"},
 	})
 

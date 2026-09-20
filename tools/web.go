@@ -207,27 +207,33 @@ type webReadInput struct {
 	URL string `json:"url"`
 }
 
-func (r *Registry) webRead(input json.RawMessage) string {
+func (r *Registry) webRead(input json.RawMessage) Result {
 	var in webReadInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	if err := validateURL(in.URL); err != nil {
-		return fmt.Sprintf("blocked: %v", err)
+		return blocked("blocked: %v", err)
 	}
 
 	if r.cfg.TavilyAPIKey != "" {
 		if out := extractTavily(in.URL, r.cfg.TavilyAPIKey); !isFetchFailure(out) {
-			return truncateText(out)
+			return ok(truncateText(out))
 		}
 	}
 
 	if out := fetchJinaReader(in.URL); !isFetchFailure(out) {
-		return truncateText(out)
+		return ok(truncateText(out))
 	}
 
-	return fetchDirect(in.URL)
+	// The fetch helpers report failure in their text, so the last provider
+	// decides the verdict here.
+	out := fetchDirect(in.URL)
+	if isFetchFailure(out) {
+		return fail("%s", out)
+	}
+	return ok(out)
 }
 
 func fetchJinaReader(target string) string {
@@ -369,20 +375,24 @@ type webSearchInput struct {
 	TimeRange string `json:"time_range,omitempty"`
 }
 
-func (r *Registry) webSearch(input json.RawMessage) string {
+func (r *Registry) webSearch(input json.RawMessage) Result {
 	var in webSearchInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 	in.Region = strings.ToLower(strings.TrimSpace(in.Region))
 	in.TimeRange = strings.ToLower(strings.TrimSpace(in.TimeRange))
 
 	if r.cfg.TavilyAPIKey != "" {
 		if out := searchTavily(in, r.cfg.TavilyAPIKey); !isSearchFailure(out) {
-			return out
+			return ok(out)
 		}
 	}
-	return searchDuckDuckGo(in)
+	out := searchDuckDuckGo(in)
+	if strings.HasPrefix(strings.ToLower(out), "search failed") {
+		return fail("%s", out)
+	}
+	return ok(out)
 }
 
 // isSearchFailure returns true when a provider returned an error or empty result,

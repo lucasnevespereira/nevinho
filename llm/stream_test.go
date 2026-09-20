@@ -83,15 +83,8 @@ func TestOpenAIStreamCompleteText(t *testing.T) {
 	if resp.Usage.In != 5 || resp.Usage.Out != 2 {
 		t.Fatalf("usage=%+v", resp.Usage)
 	}
-	var msg struct {
-		Role    string  `json:"role"`
-		Content *string `json:"content"`
-	}
-	if err := json.Unmarshal(resp.AssistantMessage, &msg); err != nil {
-		t.Fatal(err)
-	}
-	if msg.Role != "assistant" || msg.Content == nil || *msg.Content != "hello" {
-		t.Fatalf("assistant message=%s", resp.AssistantMessage)
+	if resp.Assistant.Role != RoleAssistant || resp.Assistant.Text != "hello" {
+		t.Fatalf("assistant message=%+v", resp.Assistant)
 	}
 }
 

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -26,26 +25,26 @@ type findInput struct {
 	MaxDepth int    `json:"max_depth"`
 }
 
-func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID string) string {
+func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID string) Result {
 	var in findInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	if in.Pattern == "" {
-		return "pattern is required — e.g. \"*.go\", \"Makefile\""
+		return fail("pattern is required — e.g. \"*.go\", \"Makefile\"")
 	}
 	if in.Path == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return "path is required — use an absolute path"
+			return fail("path is required — use an absolute path")
 		}
 		in.Path = cwd
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
 	findType := "f"
@@ -84,16 +83,16 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 
 	if err != nil {
 		if tctx.Err() == context.DeadlineExceeded {
-			return "find timed out after 30s — try a more specific path"
+			return fail("find timed out after 30s — try a more specific path")
 		}
 		// find may return partial results with errors
 		if result == "" {
-			return fmt.Sprintf("find failed: %v", err)
+			return fail("find failed: %v", err)
 		}
 	}
 
 	if result == "" {
-		return "no files found matching pattern"
+		return ok("no files found matching pattern")
 	}
 
 	lines := strings.Split(result, "\n")
@@ -120,8 +119,8 @@ func (r *Registry) findFiles(ctx context.Context, input json.RawMessage, userID 
 	}
 	if len(lines) > limit {
 		lines = lines[:limit]
-		return strings.Join(lines, "\n") + fmt.Sprintf("\n\n[%d results limit reached. Use limit=%d for more, or refine pattern]", limit, limit*2)
+		return okf("%s\n\n[%d results limit reached. Use limit=%d for more, or refine pattern]", strings.Join(lines, "\n"), limit, limit*2)
 	}
 
-	return strings.Join(lines, "\n")
+	return ok(strings.Join(lines, "\n"))
 }

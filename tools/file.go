@@ -22,23 +22,23 @@ type fileReadInput struct {
 	Limit  int    `json:"limit"`  // max lines to return
 }
 
-func (r *Registry) fileRead(input json.RawMessage, userID string) string {
+func (r *Registry) fileRead(input json.RawMessage, userID string) Result {
 	var in fileReadInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("file not found: %s", in.Path)
+			return fail("file not found: %s", in.Path)
 		}
-		return fmt.Sprintf("failed to read: %v", err)
+		return fail("failed to read: %v", err)
 	}
 
 	content := string(data)
@@ -51,7 +51,7 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 		start = in.Offset - 1
 	}
 	if start >= totalLines {
-		return fmt.Sprintf("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
+		return fail("offset %d exceeds file length (%d lines)", in.Offset, totalLines)
 	}
 
 	limit := in.Limit
@@ -80,7 +80,7 @@ func (r *Registry) fileRead(input json.RawMessage, userID string) string {
 	if end < totalLines {
 		fmt.Fprintf(&sb, "\n[truncated, use offset=%d to continue]", end+1)
 	}
-	return sb.String()
+	return ok(sb.String())
 }
 
 type fileWriteInput struct {
@@ -88,67 +88,67 @@ type fileWriteInput struct {
 	Content string `json:"content"`
 }
 
-func (r *Registry) fileWrite(input json.RawMessage, userID string) string {
+func (r *Registry) fileWrite(input json.RawMessage, userID string) Result {
 	var in fileWriteInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	if len(in.Content) > maxFileSize {
-		return fmt.Sprintf("content too large (max %dKB)", maxFileSize/1024)
+		return fail("content too large (max %dKB)", maxFileSize/1024)
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
-	if err := r.checkWritePermission(resolved, userID); err != nil {
-		return err.Error()
+	if paused := r.checkWritePermission(resolved, userID); paused != nil {
+		return *paused
 	}
 
 	dir := filepath.Dir(resolved)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Sprintf("failed to create directory: %v", err)
+		return fail("failed to create directory: %v", err)
 	}
 
 	if err := safeio.WriteFile(resolved, []byte(in.Content), 0o644); err != nil {
-		return fmt.Sprintf("failed to write: %v", err)
+		return fail("failed to write: %v", err)
 	}
 
-	return fmt.Sprintf("saved to %s", in.Path)
+	return okf("saved to %s", in.Path)
 }
 
 type fileListInput struct {
 	Path string `json:"path"`
 }
 
-func (r *Registry) fileList(input json.RawMessage, userID string) string {
+func (r *Registry) fileList(input json.RawMessage, userID string) Result {
 	var in fileListInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	if in.Path == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return "path is required — use an absolute path"
+			return fail("path is required — use an absolute path")
 		}
 		in.Path = cwd
 	}
 
 	dirPath, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return fmt.Sprintf("failed to list: %v", err)
+		return fail("failed to list: %v", err)
 	}
 
 	if len(entries) == 0 {
-		return fmt.Sprintf("%s (empty)", shortenHome(dirPath))
+		return okf("%s (empty)", shortenHome(dirPath))
 	}
 
 	var sb strings.Builder
@@ -165,7 +165,7 @@ func (r *Registry) fileList(input json.RawMessage, userID string) string {
 			}
 		}
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	return ok(strings.TrimRight(sb.String(), "\n"))
 }
 
 func formatSize(b int64) string {
@@ -198,10 +198,10 @@ type matchedEdit struct {
 	newText string
 }
 
-func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
+func (r *Registry) fileEdit(input json.RawMessage, userID string) Result {
 	var in fileEditInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	// Support both flat old_text/new_text and edits[] array
@@ -210,33 +210,33 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		edits = []editPair{{OldText: in.OldText, NewText: in.NewText}}
 	}
 	if len(edits) == 0 {
-		return "at least one edit is required (use edits[] or old_text/new_text)"
+		return fail("at least one edit is required (use edits[] or old_text/new_text)")
 	}
 
 	for i, e := range edits {
 		if e.OldText == "" {
-			return fmt.Sprintf("edits[%d]: old_text must not be empty", i)
+			return fail("edits[%d]: old_text must not be empty", i)
 		}
 		if e.OldText == e.NewText {
-			return fmt.Sprintf("edits[%d]: old_text and new_text are identical — no change needed", i)
+			return fail("edits[%d]: old_text and new_text are identical — no change needed", i)
 		}
 	}
 
 	resolved, err := resolvePath(in.Path, userID)
 	if err != nil {
-		return fmt.Sprintf("invalid path: %v", err)
+		return fail("invalid path: %v", err)
 	}
 
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Sprintf("file not found: %s", in.Path)
+			return fail("file not found: %s", in.Path)
 		}
-		return fmt.Sprintf("failed to read: %v", err)
+		return fail("failed to read: %v", err)
 	}
 
 	if len(data) > maxFileSize {
-		return fmt.Sprintf("file too large to edit (%dKB, max %dKB). Use file_write or split the change.", len(data)/1024, maxFileSize/1024)
+		return fail("file too large to edit (%dKB, max %dKB). Use file_write or split the change.", len(data)/1024, maxFileSize/1024)
 	}
 
 	raw := string(data)
@@ -251,15 +251,15 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 		idx, count, actualOld := findEditMatch(content, oldText)
 		if count == 0 {
 			if len(edits) == 1 {
-				return fmt.Sprintf("Could not find old_text in %s. The text must match exactly including whitespace and newlines. Use file_read first to see the exact content.", in.Path)
+				return fail("Could not find old_text in %s. The text must match exactly including whitespace and newlines. Use file_read first to see the exact content.", in.Path)
 			}
-			return fmt.Sprintf("Could not find edits[%d].old_text in %s. The text must match exactly. Use file_read first.", i, in.Path)
+			return fail("Could not find edits[%d].old_text in %s. The text must match exactly. Use file_read first.", i, in.Path)
 		}
 		if count > 1 {
 			if len(edits) == 1 {
-				return fmt.Sprintf("Found %d occurrences of old_text in %s. Include more surrounding context to make it unique.", count, in.Path)
+				return fail("Found %d occurrences of old_text in %s. Include more surrounding context to make it unique.", count, in.Path)
 			}
-			return fmt.Sprintf("Found %d occurrences of edits[%d].old_text in %s. Include more context to make it unique.", count, i, in.Path)
+			return fail("Found %d occurrences of edits[%d].old_text in %s. Include more context to make it unique.", count, i, in.Path)
 		}
 
 		matched = append(matched, matchedEdit{
@@ -276,12 +276,12 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	})
 	for i := 1; i < len(matched); i++ {
 		if matched[i].start < matched[i-1].end {
-			return "edits overlap — merge nearby changes into one edit or split into separate file_edit calls"
+			return fail("edits overlap — merge nearby changes into one edit or split into separate file_edit calls")
 		}
 	}
 
-	if err := r.checkWritePermission(resolved, userID); err != nil {
-		return err.Error()
+	if paused := r.checkWritePermission(resolved, userID); paused != nil {
+		return *paused
 	}
 
 	// Apply edits in reverse order so positions stay valid
@@ -299,7 +299,7 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	}
 
 	if err := safeio.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
-		return fmt.Sprintf("failed to write: %v", err)
+		return fail("failed to write: %v", err)
 	}
 
 	// Build diff display for Discord (diff code block gets colored)
@@ -307,9 +307,9 @@ func (r *Registry) fileEdit(input json.RawMessage, userID string) string {
 	r.QueueFileDisplay(userID, in.Path, "diff", diff)
 
 	if len(matched) == 1 {
-		return fmt.Sprintf("edited %s (1 block replaced)", in.Path)
+		return okf("edited %s (1 block replaced)", in.Path)
 	}
-	return fmt.Sprintf("edited %s (%d blocks replaced)", in.Path, len(matched))
+	return okf("edited %s (%d blocks replaced)", in.Path, len(matched))
 }
 
 const utf8BOM = "\xef\xbb\xbf"
