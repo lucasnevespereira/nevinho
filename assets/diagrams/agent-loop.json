@@ -199,8 +199,8 @@
       "dot": "rose",
       "title": "Approval spans two turns",
       "items": [
-        "Gated tool returns NEEDS_APPROVAL and the turn ends",
-        "Next message yes/no runs or drops the pending call"
+        "Gated tool pauses the call and ends the turn",
+        "A button or a typed yes/no resolves it"
       ]
     },
     {
