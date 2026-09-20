@@ -85,12 +85,15 @@ func TestExecuteBlocksOnMissingCapability(t *testing.T) {
 		Caps:   DefaultCaps[SourceScheduled],
 	})
 	input, _ := json.Marshal(map[string]any{"command": "echo hi"})
-	out := r.Execute(ctx, "bash", input, "scheduler:abc")
+	res := r.Execute(ctx, "bash", input, "scheduler:abc")
 
-	if !strings.HasPrefix(out, "blocked:") {
-		t.Fatalf("expected capability block, got: %q", out)
+	if res.Status != StatusBlocked {
+		t.Fatalf("expected capability block, got: %q (%s)", res.Output, res.Status)
 	}
-	if !strings.Contains(out, string(CapShellExec)) {
-		t.Errorf("block message should name the missing capability, got: %q", out)
+	if !res.IsError() {
+		t.Error("a capability block must reach the model as an error")
+	}
+	if !strings.Contains(res.Output, string(CapShellExec)) {
+		t.Errorf("block message should name the missing capability, got: %q", res.Output)
 	}
 }

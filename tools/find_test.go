@@ -27,7 +27,7 @@ func TestFindFiles(t *testing.T) {
 			"pattern": "*.go",
 			"path":    dir,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "main.go") {
 			t.Errorf("expected main.go, got: %s", got)
 		}
@@ -48,7 +48,7 @@ func TestFindFiles(t *testing.T) {
 			"pattern": "*.css",
 			"path":    dir,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "style.css") {
 			t.Errorf("expected style.css, got: %s", got)
 		}
@@ -62,7 +62,7 @@ func TestFindFiles(t *testing.T) {
 			"pattern": "*.xyz",
 			"path":    dir,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "no files found") {
 			t.Errorf("expected 'no files found', got: %s", got)
 		}
@@ -73,7 +73,7 @@ func TestFindFiles(t *testing.T) {
 			"pattern": "*.go",
 			"path":    dir,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		// Paths should be relative, not absolute
 		if strings.Contains(got, dir) {
 			t.Errorf("expected relative paths, got absolute: %s", got)
@@ -86,7 +86,7 @@ func TestFindFiles(t *testing.T) {
 			"path":    dir,
 			"limit":   1,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "limit reached") {
 			t.Errorf("expected limit notice, got: %s", got)
 		}
@@ -96,7 +96,7 @@ func TestFindFiles(t *testing.T) {
 		input := marshalInput(t, map[string]any{
 			"path": dir,
 		})
-		got := r.findFiles(context.Background(), input, "u1")
+		got := r.findFiles(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "pattern is required") {
 			t.Errorf("expected validation error, got: %s", got)
 		}

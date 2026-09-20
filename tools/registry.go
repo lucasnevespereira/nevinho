@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -82,11 +81,11 @@ func (r *Registry) isStrict() bool {
 	return r.strict
 }
 
-func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) string {
+func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage, userID string) Result {
 	if req := requirementFor(name); req != "" {
 		ec := ExecContextOf(ctx)
 		if !ec.Caps.Has(req) {
-			return fmt.Sprintf("blocked: tool %q requires capability %q, not granted in %s context",
+			return blocked("blocked: tool %q requires capability %q, not granted in %s context",
 				name, req, ec.Source)
 		}
 	}
@@ -112,7 +111,7 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 	case "schedule":
 		return r.scheduleTool(input)
 	default:
-		return fmt.Sprintf("unknown tool: %s", name)
+		return fail("unknown tool: %s", name)
 	}
 }
 
@@ -412,7 +411,7 @@ func (r *Registry) ExecutePendingCode(ctx context.Context, userID string) string
 	return r.executePendingBash(ctx, p.Code.Input)
 }
 
-func (r *Registry) checkWritePermission(resolved, userID string) error {
+func (r *Registry) checkWritePermission(resolved, userID string) *Result {
 	dir := filepath.Dir(resolved)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -424,10 +423,11 @@ func (r *Registry) checkWritePermission(resolved, userID string) error {
 		check = filepath.Dir(check)
 	}
 	r.pending[userID] = &Pending{Kind: "path", Detail: dir}
-	return fmt.Errorf("NEEDS_APPROVAL:%s", shortenHome(dir))
+	paused := needsApproval(shortenHome(dir))
+	return &paused
 }
 
-func (r *Registry) checkCodePermission(userID, preview string, input json.RawMessage) error {
+func (r *Registry) checkCodePermission(userID, preview string, input json.RawMessage) *Result {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pending[userID] = &Pending{
@@ -435,7 +435,8 @@ func (r *Registry) checkCodePermission(userID, preview string, input json.RawMes
 		Detail: preview,
 		Code:   &pendingCode{Input: input, UserID: userID},
 	}
-	return fmt.Errorf("NEEDS_APPROVAL:run_code")
+	paused := needsApproval("run_code")
+	return &paused
 }
 
 func (r *Registry) loadApproved() {

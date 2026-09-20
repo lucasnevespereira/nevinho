@@ -17,10 +17,10 @@ type scheduleInput struct {
 	Timezone string `json:"timezone"`
 }
 
-func (r *Registry) scheduleTool(input json.RawMessage) string {
+func (r *Registry) scheduleTool(input json.RawMessage) Result {
 	var in scheduleInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return fmt.Sprintf("invalid input: %v", err)
+		return fail("invalid input: %v", err)
 	}
 
 	r.mu.Lock()
@@ -28,47 +28,47 @@ func (r *Registry) scheduleTool(input json.RawMessage) string {
 	r.mu.Unlock()
 
 	if store == nil {
-		return "scheduling is not enabled in this process"
+		return fail("scheduling is not enabled in this process")
 	}
 
 	switch strings.ToLower(strings.TrimSpace(in.Action)) {
 	case "", "list":
-		return formatScheduleList(store.All())
+		return ok(formatScheduleList(store.All()))
 	case "create":
 		s, err := store.Create(in.Name, in.Cron, in.Prompt, in.Timezone)
 		if err != nil {
-			return "failed: " + err.Error()
+			return fail("failed: %v", err)
 		}
-		return fmt.Sprintf("created %q. Next run: %s", s.Name, formatScheduledTime(s))
+		return okf("created %q. Next run: %s", s.Name, formatScheduledTime(s))
 	case "delete":
 		ok, err := store.Delete(in.Name)
 		if err != nil {
-			return "failed: " + err.Error()
+			return fail("failed: %v", err)
 		}
 		if !ok {
-			return fmt.Sprintf("no schedule named %q", in.Name)
+			return fail("no schedule named %q", in.Name)
 		}
-		return fmt.Sprintf("deleted %q", in.Name)
+		return okf("deleted %q", in.Name)
 	case "pause":
 		s, err := store.SetEnabled(in.Name, false)
 		if err != nil {
-			return "failed: " + err.Error()
+			return fail("failed: %v", err)
 		}
-		return fmt.Sprintf("paused %q", s.Name)
+		return okf("paused %q", s.Name)
 	case "resume":
 		s, err := store.SetEnabled(in.Name, true)
 		if err != nil {
-			return "failed: " + err.Error()
+			return fail("failed: %v", err)
 		}
-		return fmt.Sprintf("resumed %q. Next run: %s", s.Name, formatScheduledTime(s))
+		return okf("resumed %q. Next run: %s", s.Name, formatScheduledTime(s))
 	case "logs":
-		s, ok := store.Find(in.Name)
-		if !ok {
-			return fmt.Sprintf("no schedule named %q", in.Name)
+		s, found := store.Find(in.Name)
+		if !found {
+			return fail("no schedule named %q", in.Name)
 		}
-		return formatScheduleLogs(s)
+		return ok(formatScheduleLogs(s))
 	default:
-		return fmt.Sprintf("unknown action %q. Use list, create, delete, pause, resume, or logs.", in.Action)
+		return fail("unknown action %q. Use list, create, delete, pause, resume, or logs.", in.Action)
 	}
 }
 

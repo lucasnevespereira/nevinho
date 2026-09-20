@@ -22,7 +22,7 @@ func TestGrepSearch(t *testing.T) {
 			"pattern": "hello",
 			"path":    dir,
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "hello") {
 			t.Errorf("expected matches, got: %s", got)
 		}
@@ -37,7 +37,7 @@ func TestGrepSearch(t *testing.T) {
 			"path":        dir,
 			"ignore_case": true,
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "hello") {
 			t.Errorf("expected case-insensitive match, got: %s", got)
 		}
@@ -49,7 +49,7 @@ func TestGrepSearch(t *testing.T) {
 			"path":    dir,
 			"glob":    "*.go",
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "hello") {
 			t.Errorf("expected go file matches, got: %s", got)
 		}
@@ -61,7 +61,7 @@ func TestGrepSearch(t *testing.T) {
 			"pattern": "nonexistent_string_xyz",
 			"path":    dir,
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "no matches") {
 			t.Errorf("expected 'no matches', got: %s", got)
 		}
@@ -73,7 +73,7 @@ func TestGrepSearch(t *testing.T) {
 			"path":    dir,
 			"limit":   1,
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		lines := strings.Split(strings.TrimSpace(got), "\n")
 		// Should have at most 1 match line + truncation notice
 		matchLines := 0
@@ -91,7 +91,7 @@ func TestGrepSearch(t *testing.T) {
 		input := marshalInput(t, map[string]any{
 			"path": dir,
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		if !strings.Contains(got, "pattern is required") {
 			t.Errorf("expected validation error, got: %s", got)
 		}
@@ -101,7 +101,7 @@ func TestGrepSearch(t *testing.T) {
 		input := marshalInput(t, map[string]any{
 			"pattern": "test",
 		})
-		got := r.grepSearch(context.Background(), input, "u1")
+		got := r.grepSearch(context.Background(), input, "u1").Output
 		// Should search current directory instead of returning an error
 		if strings.Contains(got, "path is required") {
 			t.Errorf("should default to current directory, got error: %s", got)

@@ -94,6 +94,7 @@ type ToolEvent struct {
 	Detail  string
 	Input   json.RawMessage // raw tool input, for richer rendering of write/edit
 	Output  string          // set on ToolDone
+	Status  tools.Status    // set on ToolDone
 	IsError bool            // set on ToolDone
 }
 

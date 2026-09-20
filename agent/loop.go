@@ -195,16 +195,15 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
 			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail, Input: tc.Input})
-			output := a.executeTool(ctx, tc.Name, tc.Input, userID)
-			if len(output) > maxToolResult {
-				output = output[:maxToolResult] + "\n...(truncated)"
+			res := a.executeTool(ctx, tc.Name, tc.Input, userID)
+			if len(res.Output) > maxToolResult {
+				res.Output = res.Output[:maxToolResult] + "\n...(truncated)"
 			}
-			errored := isToolError(output)
-			logger.ToolResult(tc.Name, output, errored)
-			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: output, IsError: errored})
-			result := llm.ToolResult{ID: tc.ID, Output: output, IsError: errored}
-			results = append(results, result)
-			if strings.HasPrefix(output, "NEEDS_APPROVAL:") {
+			errored := res.IsError()
+			logger.ToolResult(tc.Name, res.Output, errored)
+			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: res.Output, Status: res.Status, IsError: errored})
+			results = append(results, llm.ToolResult{ID: tc.ID, Output: res.Output, IsError: errored})
+			if res.Status == tools.StatusNeedsApproval {
 				needsApproval = true
 				a.mu.Lock()
 				a.pendingToolID[userID] = tc.ID
@@ -272,31 +271,14 @@ func (a *Agent) replacePendingToolResult(userID, output string) {
 	a.mu.Unlock()
 }
 
-func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (output string) {
+func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage, userID string) (res tools.Result) {
 	defer func() {
 		if r := recover(); r != nil {
-			output = fmt.Sprintf("tool crashed: %v", r)
+			res = tools.Result{Output: fmt.Sprintf("tool crashed: %v", r), Status: tools.StatusFailed}
 			logger.Err(fmt.Errorf("panic in %s: %v", name, r))
 		}
 	}()
 	return a.tools.Execute(ctx, name, input, userID)
-}
-
-func isToolError(output string) bool {
-	for _, s := range []string{
-		"invalid input:",
-		"invalid path:",
-		"tool crashed:",
-		"Could not find",
-		"failed:",
-		"(timed out",
-		"(cancelled)",
-	} {
-		if strings.Contains(output, s) {
-			return true
-		}
-	}
-	return false
 }
 
 func approvalMessage(p *tools.Pending) string {

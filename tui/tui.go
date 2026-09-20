@@ -22,6 +22,7 @@ import (
 
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/tools"
 )
 
 // userID namespaces this session's history in the agent.
@@ -316,10 +317,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolEventMsg:
 		ev := agent.ToolEvent(msg)
-		// A card is the result of a finished tool. NEEDS_APPROVAL is the
-		// approval handshake, not a real result, so skip it. The agent's
-		// reply carries the approval prompt instead.
-		if ev.Phase == agent.ToolDone && !strings.HasPrefix(ev.Output, "NEEDS_APPROVAL:") {
+		// A paused call is the approval handshake, not a result. The
+		// agent's reply carries the prompt instead.
+		if ev.Phase == agent.ToolDone && ev.Status != tools.StatusNeedsApproval {
 			card := toolBlock{name: ev.Name, detail: ev.Detail, input: ev.Input, output: ev.Output, isError: ev.IsError}
 			return m, tea.Batch(m.printBlock(card), m.listen())
 		}
