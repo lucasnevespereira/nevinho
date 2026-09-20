@@ -276,6 +276,9 @@ func geminiEncode(msgs []Message) []json.RawMessage {
 					},
 				})
 			}
+			if len(parts) == 0 {
+				continue // the API rejects an empty model turn
+			}
 			msg, _ := json.Marshal(map[string]interface{}{"role": "model", "parts": parts})
 			out = append(out, msg)
 		}

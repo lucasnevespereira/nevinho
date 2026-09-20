@@ -129,3 +129,38 @@ func TestOpenAIFormatUserMessageNoImagesIsString(t *testing.T) {
 		t.Errorf("content = %q, want plain", s)
 	}
 }
+
+func TestEncodeSkipsEmptyAssistantTurn(t *testing.T) {
+	msgs := []Message{
+		UserMessage("hi", nil),
+		{Role: RoleAssistant},
+		UserMessage("still there?", nil),
+	}
+	if got := len(anthropicEncode(msgs)); got != 2 {
+		t.Errorf("anthropic encoded %d messages, want 2", got)
+	}
+	if got := len(geminiEncode(msgs)); got != 2 {
+		t.Errorf("gemini encoded %d messages, want 2", got)
+	}
+}
+
+func TestEncodeRoundTripsToolCallsAndResults(t *testing.T) {
+	msgs := []Message{
+		UserMessage("run it", nil),
+		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Input: []byte(`{"command":"ls"}`)}}},
+		ToolResultMessage([]ToolResult{{ID: "c1", Output: "file.txt"}}),
+	}
+	for name, encoded := range map[string][]json.RawMessage{
+		"anthropic": anthropicEncode(msgs),
+		"openai":    openAIEncode(msgs),
+		"gemini":    geminiEncode(msgs),
+	} {
+		joined := ""
+		for _, m := range encoded {
+			joined += string(m)
+		}
+		if !strings.Contains(joined, "bash") || !strings.Contains(joined, "file.txt") {
+			t.Errorf("%s lost the tool call or its result: %s", name, joined)
+		}
+	}
+}

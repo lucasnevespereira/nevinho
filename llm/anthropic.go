@@ -305,6 +305,9 @@ func anthropicEncode(msgs []Message) []json.RawMessage {
 					"type": "tool_use", "id": c.ID, "name": c.Name, "input": json.RawMessage(c.Input),
 				})
 			}
+			if len(content) == 0 {
+				continue // the API rejects an empty assistant turn
+			}
 			msg, _ := json.Marshal(map[string]interface{}{"role": "assistant", "content": content})
 			out = append(out, msg)
 		}
