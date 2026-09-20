@@ -162,6 +162,20 @@ func (m model) listenStream() tea.Cmd {
 	}
 }
 
+// resolve answers a pending approval off the UI goroutine.
+func (m model) resolve(answer agent.Answer) tea.Cmd {
+	return func() tea.Msg {
+		start := time.Now()
+		out, err := m.agent.ResolveStream(userID, answer, func(delta string) {
+			select {
+			case m.stream <- delta:
+			default:
+			}
+		})
+		return responseMsg{text: out, err: err, duration: time.Since(start)}
+	}
+}
+
 // send runs one blocking agent turn off the UI goroutine.
 func (m model) send(text string) tea.Cmd {
 	return func() tea.Msg {
@@ -431,16 +445,16 @@ func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	return m, nil // ignore everything else while a decision is pending
 }
 
-// decideApproval exits approval mode and sends the chosen answer.
+// decideApproval exits approval mode and resolves the pending call.
 func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 	m.approving = false
-	answer := "no"
+	answer := agent.Denied
 	if approve {
-		answer = "yes"
+		answer = agent.Approved
 	}
 	m.busy = true
 	m.liveResponse = ""
-	return m, tea.Batch(m.send(answer), m.spin.Tick)
+	return m, tea.Batch(m.resolve(answer), m.spin.Tick)
 }
 
 // canMention reports whether typing @ should arm the file picker. Only

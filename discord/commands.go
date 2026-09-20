@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/schedule"
@@ -253,7 +254,7 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 				Components: []discordgo.MessageComponent{},
 			},
 		})
-		go b.runApproval(s, i.ChannelID, userID)
+		go b.runApproval(s, i.ChannelID, userID, agent.Approved)
 
 	case "deny":
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -263,18 +264,18 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 				Components: []discordgo.MessageComponent{},
 			},
 		})
-		b.agent.ClearPending(userID)
+		go b.runApproval(s, i.ChannelID, userID, agent.Denied)
 	}
 }
 
-func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string) {
+func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string, answer agent.Answer) {
 	s.ChannelTyping(channelID)
 	stopTyping := keepTyping(s, channelID)
 
 	indicator := newActivityIndicator(s, channelID)
 	b.agent.SetToolCallback(userID, indicator.onEvent)
 
-	response, err := b.agent.Chat(userID, "yes", false, nil)
+	response, err := b.agent.Resolve(userID, answer)
 	b.agent.SetToolCallback(userID, nil)
 	indicator.Close()
 	stopTyping()

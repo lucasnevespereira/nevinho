@@ -265,8 +265,10 @@ func TestLooksLikeApproval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := looksLikeApproval(tt.input); got != tt.want {
-				t.Errorf("looksLikeApproval(%q) = %v, want %v", tt.input, got, tt.want)
+			ans := answerIn(tt.input)
+			got := ans != nil && *ans == Approved
+			if got != tt.want {
+				t.Errorf("answerIn(%q) approved = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
