@@ -275,7 +275,7 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string, answer
 	indicator := newActivityIndicator(s, channelID)
 	b.agent.SetToolCallback(userID, indicator.onEvent)
 
-	response, err := b.agent.Resolve(userID, answer)
+	turn, err := b.agent.Resolve(userID, answer)
 	b.agent.SetToolCallback(userID, nil)
 	indicator.Close()
 	stopTyping()
@@ -283,8 +283,13 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string, answer
 		s.ChannelMessageSend(channelID, llm.FriendlyError(err))
 		return
 	}
+	response := turn.Text
 	if response == "" {
 		response = "Done. (no text response)"
+	}
+	if turn.Kind == agent.TurnApproval {
+		b.sendApprovalPrompt(s, channelID, response)
+		return
 	}
 	response = cleanForDiscord(response)
 	for _, chunk := range splitMessage(response) {
@@ -293,6 +298,21 @@ func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string, answer
 			Flags:   discordgo.MessageFlagsSuppressEmbeds,
 		})
 	}
+}
+
+// sendApprovalPrompt posts the agent's request with the yes/no buttons.
+func (b *Bot) sendApprovalPrompt(s *discordgo.Session, channelID, text string) {
+	s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content: cleanForDiscord(text),
+		Components: []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{Label: "Approve", Style: discordgo.SuccessButton, CustomID: "approve"},
+					discordgo.Button{Label: "Deny", Style: discordgo.DangerButton, CustomID: "deny"},
+				},
+			},
+		},
+	})
 }
 
 func (b *Bot) respondModelSelector(s *discordgo.Session, i *discordgo.InteractionCreate) {

@@ -71,7 +71,7 @@ func TestChatStreamFallsBackToComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "fallback ok" {
+	if got.Text != "fallback ok" {
 		t.Fatalf("got %q, want fallback ok", got)
 	}
 	if !p.called {
@@ -94,7 +94,7 @@ func TestChatDoesNotStreamUnlessCallerOptsIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "complete ok" {
+	if got.Text != "complete ok" {
 		t.Fatalf("got %q, want complete ok", got)
 	}
 	if p.completeCalls != 1 || p.streamCalls != 0 {
@@ -115,8 +115,8 @@ func TestChatStreamUsesStreamingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "stream ok" || gotDelta != "stream ok" {
-		t.Fatalf("got=%q delta=%q, want stream ok", got, gotDelta)
+	if got.Text != "stream ok" || gotDelta != "stream ok" {
+		t.Fatalf("got=%q delta=%q, want stream ok", got.Text, gotDelta)
 	}
 	if p.completeCalls != 0 || p.streamCalls != 1 {
 		t.Fatalf("complete=%d stream=%d, want stream only", p.completeCalls, p.streamCalls)

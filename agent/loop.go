@@ -13,11 +13,29 @@ import (
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
-func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (string, error) {
+// TurnKind says how a finished turn ended, so a transport renders it
+// without asking follow-up questions.
+type TurnKind string
+
+const (
+	TurnText     TurnKind = "text"     // an ordinary reply
+	TurnApproval TurnKind = "approval" // the reply asks permission
+)
+
+// Turn is the outcome of one agent turn.
+type Turn struct {
+	Kind  TurnKind
+	Text  string
+	Usage llm.Usage
+	Files []tools.FileDisplay
+	Took  time.Duration
+}
+
+func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (Turn, error) {
 	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, nil, answerIn(text))
 }
 
-func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (string, error) {
+func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (Turn, error) {
 	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, cb, answerIn(text))
 }
 
@@ -30,12 +48,12 @@ func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image
 // avoids provider-specific history constraints: Gemini rejects a request if
 // history trimming leaves a model functionCall turn without its immediately
 // preceding user/functionResponse turn.
-func (a *Agent) ChatScheduled(userID, prompt string) (string, error) {
+func (a *Agent) ChatScheduled(userID, prompt string) (Turn, error) {
 	a.ClearHistory(userID)
 	return a.chat(userID, prompt, false, nil, tools.SourceScheduled, nil, nil)
 }
 
-func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback, answer *Answer) (string, error) {
+func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback, answer *Answer) (Turn, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -108,7 +126,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	var lastText string
 	for range maxLoops {
 		if ctx.Err() != nil {
-			return "Cancelled.", nil
+			return Turn{Kind: TurnText, Text: "Cancelled.", Took: time.Since(start)}, nil
 		}
 		req := &llm.Request{
 			SystemPrompt: prompt,
@@ -129,7 +147,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		}
 		if err != nil {
 			logger.Err(err)
-			return "", err
+			return Turn{}, err
 		}
 
 		usage.In += resp.Usage.In
@@ -163,7 +181,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			if resp.StopReason == llm.StopMaxTokens && reply == resp.Text {
 				reply += "\n\n_(cut off at the length limit. Ask me to continue.)_"
 			}
-			return a.finish(start, usage, cacheRead, toolsUsed, reply)
+			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, reply)
 		}
 
 		var results []llm.ToolResult
@@ -191,21 +209,28 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
-			return a.finish(start, usage, cacheRead, toolsUsed, approvalMessage(p))
+			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnApproval, approvalMessage(p))
 		}
 	}
 
-	return a.finish(start, usage, cacheRead, toolsUsed, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
+	return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
 }
 
 // finish records token usage, logs the completed turn, and returns the
 // reply. Every terminal path in Chat goes through it so accounting and
 // logging stay identical no matter which exit the loop takes.
-func (a *Agent) finish(start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, reply string) (string, error) {
+func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, kind TurnKind, reply string) (Turn, error) {
 	a.addTokens(usage.In, usage.Out)
 	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
 	logger.Nevinho(reply)
-	return reply, nil
+	usage.CacheRead = cacheRead
+	return Turn{
+		Kind:  kind,
+		Text:  reply,
+		Usage: usage,
+		Files: a.tools.DrainFileDisplays(userID),
+		Took:  time.Since(start),
+	}, nil
 }
 
 // nudgeForReply runs one extra completion with tools disabled, used when
@@ -268,10 +293,6 @@ func toolDetail(name string, input json.RawMessage) string {
 	default:
 		return ""
 	}
-}
-
-func (a *Agent) DrainFileDisplays(userID string) []tools.FileDisplay {
-	return a.tools.DrainFileDisplays(userID)
 }
 
 func (a *Agent) ClearPending(userID string) {

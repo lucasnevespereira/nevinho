@@ -47,14 +47,14 @@ func (a *Agent) HasPendingApproval(userID string) bool {
 // Resolve answers a pending approval and runs the turn that follows it.
 // Transports call this for a button or a keypress. A typed "yes" or "no"
 // lands on the same path through Chat.
-func (a *Agent) Resolve(userID string, answer Answer) (string, error) {
+func (a *Agent) Resolve(userID string, answer Answer) (Turn, error) {
 	return a.ResolveStream(userID, answer, nil)
 }
 
 // ResolveStream is Resolve with streaming deltas.
-func (a *Agent) ResolveStream(userID string, answer Answer, cb llm.StreamCallback) (string, error) {
+func (a *Agent) ResolveStream(userID string, answer Answer, cb llm.StreamCallback) (Turn, error) {
 	if !a.HasPendingApproval(userID) {
-		return "", fmt.Errorf("nothing is waiting for approval")
+		return Turn{}, fmt.Errorf("nothing is waiting for approval")
 	}
 	return a.chat(userID, "", false, nil, tools.SourceInteractive, cb, &answer)
 }
