@@ -110,9 +110,16 @@ func (a *Agent) replacePendingToolResult(userID, output string) {
 	if id == "" || len(hist) == 0 {
 		return
 	}
-	updated := a.llm.ReplaceToolResult(hist, id, output)
 	a.mu.Lock()
-	a.history[userID] = updated
+	for i := range hist {
+		for j, r := range hist[i].ToolResults {
+			if r.ID == id {
+				hist[i].ToolResults[j].Output = output
+				hist[i].ToolResults[j].IsError = false
+			}
+		}
+	}
+	a.history[userID] = hist
 	a.mu.Unlock()
 }
 

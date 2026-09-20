@@ -43,7 +43,7 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 				"cache_control": map[string]string{"type": "ephemeral"},
 			},
 		},
-		"messages": ensureSlice(req.Messages),
+		"messages": anthropicEncode(req.Messages),
 		"tools":    tools,
 	}
 
@@ -80,11 +80,6 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 		StopReason: anthropicStopReason(raw.StopReason),
 	}
 
-	assistantMsg, _ := json.Marshal(map[string]interface{}{
-		"role": "assistant", "content": raw.Content,
-	})
-	resp.AssistantMessage = assistantMsg
-
 	var textParts []string
 	for _, block := range raw.Content {
 		var b struct {
@@ -105,6 +100,7 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 		}
 	}
 	resp.Text = strings.Join(textParts, "\n")
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 
 	return resp, nil
 }
@@ -122,7 +118,7 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 			"text":          req.SystemPrompt,
 			"cache_control": map[string]string{"type": "ephemeral"},
 		}},
-		"messages": ensureSlice(req.Messages),
+		"messages": anthropicEncode(req.Messages),
 		"tools":    tools,
 		"stream":   true,
 	}
@@ -218,8 +214,7 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 	if resp.StopReason == "" {
 		resp.StopReason = StopEndTurn
 	}
-	assistantMsg, _ := json.Marshal(map[string]interface{}{"role": "assistant", "content": content})
-	resp.AssistantMessage = assistantMsg
+	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 	return resp, nil
 }
 
@@ -252,7 +247,7 @@ func anthropicStopReason(s string) StopReason {
 	}
 }
 
-func (a *Anthropic) FormatUserMessage(text string, images []Image) json.RawMessage {
+func anthropicUserMessage(text string, images []Image) json.RawMessage {
 	if len(images) == 0 {
 		msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": text})
 		return msg
@@ -275,40 +270,7 @@ func (a *Anthropic) FormatUserMessage(text string, images []Image) json.RawMessa
 	return msg
 }
 
-func (a *Anthropic) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	for i := len(history) - 1; i >= 0; i-- {
-		var msg struct {
-			Role    string                   `json:"role"`
-			Content []map[string]interface{} `json:"content"`
-		}
-		if err := json.Unmarshal(history[i], &msg); err != nil {
-			continue
-		}
-		if msg.Role != "user" {
-			continue
-		}
-		changed := false
-		for j, block := range msg.Content {
-			if block["type"] != "tool_result" {
-				continue
-			}
-			if id, _ := block["tool_use_id"].(string); id == toolUseID {
-				msg.Content[j]["content"] = newOutput
-				delete(msg.Content[j], "is_error")
-				changed = true
-			}
-		}
-		if changed {
-			if rebuilt, err := json.Marshal(msg); err == nil {
-				history[i] = rebuilt
-			}
-			return history
-		}
-	}
-	return history
-}
-
-func (a *Anthropic) FormatToolResults(results []ToolResult) []json.RawMessage {
+func anthropicToolResults(results []ToolResult) json.RawMessage {
 	var content []interface{}
 	for _, r := range results {
 		entry := map[string]interface{}{
@@ -320,7 +282,34 @@ func (a *Anthropic) FormatToolResults(results []ToolResult) []json.RawMessage {
 		content = append(content, entry)
 	}
 	msg, _ := json.Marshal(map[string]interface{}{"role": "user", "content": content})
-	return []json.RawMessage{msg}
+	return msg
+}
+
+// encode turns history into Anthropic's wire shape. Tool results ride in a
+// user message, which is what the API expects.
+func anthropicEncode(msgs []Message) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case RoleUser:
+			out = append(out, anthropicUserMessage(m.Text, m.Images))
+		case RoleTool:
+			out = append(out, anthropicToolResults(m.ToolResults))
+		case RoleAssistant:
+			var content []map[string]interface{}
+			if m.Text != "" {
+				content = append(content, map[string]interface{}{"type": "text", "text": m.Text})
+			}
+			for _, c := range m.ToolCalls {
+				content = append(content, map[string]interface{}{
+					"type": "tool_use", "id": c.ID, "name": c.Name, "input": json.RawMessage(c.Input),
+				})
+			}
+			msg, _ := json.Marshal(map[string]interface{}{"role": "assistant", "content": content})
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func (a *Anthropic) formatTools(defs []ToolDef) []map[string]interface{} {

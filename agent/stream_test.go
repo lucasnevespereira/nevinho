@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/lucasnevespereira/nevinho/config"
@@ -13,16 +12,7 @@ type fallbackProvider struct{ called bool }
 
 func (p *fallbackProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	p.called = true
-	msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": "fallback ok"})
-	return &llm.Response{Text: "fallback ok", AssistantMessage: msg, StopReason: llm.StopEndTurn}, nil
-}
-func (p *fallbackProvider) FormatUserMessage(text string, images []llm.Image) json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "user", "content": text})
-	return msg
-}
-func (p *fallbackProvider) FormatToolResults(results []llm.ToolResult) []json.RawMessage { return nil }
-func (p *fallbackProvider) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	return history
+	return &llm.Response{Text: "fallback ok", Assistant: llm.Message{Role: llm.RoleAssistant, Text: "fallback ok"}, StopReason: llm.StopEndTurn}, nil
 }
 func (p *fallbackProvider) Model() string { return "fake" }
 
@@ -33,8 +23,7 @@ type optInStreamingProvider struct {
 
 func (p *optInStreamingProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	p.completeCalls++
-	msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": "complete ok"})
-	return &llm.Response{Text: "complete ok", AssistantMessage: msg, StopReason: llm.StopEndTurn}, nil
+	return &llm.Response{Text: "complete ok", Assistant: llm.Message{Role: llm.RoleAssistant, Text: "complete ok"}, StopReason: llm.StopEndTurn}, nil
 }
 
 func (p *optInStreamingProvider) StreamComplete(ctx context.Context, req *llm.Request, cb llm.StreamCallback) (*llm.Response, error) {
@@ -43,20 +32,9 @@ func (p *optInStreamingProvider) StreamComplete(ctx context.Context, req *llm.Re
 		cb("stream")
 		cb(" ok")
 	}
-	msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": "stream ok"})
-	return &llm.Response{Text: "stream ok", AssistantMessage: msg, StopReason: llm.StopEndTurn}, nil
+	return &llm.Response{Text: "stream ok", Assistant: llm.Message{Role: llm.RoleAssistant, Text: "stream ok"}, StopReason: llm.StopEndTurn}, nil
 }
 
-func (p *optInStreamingProvider) FormatUserMessage(text string, images []llm.Image) json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "user", "content": text})
-	return msg
-}
-func (p *optInStreamingProvider) FormatToolResults(results []llm.ToolResult) []json.RawMessage {
-	return nil
-}
-func (p *optInStreamingProvider) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	return history
-}
 func (p *optInStreamingProvider) Model() string { return "fake" }
 
 func TestChatStreamFallsBackToComplete(t *testing.T) {

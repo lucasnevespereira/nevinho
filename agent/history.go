@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -13,28 +12,28 @@ import (
 	"github.com/lucasnevespereira/nevinho/memory"
 )
 
-func (a *Agent) appendHistory(userID string, msgs ...json.RawMessage) (evicted []json.RawMessage) {
+func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm.Message) {
 	a.history[userID] = append(a.history[userID], msgs...)
 	if estimateTokens(a.history[userID]) <= maxHistoryTokens {
 		return nil
 	}
 	trimmed := trimHistoryByTokens(a.history[userID], maxHistoryTokens)
 	evictedCount := len(a.history[userID]) - len(trimmed)
-	evicted = make([]json.RawMessage, evictedCount)
+	evicted = make([]llm.Message, evictedCount)
 	copy(evicted, a.history[userID][:evictedCount])
 	a.history[userID] = trimmed
 	return evicted
 }
 
-func estimateTokens(msgs []json.RawMessage) int {
+func estimateTokens(msgs []llm.Message) int {
 	total := 0
 	for _, m := range msgs {
-		total += len(m) / 4
+		total += m.Size() / 4
 	}
 	return total
 }
 
-func trimHistoryByTokens(msgs []json.RawMessage, limit int) []json.RawMessage {
+func trimHistoryByTokens(msgs []llm.Message, limit int) []llm.Message {
 	if estimateTokens(msgs) <= limit {
 		return msgs
 	}
@@ -42,29 +41,10 @@ func trimHistoryByTokens(msgs []json.RawMessage, limit int) []json.RawMessage {
 	for start < len(msgs) && estimateTokens(msgs[start:]) > limit {
 		start++
 	}
-	// Walk forward to find a clean boundary (plain user message)
-	for start < len(msgs) {
-		var peek struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		}
-		if err := json.Unmarshal(msgs[start], &peek); err != nil {
-			start++
-			continue
-		}
-		if peek.Role == "tool" {
-			start++
-			continue
-		}
-		if peek.Role == "assistant" {
-			start++
-			continue
-		}
-		if peek.Role == "user" && len(peek.Content) > 0 && peek.Content[0] == '[' {
-			start++
-			continue
-		}
-		break
+	// Land on a plain user message: an assistant turn or a tool result
+	// without the call that produced it confuses the model.
+	for start < len(msgs) && msgs[start].Role != llm.RoleUser {
+		start++
 	}
 	if start >= len(msgs) {
 		return msgs[len(msgs)-1:]
@@ -72,27 +52,18 @@ func trimHistoryByTokens(msgs []json.RawMessage, limit int) []json.RawMessage {
 	return msgs[start:]
 }
 
-func flattenMessages(msgs []json.RawMessage) string {
+func flattenMessages(msgs []llm.Message) string {
 	var sb strings.Builder
 	for _, m := range msgs {
-		var peek struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		}
-		if err := json.Unmarshal(m, &peek); err != nil {
+		if m.Text == "" {
+			fmt.Fprintf(&sb, "%s: [tool interaction]\n", m.Role)
 			continue
 		}
-		// Try to extract string content
-		var text string
-		if err := json.Unmarshal(peek.Content, &text); err == nil {
-			runes := []rune(text)
-			if len(runes) > 200 {
-				text = string(runes[:200]) + "..."
-			}
-			fmt.Fprintf(&sb, "%s: %s\n", peek.Role, text)
-		} else {
-			fmt.Fprintf(&sb, "%s: [tool interaction]\n", peek.Role)
+		text := m.Text
+		if runes := []rune(text); len(runes) > 200 {
+			text = string(runes[:200]) + "..."
 		}
+		fmt.Fprintf(&sb, "%s: %s\n", m.Role, text)
 	}
 	return sb.String()
 }
@@ -123,13 +94,13 @@ func (a *Agent) maybeLoadSummary(userID string) {
 	if summary == "" {
 		return
 	}
-	preamble := a.llm.FormatUserMessage("[Previous conversation: "+summary+"]", nil)
+	preamble := llm.UserMessage("[Previous conversation: "+summary+"]", nil)
 	a.history[userID] = append(a.history[userID], preamble)
 	logger.Info("loaded persisted summary")
 }
 
 // summarizeAndPrepend summarizes evicted messages and prepends them to history.
-func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
+func (a *Agent) summarizeAndPrepend(userID string, evicted []llm.Message) {
 	flat := flattenMessages(evicted)
 	if flat == "" {
 		return
@@ -138,7 +109,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	defer cancel()
 	resp, err := a.llm.Complete(summarizeCtx, &llm.Request{
 		SystemPrompt: "Summarize this conversation excerpt in 2-3 sentences. Focus on what was asked, what was done, and important outcomes.",
-		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat, nil)},
+		Messages:     []llm.Message{llm.UserMessage(flat, nil)},
 		MaxTokens:    200,
 	})
 	if err != nil {
@@ -148,8 +119,8 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []json.RawMessage) {
 	if resp.Text == "" {
 		return
 	}
-	preamble := a.llm.FormatUserMessage("[Conversation so far: "+resp.Text+"]", nil)
-	a.history[userID] = append([]json.RawMessage{preamble}, a.history[userID]...)
+	preamble := llm.UserMessage("[Conversation so far: "+resp.Text+"]", nil)
+	a.history[userID] = append([]llm.Message{preamble}, a.history[userID]...)
 }
 
 // PersistAll summarizes each active user's in-memory history and writes it to
@@ -195,7 +166,7 @@ func (a *Agent) persistUser(ctx context.Context, userID string) {
 	}
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: "Summarize this conversation in 3-5 sentences. Capture what the user was working on, key decisions, and unresolved threads. Be specific enough that the next session can pick up where this left off.",
-		Messages:     []json.RawMessage{a.llm.FormatUserMessage(flat, nil)},
+		Messages:     []llm.Message{llm.UserMessage(flat, nil)},
 		MaxTokens:    400,
 	})
 	if err != nil {

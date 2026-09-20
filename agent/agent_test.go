@@ -1,36 +1,28 @@
 package agent
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lucasnevespereira/nevinho/llm"
 )
 
-func userMsg(text string) json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "user", "content": text})
-	return msg
+func userMsg(text string) llm.Message {
+	return llm.UserMessage(text, nil)
 }
 
-func assistantMsg(text string) json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": text})
-	return msg
+func assistantMsg(text string) llm.Message {
+	return llm.Message{Role: llm.RoleAssistant, Text: text}
 }
 
-func toolMsg() json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "tool", "tool_call_id": "1", "content": "ok"})
-	return msg
-}
-
-func toolUseUserMsg() json.RawMessage {
-	content := []map[string]any{{"type": "tool_result", "tool_use_id": "1", "content": "ok"}}
-	msg, _ := json.Marshal(map[string]any{"role": "user", "content": content})
-	return msg
+func toolMsg() llm.Message {
+	return llm.ToolResultMessage([]llm.ToolResult{{ID: "1", Output: "ok"}})
 }
 
 func TestEstimateTokens(t *testing.T) {
 	tests := []struct {
 		name string
-		msgs []json.RawMessage
+		msgs []llm.Message
 		want int
 	}{
 		{
@@ -40,18 +32,18 @@ func TestEstimateTokens(t *testing.T) {
 		},
 		{
 			name: "single short message",
-			msgs: []json.RawMessage{userMsg("hello")},
-			want: len(userMsg("hello")) / 4,
+			msgs: []llm.Message{userMsg("hello")},
+			want: userMsg("hello").Size() / 4,
 		},
 		{
 			name: "multiple messages sum correctly",
-			msgs: []json.RawMessage{userMsg("hello"), assistantMsg("hi there")},
-			want: (len(userMsg("hello")) + len(assistantMsg("hi there"))) / 4,
+			msgs: []llm.Message{userMsg("hello"), assistantMsg("hi there")},
+			want: (userMsg("hello").Size() + assistantMsg("hi there").Size()) / 4,
 		},
 		{
 			name: "large message produces proportionally large count",
-			msgs: []json.RawMessage{userMsg(strings.Repeat("a", 4000))},
-			want: len(userMsg(strings.Repeat("a", 4000))) / 4,
+			msgs: []llm.Message{userMsg(strings.Repeat("a", 4000))},
+			want: userMsg(strings.Repeat("a", 4000)).Size() / 4,
 		},
 	}
 
@@ -71,43 +63,37 @@ func TestTrimHistoryByTokens(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		msgs      []json.RawMessage
+		msgs      []llm.Message
 		maxTokens int
 		wantCount int
 	}{
 		{
 			name:      "under maxTokens keeps everything",
-			msgs:      []json.RawMessage{small, assistantMsg("hey")},
+			msgs:      []llm.Message{small, assistantMsg("hey")},
 			maxTokens: 10000,
 			wantCount: 2,
 		},
 		{
 			name:      "over maxTokens trims oldest messages",
-			msgs:      []json.RawMessage{big, big, big, small},
-			maxTokens: estimateTokens([]json.RawMessage{big, small}),
+			msgs:      []llm.Message{big, big, big, small},
+			maxTokens: estimateTokens([]llm.Message{big, small}),
 			wantCount: 2,
 		},
 		{
 			name:      "skips orphaned tool results to find clean boundary",
-			msgs:      []json.RawMessage{big, toolMsg(), small, assistantMsg("ok")},
-			maxTokens: estimateTokens([]json.RawMessage{small, assistantMsg("ok")}),
+			msgs:      []llm.Message{big, toolMsg(), small, assistantMsg("ok")},
+			maxTokens: estimateTokens([]llm.Message{small, assistantMsg("ok")}),
 			wantCount: 2,
 		},
 		{
 			name:      "skips orphaned assistant messages",
-			msgs:      []json.RawMessage{big, assistantMsg("old"), small, assistantMsg("new")},
-			maxTokens: estimateTokens([]json.RawMessage{small, assistantMsg("new")}),
+			msgs:      []llm.Message{big, assistantMsg("old"), small, assistantMsg("new")},
+			maxTokens: estimateTokens([]llm.Message{small, assistantMsg("new")}),
 			wantCount: 2,
 		},
 		{
-			name:      "skips tool_use array user messages",
-			msgs:      []json.RawMessage{big, toolUseUserMsg(), small},
-			maxTokens: estimateTokens([]json.RawMessage{small}),
-			wantCount: 1,
-		},
-		{
 			name:      "keeps at least the last message when everything exceeds maxTokens",
-			msgs:      []json.RawMessage{big, big, big},
+			msgs:      []llm.Message{big, big, big},
 			maxTokens: 1,
 			wantCount: 1,
 		},
@@ -125,7 +111,7 @@ func TestTrimHistoryByTokens(t *testing.T) {
 
 func TestTrimHistoryByTokens_LandsOnUserMessage(t *testing.T) {
 	big := userMsg(strings.Repeat("x", 4000))
-	msgs := []json.RawMessage{
+	msgs := []llm.Message{
 		big,
 		assistantMsg("reply"),
 		toolMsg(),
@@ -136,39 +122,33 @@ func TestTrimHistoryByTokens_LandsOnUserMessage(t *testing.T) {
 	maxTokens := estimateTokens(msgs[3:])
 	got := trimHistoryByTokens(msgs, maxTokens)
 
-	var first struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+	if got[0].Role != llm.RoleUser {
+		t.Errorf("first message role = %q, want user", got[0].Role)
 	}
-	json.Unmarshal(got[0], &first)
-
-	if first.Role != "user" {
-		t.Errorf("first message role = %q, want \"user\"", first.Role)
-	}
-	if first.Content != "second turn" {
-		t.Errorf("first message content = %q, want \"second turn\"", first.Content)
+	if got[0].Text != "second turn" {
+		t.Errorf("first message text = %q, want \"second turn\"", got[0].Text)
 	}
 }
 
 func TestFlattenMessages(t *testing.T) {
 	tests := []struct {
 		name     string
-		msgs     []json.RawMessage
+		msgs     []llm.Message
 		contains []string
 	}{
 		{
 			name:     "extracts role and text content",
-			msgs:     []json.RawMessage{userMsg("hello"), assistantMsg("hi")},
+			msgs:     []llm.Message{userMsg("hello"), assistantMsg("hi")},
 			contains: []string{"user: hello", "assistant: hi"},
 		},
 		{
 			name:     "truncates long content at 200 runes",
-			msgs:     []json.RawMessage{userMsg(strings.Repeat("a", 300))},
+			msgs:     []llm.Message{userMsg(strings.Repeat("a", 300))},
 			contains: []string{strings.Repeat("a", 200) + "..."},
 		},
 		{
 			name:     "non-string content shows tool interaction",
-			msgs:     []json.RawMessage{toolUseUserMsg()},
+			msgs:     []llm.Message{toolMsg()},
 			contains: []string{"[tool interaction]"},
 		},
 		{
@@ -276,11 +256,11 @@ func TestLooksLikeApproval(t *testing.T) {
 
 func TestAppendHistory_EvictsWhenOverLimit(t *testing.T) {
 	a := &Agent{
-		history: make(map[string][]json.RawMessage),
+		history: make(map[string][]llm.Message),
 	}
 
-	big := userMsg(strings.Repeat("x", maxHistoryTokens*4))
-	a.history["u1"] = []json.RawMessage{big}
+	big := userMsg(strings.Repeat("x", maxHistoryTokens*8))
+	a.history["u1"] = []llm.Message{big}
 
 	evicted := a.appendHistory("u1", userMsg("new"))
 
@@ -295,7 +275,7 @@ func TestAppendHistory_EvictsWhenOverLimit(t *testing.T) {
 
 func TestAppendHistory_NoEvictionUnderLimit(t *testing.T) {
 	a := &Agent{
-		history: make(map[string][]json.RawMessage),
+		history: make(map[string][]llm.Message),
 	}
 
 	evicted := a.appendHistory("u1", userMsg("hello"))

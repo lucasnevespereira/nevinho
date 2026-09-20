@@ -119,7 +119,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 	a.maybeLoadSummary(userID)
 
-	if evicted := a.appendHistory(userID, a.llm.FormatUserMessage(text, images)); len(evicted) > 2 {
+	if evicted := a.appendHistory(userID, llm.UserMessage(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
 
@@ -153,7 +153,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		usage.In += resp.Usage.In
 		usage.Out += resp.Usage.Out
 		cacheRead += resp.Usage.CacheRead
-		a.appendHistory(userID, resp.AssistantMessage)
+		a.appendHistory(userID, resp.Assistant)
 		if resp.Text != "" {
 			lastText = resp.Text
 		}
@@ -205,7 +205,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			}
 		}
 
-		a.appendHistory(userID, a.llm.FormatToolResults(results)...)
+		a.appendHistory(userID, llm.ToolResultMessage(results))
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
@@ -238,7 +238,7 @@ func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, cacheRea
 // to reach for, it has to answer in plain text. Returns "" if even this
 // comes back empty, leaving the caller to fall back.
 func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (string, llm.Usage) {
-	a.appendHistory(userID, a.llm.FormatUserMessage(
+	a.appendHistory(userID, llm.UserMessage(
 		"[Your last turn was empty. Reply to the user now in plain text. Summarize what you did and answer them.]", nil))
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: prompt,
@@ -249,7 +249,7 @@ func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (strin
 		logger.Err(fmt.Errorf("reply nudge failed: %w", err))
 		return "", llm.Usage{}
 	}
-	a.appendHistory(userID, resp.AssistantMessage)
+	a.appendHistory(userID, resp.Assistant)
 	return resp.Text, resp.Usage
 }
 

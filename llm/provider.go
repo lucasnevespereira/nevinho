@@ -11,15 +11,53 @@ import (
 
 type Provider interface {
 	Complete(ctx context.Context, req *Request) (*Response, error)
-	// FormatUserMessage emits a user message carrying optional inline images.
-	// images may be nil or empty for plain text turns.
-	FormatUserMessage(text string, images []Image) json.RawMessage
-	FormatToolResults(results []ToolResult) []json.RawMessage
-	// ReplaceToolResult swaps the stored output of a prior tool_result for the
-	// given tool use id. Used after deferred approval so the LLM sees the
-	// actual executed output instead of the stale NEEDS_APPROVAL placeholder.
-	ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage
 	Model() string
+}
+
+// Role is who produced a message. Providers name these differently on the
+// wire; each adapter translates.
+type Role string
+
+const (
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
+)
+
+// Message is one entry of conversation history, in nevinho's own shape.
+// Adapters convert it to and from their provider's wire format, so the
+// agent can read its own history without parsing provider JSON.
+type Message struct {
+	Role        Role
+	Text        string
+	Images      []Image
+	ToolCalls   []ToolCall   // assistant asked to run these
+	ToolResults []ToolResult // outputs for earlier calls
+}
+
+// UserMessage builds a plain user turn.
+func UserMessage(text string, images []Image) Message {
+	return Message{Role: RoleUser, Text: text, Images: images}
+}
+
+// ToolResultMessage carries tool outputs back to the model.
+func ToolResultMessage(results []ToolResult) Message {
+	return Message{Role: RoleTool, ToolResults: results}
+}
+
+// Size is a rough byte cost, used for the history token budget.
+func (m Message) Size() int {
+	n := len(m.Text)
+	for _, c := range m.ToolCalls {
+		n += len(c.Name) + len(c.Input)
+	}
+	for _, r := range m.ToolResults {
+		n += len(r.Output)
+	}
+	for _, img := range m.Images {
+		n += len(img.Data)
+	}
+	return n
 }
 
 type StreamCallback func(delta string)
@@ -30,17 +68,17 @@ type StreamingProvider interface {
 
 type Request struct {
 	SystemPrompt string
-	Messages     []json.RawMessage
+	Messages     []Message
 	Tools        []ToolDef
 	MaxTokens    int
 }
 
 type Response struct {
-	Text             string
-	ToolCalls        []ToolCall
-	Usage            Usage
-	AssistantMessage json.RawMessage
-	StopReason       StopReason
+	Text       string
+	ToolCalls  []ToolCall
+	Usage      Usage
+	Assistant  Message
+	StopReason StopReason
 }
 
 // StopReason is the normalized reason a provider stopped generating. Each

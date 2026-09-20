@@ -200,9 +200,3 @@ func readSSE(ctx context.Context, r io.Reader, onData func([]byte) error) error 
 	return flush()
 }
 
-func ensureSlice(msgs []json.RawMessage) []json.RawMessage {
-	if msgs == nil {
-		return []json.RawMessage{}
-	}
-	return msgs
-}

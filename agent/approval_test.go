@@ -15,48 +15,21 @@ import (
 // resolved tool result shows up.
 type bashThenTalkProvider struct {
 	calls    int
-	lastSeen []json.RawMessage
+	lastSeen []llm.Message
 }
 
 func (p *bashThenTalkProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	p.calls++
 	p.lastSeen = req.Messages
 	if p.calls == 1 {
-		msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": "running"})
+		calls := []llm.ToolCall{{ID: "call-1", Name: "bash", Input: json.RawMessage(`{"command":"echo hi"}`)}}
 		return &llm.Response{
-			AssistantMessage: msg,
-			ToolCalls:        []llm.ToolCall{{ID: "call-1", Name: "bash", Input: json.RawMessage(`{"command":"echo hi"}`)}},
-			StopReason:       llm.StopToolUse,
+			Assistant:  llm.Message{Role: llm.RoleAssistant, ToolCalls: calls},
+			ToolCalls:  calls,
+			StopReason: llm.StopToolUse,
 		}, nil
 	}
-	msg, _ := json.Marshal(map[string]any{"role": "assistant", "content": "done"})
-	return &llm.Response{Text: "done", AssistantMessage: msg, StopReason: llm.StopEndTurn}, nil
-}
-
-func (p *bashThenTalkProvider) FormatUserMessage(text string, images []llm.Image) json.RawMessage {
-	msg, _ := json.Marshal(map[string]any{"role": "user", "content": text})
-	return msg
-}
-
-func (p *bashThenTalkProvider) FormatToolResults(results []llm.ToolResult) []json.RawMessage {
-	out := make([]json.RawMessage, 0, len(results))
-	for _, r := range results {
-		msg, _ := json.Marshal(map[string]any{"role": "tool", "tool_call_id": r.ID, "content": r.Output})
-		out = append(out, msg)
-	}
-	return out
-}
-
-func (p *bashThenTalkProvider) ReplaceToolResult(history []json.RawMessage, toolUseID, newOutput string) []json.RawMessage {
-	for i, m := range history {
-		var peek struct {
-			ID string `json:"tool_call_id"`
-		}
-		if json.Unmarshal(m, &peek) == nil && peek.ID == toolUseID {
-			history[i], _ = json.Marshal(map[string]any{"role": "tool", "tool_call_id": toolUseID, "content": newOutput})
-		}
-	}
-	return history
+	return &llm.Response{Text: "done", Assistant: llm.Message{Role: llm.RoleAssistant, Text: "done"}, StopReason: llm.StopEndTurn}, nil
 }
 
 func (p *bashThenTalkProvider) Model() string { return "fake" }
@@ -79,10 +52,13 @@ func pausedAgent(t *testing.T) (*Agent, *bashThenTalkProvider) {
 	return a, p
 }
 
-func historyText(msgs []json.RawMessage) string {
+func historyText(msgs []llm.Message) string {
 	var sb strings.Builder
 	for _, m := range msgs {
-		sb.Write(m)
+		sb.WriteString(m.Text)
+		for _, r := range m.ToolResults {
+			sb.WriteString(r.Output)
+		}
 	}
 	return sb.String()
 }

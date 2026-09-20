@@ -184,15 +184,12 @@ estimateTokens(history) > 30,000?
     |
     yes -> trimHistoryByTokens:
              1. find earliest index where remaining msgs fit the budget
-             2. walk forward to a clean boundary:
-                . skip orphaned tool results
-                . skip orphaned assistant messages
-                . skip tool_use array messages
-                . land on a plain user message
+             2. walk forward to the next user message, so no
+                orphaned assistant turn or tool result leads
              3. return msgs[start:]
 ```
 
-Estimation is `len(json_bytes) / 4` per message. Rough but consistent. Off by 20% just means trimming a little earlier or later.
+Estimation is `Message.Size() / 4`: text, tool inputs, tool outputs, and image bytes. Rough but consistent. Off by 20% just means trimming a little earlier or later.
 
 ### 4. Summarize on trim
 
@@ -333,7 +330,8 @@ nevinho/
     persistence.go       Per-user summary path helpers, sanitization.
   llm/
     provider.go          Provider and StreamingProvider interfaces,
-                         message types, stop reasons.
+                         the neutral Message type, stop reasons.
+                         Adapters translate it to their wire format.
     anthropic.go         Anthropic Messages API plus prompt caching.
     openai.go            OpenAI chat completions (plus Ollama via the
                          compatible endpoint).
