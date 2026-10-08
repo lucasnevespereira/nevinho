@@ -32,9 +32,10 @@ var KnownModels = map[string][]string{
 		"gpt-4-turbo",
 		"o3-mini",
 		"o4-mini",
+		// gpt-6-astra and gpt-6.1-sol are left out on purpose. OpenAI does
+		// not support function calling for them on Chat Completions, the
+		// endpoint nevinho uses, and every nevinho request carries tools.
 		"gpt-6-luna",
-		"gpt-6.1-sol",
-		"gpt-6-astra",
 	},
 	"gemini": {
 		"gemini-2.5-flash",
