@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 )
 
@@ -186,7 +187,7 @@ func TestEstimateCost(t *testing.T) {
 			model: "claude-haiku-4-5",
 			in:    1_000_000,
 			out:   1_000_000,
-			want:  0.80 + 4.00,
+			want:  1.00 + 5.00,
 		},
 		{
 			name:  "sonnet pricing",
@@ -194,6 +195,41 @@ func TestEstimateCost(t *testing.T) {
 			in:    1_000_000,
 			out:   1_000_000,
 			want:  3.00 + 15.00,
+		},
+		{
+			name:  "haiku 5.5 matched before haiku",
+			model: "claude-haiku-5-5",
+			in:    1_000_000,
+			out:   1_000_000,
+			want:  0.10 + 0.50,
+		},
+		{
+			name:  "opus 5.5 matched before opus",
+			model: "claude-opus-5-5",
+			in:    1_000_000,
+			out:   1_000_000,
+			want:  4.00 + 20.00,
+		},
+		{
+			name:  "openrouter opus uses a dotted version",
+			model: "openrouter:anthropic/claude-opus-4.7",
+			in:    1_000_000,
+			out:   1_000_000,
+			want:  5.00 + 25.00,
+		},
+		{
+			name:  "gpt-5-mini matched before gpt-5",
+			model: "gpt-5-mini",
+			in:    1_000_000,
+			out:   1_000_000,
+			want:  0.25 + 2.00,
+		},
+		{
+			name:  "gpt-6.1-sol falls onto the gpt-6 row",
+			model: "gpt-6.1-sol",
+			in:    1_000_000,
+			out:   1_000_000,
+			want:  2.00 + 10.00,
 		},
 		{
 			name:  "gpt-4o-mini matched before gpt-4o",
@@ -285,5 +321,17 @@ func TestAppendHistory_NoEvictionUnderLimit(t *testing.T) {
 	}
 	if len(a.history["u1"]) != 1 {
 		t.Errorf("expected 1 message in history, got %d", len(a.history["u1"]))
+	}
+}
+
+// Every paid model the picker offers needs a price row, otherwise the
+// status bar reports $0.00 for it.
+func TestCatalogModelsHavePrices(t *testing.T) {
+	for _, provider := range []string{"anthropic", "openai", "gemini"} {
+		for _, name := range config.KnownModels[provider] {
+			if in, out := priceFor(name); in == 0 || out == 0 {
+				t.Errorf("%s has no price row", name)
+			}
+		}
 	}
 }

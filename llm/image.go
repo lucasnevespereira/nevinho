@@ -17,7 +17,7 @@ func ModelSupportsVision(name string) bool {
 	switch {
 	case strings.HasPrefix(name, "claude"):
 		return true
-	case strings.HasPrefix(name, "gpt-5"):
+	case strings.HasPrefix(name, "gpt-5"), strings.HasPrefix(name, "gpt-6"):
 		return true
 	case strings.HasPrefix(name, "gpt-4o"):
 		return true
