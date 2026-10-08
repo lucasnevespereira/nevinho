@@ -17,10 +17,8 @@ import (
 
 const (
 	maxOutputTokens  = 4096
-	maxLoops         = 25
 	maxHistoryTokens = 30_000
 	maxToolResult    = 4000
-	chatTimeout      = 5 * time.Minute
 
 	systemPromptDaemon = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
@@ -76,6 +74,23 @@ const (
 	ModeDaemon RunMode = iota // headless on a VPS, reached over Discord
 	ModeLocal                 // in the user's terminal, on their machine
 )
+
+// turnLimits bounds one turn: how many times the model may be called and
+// how long the whole turn may run. They are a guard against a runaway
+// loop, so they depend on whether someone is there to stop it.
+type turnLimits struct {
+	loops   int
+	timeout time.Duration
+}
+
+func (a *Agent) turnLimits() turnLimits {
+	if a.mode == ModeLocal {
+		// The user watches the terminal and can press esc.
+		return turnLimits{loops: 100, timeout: 30 * time.Minute}
+	}
+	// Discord and scheduled runs go unwatched, and every call costs money.
+	return turnLimits{loops: 25, timeout: 5 * time.Minute}
+}
 
 // ToolPhase marks whether a ToolEvent fires as a tool starts or finishes.
 type ToolPhase string
