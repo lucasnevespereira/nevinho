@@ -165,7 +165,8 @@ Tool layer:    bash output capped at ~8 KB
                file_read capped at 100 KB on disk, less in history
                web_read capped at ~8 KB
 
-Agent layer:   all tool results capped at 4 KB before history
+Agent layer:   all tool results capped at 4 KB before history,
+               keeping the start and the end
 ```
 
 This stops one `cat` or one page fetch from bloating every future turn.
@@ -186,10 +187,12 @@ estimateTokens(history) > 30,000?
              1. find earliest index where remaining msgs fit the budget
              2. walk forward to the next user message, so no
                 orphaned assistant turn or tool result leads
-             3. return msgs[start:]
+             3. if no user message is left, the turn in progress is
+                over budget by itself: keep it whole
+             4. return msgs[start:]
 ```
 
-Estimation is `Message.Size() / 4`: text, tool inputs, tool outputs, and image bytes. Rough but consistent. Off by 20% just means trimming a little earlier or later.
+Estimation is `Message.Size() / 4`: text, tool inputs, tool outputs, and a flat cost per image. Rough but consistent. Off by 20% just means trimming a little earlier or later.
 
 ### 4. Summarize on trim
 

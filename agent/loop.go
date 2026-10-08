@@ -192,9 +192,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			logger.Tool(tc.Name, detail)
 			a.emitToolEvent(userID, ToolEvent{Phase: ToolStart, Name: tc.Name, Detail: detail, Input: tc.Input})
 			res := a.executeTool(ctx, tc.Name, tc.Input, userID)
-			if len(res.Output) > maxToolResult {
-				res.Output = res.Output[:maxToolResult] + "\n...(truncated)"
-			}
+			res.Output = capToolResult(res.Output)
 			errored := res.IsError()
 			logger.ToolResult(tc.Name, res.Output, errored)
 			a.emitToolEvent(userID, ToolEvent{Phase: ToolDone, Name: tc.Name, Detail: detail, Input: tc.Input, Output: res.Output, Status: res.Status, IsError: errored})
