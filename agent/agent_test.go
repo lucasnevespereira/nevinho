@@ -258,7 +258,7 @@ func TestEstimateCost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := estimateCost(tt.model, tt.in, tt.out)
+			got := estimateCost(tt.model, llm.Usage{In: tt.in, Out: tt.out})
 			if got != tt.want {
 				t.Errorf("got %.4f, want %.4f", got, tt.want)
 			}
@@ -294,6 +294,7 @@ func TestLooksLikeApproval(t *testing.T) {
 
 func TestAppendHistory_EvictsWhenOverLimit(t *testing.T) {
 	a := &Agent{
+		llm:     &fallbackProvider{},
 		history: make(map[string][]llm.Message),
 	}
 
@@ -313,6 +314,7 @@ func TestAppendHistory_EvictsWhenOverLimit(t *testing.T) {
 
 func TestAppendHistory_NoEvictionUnderLimit(t *testing.T) {
 	a := &Agent{
+		llm:     &fallbackProvider{},
 		history: make(map[string][]llm.Message),
 	}
 
@@ -341,7 +343,7 @@ func TestCatalogModelsHavePrices(t *testing.T) {
 // Evicting old turns invalidates the thinking blocks that came after
 // them, so a trim drops them from what is left.
 func TestTrimDropsThinking(t *testing.T) {
-	a := &Agent{history: map[string][]llm.Message{}}
+	a := &Agent{llm: &fallbackProvider{}, history: map[string][]llm.Message{}}
 	big := strings.Repeat("x", maxHistoryTokens*4)
 	a.appendHistory("u", userMsg(big[:len(big)/2]), assistantMsg("old"))
 	a.appendHistory("u", userMsg("next"), llm.Message{Role: llm.RoleAssistant, Text: "kept", Wire: []byte(`[]`)})
@@ -361,7 +363,7 @@ func TestTrimDropsThinking(t *testing.T) {
 }
 
 func TestRejectedThinkingIsDroppedFromHistory(t *testing.T) {
-	a := &Agent{history: map[string][]llm.Message{
+	a := &Agent{llm: &fallbackProvider{}, history: map[string][]llm.Message{
 		"u": {userMsg("hi"), {Role: llm.RoleAssistant, Text: "a", Wire: []byte(`[]`)}, userMsg("again")},
 	}}
 	a.appendReply("u", &llm.Response{ThinkingRejected: true, Assistant: assistantMsg("b")})
@@ -373,7 +375,7 @@ func TestRejectedThinkingIsDroppedFromHistory(t *testing.T) {
 // Two users (or a user and a scheduled run) take turns at the same time.
 // Run with -race: unguarded, this dies with "concurrent map writes".
 func TestHistoryIsSafeAcrossUsers(t *testing.T) {
-	a := &Agent{history: map[string][]llm.Message{}, userLock: map[string]*sync.Mutex{}}
+	a := &Agent{llm: &fallbackProvider{}, history: map[string][]llm.Message{}, userLock: map[string]*sync.Mutex{}}
 	var wg sync.WaitGroup
 	for _, userID := range []string{"alice", "scheduler:1"} {
 		wg.Add(1)
@@ -418,7 +420,7 @@ func TestTrimKeepsOversizedTurnWhole(t *testing.T) {
 // An image costs a fixed amount, so sending one does not evict the
 // conversation that came before it.
 func TestImageDoesNotEvictHistory(t *testing.T) {
-	a := &Agent{history: map[string][]llm.Message{}}
+	a := &Agent{llm: &fallbackProvider{}, history: map[string][]llm.Message{}}
 	a.appendHistory("u", userMsg("my name is Lucas"), assistantMsg("noted"))
 	photo := []llm.Image{{MediaType: "image/png", Data: make([]byte, 2_000_000)}}
 	if evicted := a.appendHistory("u", llm.UserMessage("what is this?", photo)); len(evicted) != 0 {

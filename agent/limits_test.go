@@ -68,3 +68,48 @@ func TestTurnLimitPausesAndContinues(t *testing.T) {
 		})
 	}
 }
+
+func TestBudgetFollowsTheModel(t *testing.T) {
+	for model, wantLarge := range map[string]bool{
+		"claude-haiku-4-5":                true,
+		"claude-opus-5-5":                 true,
+		"gpt-5-mini":                      true,
+		"gpt-6-luna":                      true,
+		"gemini-3.8-flash":                true,
+		"gpt-4-turbo":                     false, // 4096 output tokens at most
+		"gpt-4o-mini":                     false,
+		"groq:llama-3.3-70b-versatile":    false,
+		"openrouter:deepseek/deepseek-v4": false,
+		"llama3":                          false,
+	} {
+		history, output := budgetFor(model)
+		if large := history == largeHistoryTokens && output == largeOutputTokens; large != wantLarge {
+			t.Errorf("%s: history=%d output=%d, want large=%v", model, history, output, wantLarge)
+		}
+	}
+}
+
+// Cached input is part of what was sent and part of the bill. Counting
+// only the uncached remainder made a long cached session look free.
+func TestCostCountsCachedInput(t *testing.T) {
+	const million = 1_000_000
+	// claude-sonnet-4-6 input is $3 per million.
+	for name, tc := range map[string]struct {
+		usage llm.Usage
+		want  float64
+	}{
+		"uncached":    {llm.Usage{In: million}, 3.00},
+		"cache read":  {llm.Usage{CacheRead: million}, 0.30},
+		"cache write": {llm.Usage{CacheWrite: million}, 3.75},
+	} {
+		if got := estimateCost("claude-sonnet-4-6", tc.usage); got < tc.want-0.001 || got > tc.want+0.001 {
+			t.Errorf("%s: cost = %.3f, want %.2f", name, got, tc.want)
+		}
+	}
+
+	a := &Agent{llm: &fallbackProvider{}}
+	a.addUsage(llm.Usage{In: 10, CacheRead: 900, CacheWrite: 90, Out: 5})
+	if in, out, _ := a.Usage(); in != 1000 || out != 5 {
+		t.Errorf("usage = %d in, %d out, want 1000 in, 5 out", in, out)
+	}
+}

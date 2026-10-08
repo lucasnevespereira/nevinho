@@ -92,6 +92,10 @@ func (a *Anthropic) complete(ctx context.Context, req *Request) (*Response, erro
 		},
 		"messages": anthropicEncode(req.Messages),
 		"tools":    tools,
+		// Caches the conversation up to its last block and moves that
+		// point forward as it grows, so each step of a tool loop reads
+		// the earlier steps from cache at a fraction of the price.
+		"cache_control": map[string]string{"type": "ephemeral"},
 	}
 
 	data, err := doHTTP(ctx, a.baseURL+"/v1/messages", body, map[string]string{
@@ -181,7 +185,11 @@ func (a *Anthropic) streamComplete(ctx context.Context, req *Request, cb StreamC
 		}},
 		"messages": anthropicEncode(req.Messages),
 		"tools":    tools,
-		"stream":   true,
+		// Caches the conversation up to its last block and moves that
+		// point forward as it grows, so each step of a tool loop reads
+		// the earlier steps from cache at a fraction of the price.
+		"cache_control": map[string]string{"type": "ephemeral"},
+		"stream":        true,
 	}
 
 	resp := &Response{}

@@ -31,11 +31,12 @@ func (a *Agent) setMessages(userID string, msgs []llm.Message) {
 
 func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm.Message) {
 	hist := append(a.messages(userID), msgs...)
-	if estimateTokens(hist) <= maxHistoryTokens {
+	limit, _ := budgetFor(a.llm.Model())
+	if estimateTokens(hist) <= limit {
 		a.setMessages(userID, hist)
 		return nil
 	}
-	trimmed := trimHistoryByTokens(hist, maxHistoryTokens)
+	trimmed := trimHistoryByTokens(hist, limit)
 	evictedCount := len(hist) - len(trimmed)
 	evicted = make([]llm.Message, evictedCount)
 	copy(evicted, hist[:evictedCount])
