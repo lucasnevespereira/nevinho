@@ -185,3 +185,19 @@ func TestAnthropicBrokenStreamIsAnError(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAIMaxTokensLeavesRoomForReasoning(t *testing.T) {
+	for model, want := range map[string]int{
+		"gpt-4o":             200,
+		"gpt-4-turbo":        200,
+		"openai/gpt-oss-20b": 200, // served by Groq, not an OpenAI reasoning model
+		"llama3":             200,
+		"gpt-5-mini":         200 + thinkingRoom,
+		"gpt-6-luna":         200 + thinkingRoom,
+		"o4-mini":            200 + thinkingRoom,
+	} {
+		if got := NewOpenAI("key", "", model).maxTokens(200); got != want {
+			t.Errorf("%s: max_completion_tokens = %d, want %d", model, got, want)
+		}
+	}
+}

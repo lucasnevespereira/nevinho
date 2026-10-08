@@ -40,6 +40,18 @@ func newOpenAI(apiKey, baseURL, model string, streamIncludeUsage bool) *OpenAI {
 
 func (o *OpenAI) Model() string { return o.model }
 
+// maxTokens widens the caller's cap for OpenAI's reasoning models, where
+// reasoning is billed against max_completion_tokens. Without the room, a
+// short cap (a 200 token summary) is spent before any visible output.
+func (o *OpenAI) maxTokens(limit int) int {
+	for _, family := range []string{"gpt-5", "gpt-6", "o1", "o3", "o4"} {
+		if strings.HasPrefix(o.model, family) {
+			return limit + thinkingRoom
+		}
+	}
+	return limit
+}
+
 func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) {
 	sysMsg, _ := json.Marshal(map[string]interface{}{
 		"role": "system", "content": req.SystemPrompt,
@@ -48,7 +60,7 @@ func (o *OpenAI) Complete(ctx context.Context, req *Request) (*Response, error) 
 
 	body := map[string]interface{}{
 		"model":                 o.model,
-		"max_completion_tokens": req.MaxTokens,
+		"max_completion_tokens": o.maxTokens(req.MaxTokens),
 		"messages":              messages,
 		"tools":                 o.formatTools(req.Tools),
 	}
@@ -113,7 +125,7 @@ func (o *OpenAI) StreamComplete(ctx context.Context, req *Request, cb StreamCall
 
 	body := map[string]interface{}{
 		"model":                 o.model,
-		"max_completion_tokens": req.MaxTokens,
+		"max_completion_tokens": o.maxTokens(req.MaxTokens),
 		"messages":              messages,
 		"tools":                 o.formatTools(req.Tools),
 		"stream":                true,
