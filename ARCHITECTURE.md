@@ -302,6 +302,7 @@ The cached prefix (~900 tokens) is essentially free after the first turn. The re
 | `turnLimits.loops` | 100 terminal, 25 Discord and scheduled | Max model calls per turn. Hitting it pauses the task, "continue" resumes |
 | `maxHistoryTokens` | 30,000 | Token budget for conversation history, small models |
 | `largeHistoryTokens` | 100,000 | Same, for Claude, GPT-5 and 6, Gemini (`budgetFor`) |
+| `routedHistoryTokens` | 60,000 | Same, for OpenRouter routes, which also get the 16,000 reply cap |
 | `maxToolResult` | 4,000 | Max bytes per tool result in history |
 | `turnLimits.timeout` | 30 min terminal, 5 min Discord and scheduled | Whole-turn timeout |
 | `bashTimeout` | 120 s | Bash command timeout |

@@ -64,8 +64,6 @@ var KnownModels = map[string][]string{
 	"openrouter": {
 		"openrouter:nvidia/nemotron-3-super-120b-a12b:free",
 		"openrouter:google/gemma-4-31b-it:free",
-		"openrouter:inclusionai/ring-2.6-1t:free",
-		"openrouter:deepseek/deepseek-v4-flash:free",
 		"openrouter:anthropic/claude-opus-4.7",
 		"openrouter:deepseek/deepseek-v4-pro",
 		"openrouter:moonshotai/kimi-k2.6",

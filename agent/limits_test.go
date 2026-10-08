@@ -71,21 +71,22 @@ func TestTurnLimitPausesAndContinues(t *testing.T) {
 }
 
 func TestBudgetFollowsTheModel(t *testing.T) {
-	for model, wantLarge := range map[string]bool{
-		"claude-haiku-4-5":                true,
-		"claude-opus-5-5":                 true,
-		"gpt-5-mini":                      true,
-		"gpt-6-luna":                      true,
-		"gemini-3.8-flash":                true,
-		"gpt-4-turbo":                     false, // 4096 output tokens at most
-		"gpt-4o-mini":                     false,
-		"groq:llama-3.3-70b-versatile":    false,
-		"openrouter:deepseek/deepseek-v4": false,
-		"llama3":                          false,
+	for model, want := range map[string][2]int{
+		"claude-haiku-4-5":                      {largeHistoryTokens, largeOutputTokens},
+		"claude-opus-5-5":                       {largeHistoryTokens, largeOutputTokens},
+		"gpt-5-mini":                            {largeHistoryTokens, largeOutputTokens},
+		"gpt-6-luna":                            {largeHistoryTokens, largeOutputTokens},
+		"gemini-3.8-flash":                      {largeHistoryTokens, largeOutputTokens},
+		"openrouter:deepseek/deepseek-v4-pro":   {routedHistoryTokens, largeOutputTokens},
+		"openrouter:google/gemma-4-31b-it:free": {routedHistoryTokens, largeOutputTokens},
+		"gpt-4-turbo":                           {maxHistoryTokens, maxOutputTokens}, // 4096 output tokens at most
+		"gpt-4o-mini":                           {maxHistoryTokens, maxOutputTokens},
+		"groq:llama-3.3-70b-versatile":          {maxHistoryTokens, maxOutputTokens}, // tokens per minute limit
+		"llama3":                                {maxHistoryTokens, maxOutputTokens}, // Ollama, window unknown
 	} {
 		history, output := budgetFor(model)
-		if large := history == largeHistoryTokens && output == largeOutputTokens; large != wantLarge {
-			t.Errorf("%s: history=%d output=%d, want large=%v", model, history, output, wantLarge)
+		if history != want[0] || output != want[1] {
+			t.Errorf("%s: history=%d output=%d, want %d and %d", model, history, output, want[0], want[1])
 		}
 	}
 }
