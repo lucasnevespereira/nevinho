@@ -86,9 +86,27 @@ func trimHistoryByTokens(msgs []llm.Message, limit int) []llm.Message {
 		start++
 	}
 	if start >= len(msgs) {
-		return msgs[len(msgs)-1:]
+		// The turn in progress is over budget on its own. Keep it whole,
+		// back to the user message that opened it. Cutting inside it
+		// would send a tool result without its call, which every
+		// provider rejects.
+		for start = len(msgs) - 1; start > 0 && msgs[start].Role != llm.RoleUser; start-- {
+		}
 	}
 	return msgs[start:]
+}
+
+// capToolResult keeps the start and the end of an oversized tool result.
+// The start shows what ran, the end is where errors and summaries land.
+func capToolResult(s string) string {
+	if len(s) <= maxToolResult {
+		return s
+	}
+	half := maxToolResult / 2
+	// ToValidUTF8 drops a character that the byte cut split in two.
+	head := strings.ToValidUTF8(s[:half], "")
+	tail := strings.ToValidUTF8(s[len(s)-half:], "")
+	return fmt.Sprintf("%s\n...(%d chars omitted)...\n%s", head, len(s)-2*half, tail)
 }
 
 func flattenMessages(msgs []llm.Message) string {

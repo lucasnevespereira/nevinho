@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -390,5 +391,53 @@ func TestHistoryIsSafeAcrossUsers(t *testing.T) {
 	wg.Wait()
 	if got := len(a.messages("alice")); got != 2000 {
 		t.Fatalf("alice has %d messages, want 2000", got)
+	}
+}
+
+// A single turn that outgrows the budget is kept whole. Cutting inside it
+// would leave a tool result without the call that produced it.
+func TestTrimKeepsOversizedTurnWhole(t *testing.T) {
+	big := []byte(strings.Repeat("x", maxHistoryTokens*3))
+	call := func(id string) llm.Message {
+		return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: "file_write", Input: big}}}
+	}
+	result := func(id string) llm.Message {
+		return llm.ToolResultMessage([]llm.ToolResult{{ID: id, Output: "ok"}})
+	}
+	msgs := []llm.Message{
+		userMsg("earlier turn"), assistantMsg("done"),
+		userMsg("write two big files"), call("1"), result("1"), call("2"), result("2"),
+	}
+
+	got := trimHistoryByTokens(msgs, maxHistoryTokens)
+	if len(got) != 5 || got[0].Text != "write two big files" {
+		t.Fatalf("kept %d messages starting with %q, want the 5 of the current turn", len(got), got[0].Text)
+	}
+}
+
+// An image costs a fixed amount, so sending one does not evict the
+// conversation that came before it.
+func TestImageDoesNotEvictHistory(t *testing.T) {
+	a := &Agent{history: map[string][]llm.Message{}}
+	a.appendHistory("u", userMsg("my name is Lucas"), assistantMsg("noted"))
+	photo := []llm.Image{{MediaType: "image/png", Data: make([]byte, 2_000_000)}}
+	if evicted := a.appendHistory("u", llm.UserMessage("what is this?", photo)); len(evicted) != 0 {
+		t.Fatalf("evicted %d messages", len(evicted))
+	}
+}
+
+func TestCapToolResult(t *testing.T) {
+	short := "all good"
+	if got := capToolResult(short); got != short {
+		t.Fatalf("short output changed: %q", got)
+	}
+
+	long := "START" + strings.Repeat("é", maxToolResult) + "exit status 1"
+	got := capToolResult(long)
+	if !strings.HasPrefix(got, "START") || !strings.HasSuffix(got, "exit status 1") {
+		t.Fatal("lost the start or the end")
+	}
+	if len(got) > maxToolResult+100 || !utf8.ValidString(got) {
+		t.Fatalf("len=%d valid=%v", len(got), utf8.ValidString(got))
 	}
 }

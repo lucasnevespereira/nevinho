@@ -50,6 +50,12 @@ func ToolResultMessage(results []ToolResult) Message {
 	return Message{Role: RoleTool, ToolResults: results}
 }
 
+// imageSize is what one image counts for in Size. Providers bill an image
+// by its pixel dimensions, about two thousand tokens at most, not by its
+// file size. Counting raw bytes made a single photo outweigh the whole
+// history budget.
+const imageSize = 8000
+
 // Size is a rough byte cost, used for the history token budget.
 func (m Message) Size() int {
 	if m.Wire != nil {
@@ -62,10 +68,7 @@ func (m Message) Size() int {
 	for _, r := range m.ToolResults {
 		n += len(r.Output)
 	}
-	for _, img := range m.Images {
-		n += len(img.Data)
-	}
-	return n
+	return n + len(m.Images)*imageSize
 }
 
 type StreamCallback func(delta string)
