@@ -335,3 +335,35 @@ func TestCatalogModelsHavePrices(t *testing.T) {
 		}
 	}
 }
+
+// Evicting old turns invalidates the thinking blocks that came after
+// them, so a trim drops them from what is left.
+func TestTrimDropsThinking(t *testing.T) {
+	a := &Agent{history: map[string][]llm.Message{}}
+	big := strings.Repeat("x", maxHistoryTokens*4)
+	a.appendHistory("u", userMsg(big[:len(big)/2]), assistantMsg("old"))
+	a.appendHistory("u", userMsg("next"), llm.Message{Role: llm.RoleAssistant, Text: "kept", Wire: []byte(`[]`)})
+	if a.history["u"][len(a.history["u"])-1].Wire == nil {
+		t.Fatal("thinking should survive while nothing is evicted")
+	}
+
+	evicted := a.appendHistory("u", userMsg(big))
+	if len(evicted) == 0 {
+		t.Fatal("expected an eviction")
+	}
+	for _, m := range a.history["u"] {
+		if m.Wire != nil {
+			t.Fatal("thinking survived an eviction")
+		}
+	}
+}
+
+func TestRejectedThinkingIsDroppedFromHistory(t *testing.T) {
+	a := &Agent{history: map[string][]llm.Message{
+		"u": {userMsg("hi"), {Role: llm.RoleAssistant, Text: "a", Wire: []byte(`[]`)}, userMsg("again")},
+	}}
+	a.appendReply("u", &llm.Response{ThinkingRejected: true, Assistant: assistantMsg("b")})
+	if len(a.history["u"]) != 4 || a.history["u"][1].Wire != nil {
+		t.Fatalf("history = %+v", a.history["u"])
+	}
+}
