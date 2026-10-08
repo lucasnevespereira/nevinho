@@ -86,7 +86,6 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	}
 	start := time.Now()
 	var usage llm.Usage
-	var cacheRead int
 	var toolsUsed []string
 
 	// Detect user corrections/preferences and persist them
@@ -125,6 +124,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	}
 
 	var lastText string
+	_, maxOutput := budgetFor(a.llm.Model())
 	for range limits.loops {
 		if ctx.Err() != nil {
 			return Turn{Kind: TurnText, Text: "Cancelled.", Took: time.Since(start)}, nil
@@ -133,7 +133,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			SystemPrompt: prompt,
 			Messages:     a.messages(userID),
 			Tools:        a.tools.DefsFor(ctx),
-			MaxTokens:    maxOutputTokens,
+			MaxTokens:    maxOutput,
 		}
 		var resp *llm.Response
 		var err error
@@ -151,9 +151,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			return Turn{}, err
 		}
 
-		usage.In += resp.Usage.In
-		usage.Out += resp.Usage.Out
-		cacheRead += resp.Usage.CacheRead
+		usage.Add(resp.Usage)
 		a.appendReply(userID, resp)
 		if resp.Text != "" {
 			lastText = resp.Text
@@ -166,9 +164,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			// pass with tools off forces it to answer in words.
 			if reply == "" {
 				nudged, nudgeUsage := a.nudgeForReply(ctx, userID, prompt)
-				usage.In += nudgeUsage.In
-				usage.Out += nudgeUsage.Out
-				cacheRead += nudgeUsage.CacheRead
+				usage.Add(nudgeUsage)
 				reply = nudged
 			}
 			if reply == "" {
@@ -182,7 +178,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			if resp.StopReason == llm.StopMaxTokens && reply == resp.Text {
 				reply += "\n\n_(cut off at the length limit. Ask me to continue.)_"
 			}
-			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, reply)
+			return a.finish(userID, start, usage, toolsUsed, TurnText, reply)
 		}
 
 		var results []llm.ToolResult
@@ -208,21 +204,20 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 		if needsApproval {
 			p := a.tools.PendingApproval(userID)
-			return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnApproval, approvalMessage(p))
+			return a.finish(userID, start, usage, toolsUsed, TurnApproval, approvalMessage(p))
 		}
 	}
 
-	return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, fmt.Sprintf("I paused after %d steps, the limit for one turn. Say continue and I will keep going.", limits.loops))
+	return a.finish(userID, start, usage, toolsUsed, TurnText, fmt.Sprintf("I paused after %d steps, the limit for one turn. Say continue and I will keep going.", limits.loops))
 }
 
 // finish records token usage, logs the completed turn, and returns the
 // reply. Every terminal path in Chat goes through it so accounting and
 // logging stay identical no matter which exit the loop takes.
-func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, cacheRead int, toolsUsed []string, kind TurnKind, reply string) (Turn, error) {
-	a.addTokens(usage.In, usage.Out)
-	logger.Done(start, usage.In, usage.Out, cacheRead, toolsUsed, estimateCost(a.llm.Model(), usage.In, usage.Out))
+func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, toolsUsed []string, kind TurnKind, reply string) (Turn, error) {
+	a.addUsage(usage)
+	logger.Done(start, usage.Input(), usage.Out, usage.CacheRead, toolsUsed, estimateCost(a.llm.Model(), usage))
 	logger.Nevinho(reply)
-	usage.CacheRead = cacheRead
 	return Turn{
 		Kind:  kind,
 		Text:  reply,
@@ -239,10 +234,11 @@ func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, cacheRea
 func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (string, llm.Usage) {
 	a.appendHistory(userID, llm.UserMessage(
 		"[Your last turn was empty. Reply to the user now in plain text. Summarize what you did and answer them.]", nil))
+	_, maxOutput := budgetFor(a.llm.Model())
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: prompt,
 		Messages:     a.messages(userID),
-		MaxTokens:    maxOutputTokens,
+		MaxTokens:    maxOutput,
 	})
 	if err != nil {
 		logger.Err(fmt.Errorf("reply nudge failed: %w", err))

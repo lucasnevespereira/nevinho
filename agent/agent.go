@@ -20,6 +20,10 @@ const (
 	maxHistoryTokens = 30_000
 	maxToolResult    = 4000
 
+	// Budgets for models with room to spare, see budgetFor.
+	largeOutputTokens  = 16_000
+	largeHistoryTokens = 100_000
+
 	systemPromptDaemon = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
 Tools: bash, web_search, web_read, file_list, file_read, file_edit, file_write, grep, find, schedule. Each tool's description spells out what it returns and how failures look. Read those formats literally. Do not guess or paraphrase.
@@ -131,8 +135,7 @@ type Agent struct {
 	toolCb        map[string]ToolCallback
 	pendingToolID map[string]string
 	startTime     time.Time
-	tokensIn      int
-	tokensOut     int
+	spent         llm.Usage // lifetime total, for /status and the status bar
 }
 
 // New builds an agent for the given run mode. Local mode runs the tools in
@@ -212,11 +215,25 @@ func (a *Agent) Cancel(userID string) bool {
 	return false
 }
 
-func (a *Agent) addTokens(in, out int) {
+func (a *Agent) addUsage(u llm.Usage) {
 	a.mu.Lock()
-	a.tokensIn += in
-	a.tokensOut += out
+	a.spent.Add(u)
 	a.mu.Unlock()
+}
+
+// budgetFor returns how much history to keep and how long one reply may
+// be for a model. The large tier is for families whose smallest listed
+// model has a 200k token window. History is estimated at four bytes per
+// token, which undercounts code, so 100k leaves a wide margin there.
+// Everything else (small hosted models, local models) keeps the tight
+// budgets, since their windows and output caps vary and are often small.
+func budgetFor(model string) (historyTokens, outputTokens int) {
+	for _, family := range []string{"claude-", "gpt-5", "gpt-6", "gemini-"} {
+		if strings.HasPrefix(model, family) {
+			return largeHistoryTokens, largeOutputTokens
+		}
+	}
+	return maxHistoryTokens, maxOutputTokens
 }
 
 func (a *Agent) getUserLock(userID string) *sync.Mutex {
@@ -295,10 +312,10 @@ func (a *Agent) GetConfig(key string) string {
 // cost, for a status display.
 func (a *Agent) Usage() (in, out int, cost float64) {
 	a.mu.Lock()
-	in, out = a.tokensIn, a.tokensOut
+	spent := a.spent
 	model := a.llm.Model()
 	a.mu.Unlock()
-	return in, out, estimateCost(model, in, out)
+	return spent.Input(), spent.Out, estimateCost(model, spent)
 }
 
 // isLLMKey reports whether a config key authenticates an LLM provider, so a
@@ -336,19 +353,19 @@ func (a *Agent) AvailableModels() []string {
 
 func (a *Agent) Status() string {
 	a.mu.Lock()
-	in, out := a.tokensIn, a.tokensOut
+	spent := a.spent
 	a.mu.Unlock()
 
 	model := a.llm.Model()
 	uptime := time.Since(a.startTime).Truncate(time.Second)
 	paths := a.tools.ApprovedPaths()
-	cost := estimateCost(model, in, out)
+	cost := estimateCost(model, spent)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "**nevinho %s**\n\n", a.version)
 	fmt.Fprintf(&sb, "Model: `%s`\n", model)
 	fmt.Fprintf(&sb, "Uptime: %s\n", formatDuration(uptime))
-	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", in, out)
+	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", spent.Input(), spent.Out)
 	fmt.Fprintf(&sb, "Cost: $%.2f\n", cost)
 
 	if len(paths) > 0 {
@@ -367,15 +384,15 @@ func (a *Agent) Status() string {
 //
 // Free OpenRouter variants (suffix ":free") return 0 even if the base
 // model is paid, so the status bar reads honestly while testing.
-func estimateCost(model string, tokensIn, tokensOut int) float64 {
+func estimateCost(model string, u llm.Usage) float64 {
 	if strings.HasSuffix(model, ":free") {
 		return 0
 	}
 	inPer1M, outPer1M := priceFor(model)
-	if inPer1M == 0 && outPer1M == 0 {
-		return 0
-	}
-	return (float64(tokensIn) * inPer1M / 1_000_000) + (float64(tokensOut) * outPer1M / 1_000_000)
+	// Anthropic bills a cache write at 1.25 times the input price and a
+	// cache read at a tenth of it or less. Other providers report neither.
+	input := float64(u.In) + 1.25*float64(u.CacheWrite) + 0.1*float64(u.CacheRead)
+	return (input*inPer1M + float64(u.Out)*outPer1M) / 1_000_000
 }
 
 // priceFor looks up per-1M token prices for a model. The matcher is a

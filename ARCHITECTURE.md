@@ -152,7 +152,9 @@ Every token entering the context window has to earn its place. Four mechanisms e
 
 ### 1. Prompt caching
 
-System prompt and tool definitions are marked with `cache_control: ephemeral` on providers that support it. Turns 2+ reuse the cached prefix instead of re-tokenizing ~900 tokens.
+System prompt and tool definitions are marked with `cache_control: ephemeral` on providers that support it. On Anthropic the conversation is cached too: a top-level `cache_control` puts a moving cache point on the last block, so each step of a tool loop reads the earlier steps from cache.
+
+Cached input is still input. Token counts show the full prompt size, and cost prices a cache write at 1.25 times the input rate and a cache read at a tenth of it.
 
 Savings show up as `cache_read_input_tokens` in the response and feed the `/status` cost line.
 
@@ -173,7 +175,7 @@ This stops one `cat` or one page fetch from bloating every future turn.
 
 ### 3. Token-aware history trimming
 
-History is bounded by `maxHistoryTokens` (30k), not by message count.
+History is bounded by a token budget (30k, or 100k on large models), not by message count.
 
 ```
 appendHistory(new message)
@@ -295,9 +297,11 @@ The cached prefix (~900 tokens) is essentially free after the first turn. The re
 
 | Name | Value | Purpose |
 |------|-------|---------|
-| `maxOutputTokens` | 4,096 | Max output tokens per LLM call |
+| `maxOutputTokens` | 4,096 | Max output tokens per LLM call, small models |
+| `largeOutputTokens` | 16,000 | Same, for Claude, GPT-5 and 6, Gemini (`budgetFor`) |
 | `turnLimits.loops` | 100 terminal, 25 Discord and scheduled | Max model calls per turn. Hitting it pauses the task, "continue" resumes |
-| `maxHistoryTokens` | 30,000 | Token budget for conversation history |
+| `maxHistoryTokens` | 30,000 | Token budget for conversation history, small models |
+| `largeHistoryTokens` | 100,000 | Same, for Claude, GPT-5 and 6, Gemini (`budgetFor`) |
 | `maxToolResult` | 4,000 | Max bytes per tool result in history |
 | `turnLimits.timeout` | 30 min terminal, 5 min Discord and scheduled | Whole-turn timeout |
 | `bashTimeout` | 120 s | Bash command timeout |

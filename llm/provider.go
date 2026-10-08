@@ -121,11 +121,28 @@ type ToolResult struct {
 	IsError bool
 }
 
+// Usage is what one or more requests consumed. In is input billed at the
+// full price. Providers that report prompt caching (Anthropic) count the
+// cached part separately in CacheRead and CacheWrite, so In alone can be a
+// small fraction of what was sent.
 type Usage struct {
 	In         int
 	Out        int
 	CacheRead  int
 	CacheWrite int
+}
+
+// Input is the full size of the prompts sent, cached or not.
+func (u Usage) Input() int {
+	return u.In + u.CacheRead + u.CacheWrite
+}
+
+// Add accumulates another request's usage.
+func (u *Usage) Add(o Usage) {
+	u.In += o.In
+	u.Out += o.Out
+	u.CacheRead += o.CacheRead
+	u.CacheWrite += o.CacheWrite
 }
 
 type ToolDef struct {

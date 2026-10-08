@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,5 +137,29 @@ func TestAnthropicMaxTokensLeavesRoomForThinking(t *testing.T) {
 		if got := NewAnthropic("key", "", model).maxTokens(200); got != want {
 			t.Errorf("%s: max_tokens = %d, want %d", model, got, want)
 		}
+	}
+}
+
+// The conversation is cached, not only the system prompt and tools.
+func TestAnthropicCachesTheConversation(t *testing.T) {
+	var body map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn",` +
+			`"usage":{"input_tokens":3,"cache_read_input_tokens":900,"cache_creation_input_tokens":97,"output_tokens":5}}`))
+	}))
+	defer srv.Close()
+
+	resp, err := NewAnthropic("key", srv.URL, "claude-opus-5-5").Complete(context.Background(),
+		&Request{Messages: []Message{UserMessage("hi", nil)}, MaxTokens: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["cache_control"]) != `{"type":"ephemeral"}` {
+		t.Fatalf("top-level cache_control = %s", body["cache_control"])
+	}
+	if resp.Usage.Input() != 1000 {
+		t.Fatalf("input = %d, want 1000 with cached tokens counted", resp.Usage.Input())
 	}
 }
