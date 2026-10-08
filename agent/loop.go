@@ -58,7 +58,8 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	lock.Lock()
 	defer lock.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), chatTimeout)
+	limits := a.turnLimits()
+	ctx, cancel := context.WithTimeout(context.Background(), limits.timeout)
 	ctx = tools.WithExecContext(ctx, tools.ExecContext{
 		Source: source,
 		Caps:   tools.DefaultCaps[source],
@@ -124,7 +125,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	}
 
 	var lastText string
-	for range maxLoops {
+	for range limits.loops {
 		if ctx.Err() != nil {
 			return Turn{Kind: TurnText, Text: "Cancelled.", Took: time.Since(start)}, nil
 		}
@@ -211,7 +212,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		}
 	}
 
-	return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, "I hit my limit on tool calls. Try breaking it into smaller tasks.")
+	return a.finish(userID, start, usage, cacheRead, toolsUsed, TurnText, fmt.Sprintf("I paused after %d steps, the limit for one turn. Say continue and I will keep going.", limits.loops))
 }
 
 // finish records token usage, logs the completed turn, and returns the

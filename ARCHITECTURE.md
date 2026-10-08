@@ -296,10 +296,10 @@ The cached prefix (~900 tokens) is essentially free after the first turn. The re
 | Name | Value | Purpose |
 |------|-------|---------|
 | `maxOutputTokens` | 4,096 | Max output tokens per LLM call |
-| `maxLoops` | 25 | Max tool-call iterations per `Chat()` |
+| `turnLimits.loops` | 100 terminal, 25 Discord and scheduled | Max model calls per turn. Hitting it pauses the task, "continue" resumes |
 | `maxHistoryTokens` | 30,000 | Token budget for conversation history |
 | `maxToolResult` | 4,000 | Max bytes per tool result in history |
-| `chatTimeout` | 5 min | Whole-turn timeout |
+| `turnLimits.timeout` | 30 min terminal, 5 min Discord and scheduled | Whole-turn timeout |
 | `bashTimeout` | 120 s | Bash command timeout |
 | `httpTimeout` | 15 s | Web tool HTTP timeout |
 | `RunTimeout` | 5 min | Scheduled run timeout |
