@@ -73,6 +73,14 @@ type toolEventMsg agent.ToolEvent
 
 type streamDeltaMsg string
 
+// reflowMsg fires once a resize has settled. It carries the resize count
+// at the time it was scheduled, so a stale one is ignored.
+type reflowMsg int
+
+// reflowDelay is how long the terminal size must hold still before the
+// transcript is reprinted. Dragging a window edge emits a burst of resizes.
+const reflowDelay = 150 * time.Millisecond
+
 type model struct {
 	agent  *agent.Agent
 	events chan agent.ToolEvent
@@ -92,8 +100,15 @@ type model struct {
 	width          int
 	height         int
 	ready          bool
-	liveResponse   string
-	lastTurnTime   time.Duration
+	resizes        int // bumped on every resize, see reflowMsg
+
+	// Every block printed so far, kept so a resize can reprint the
+	// transcript at the new width. A pointer because printBlock runs on
+	// model copies.
+	blocks       *[]block
+	liveResponse string
+	liveRendered string // liveResponse as markdown, see setLive
+	lastTurnTime time.Duration
 
 	// Submitted prompts, newest last. Up/down on an empty input walks
 	// this list so the user can re-send or edit a recent turn.
@@ -132,6 +147,7 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, stream chan string, c
 		input:      ta,
 		spin:       sp,
 		historyIdx: -1,
+		blocks:     &[]block{},
 	}
 }
 
@@ -151,13 +167,32 @@ func (m model) listen() tea.Cmd {
 	}
 }
 
+// listenStream waits for the next reply delta, then takes whatever else is
+// already queued. When rendering falls behind the model, deltas pile up
+// and arrive as one message instead of one render each.
 func (m model) listenStream() tea.Cmd {
 	return func() tea.Msg {
 		delta, ok := <-m.stream
 		if !ok {
 			return nil
 		}
-		return streamDeltaMsg(delta)
+		for {
+			select {
+			case more := <-m.stream:
+				delta += more
+			default:
+				return streamDeltaMsg(delta)
+			}
+		}
+	}
+}
+
+// setLive replaces the in-progress reply and renders it once here, so
+// View does not run markdown again on every spinner tick and keypress.
+func (m *model) setLive(text string) {
+	m.liveResponse, m.liveRendered = text, ""
+	if text != "" {
+		m.liveRendered = agentBlock{text}.render(m.contentWidth())
 	}
 }
 
@@ -198,7 +233,26 @@ func (m model) contentWidth() int {
 // block one row of breathing space, so user turns, agent replies, and
 // tool cards do not touch each other (pi-style).
 func (m model) printBlock(b block) tea.Cmd {
+	*m.blocks = append(*m.blocks, b)
 	return tea.Println("\n" + b.render(m.contentWidth()))
+}
+
+// reflow wipes the screen and the scrollback, then reprints the transcript
+// at the current width. Printed blocks are plain terminal text that Bubble
+// Tea cannot reach, so after a resize they keep their old width, and the
+// terminal's own rewrapping leaves ghost rows of the live region behind.
+func (m model) reflow() tea.Cmd {
+	rendered := make([]string, len(*m.blocks))
+	for i, b := range *m.blocks {
+		rendered[i] = b.render(m.contentWidth())
+	}
+	clear := func() tea.Msg {
+		// Bubble Tea has no command for erasing scrollback, so write the
+		// same sequence the clear command does.
+		os.Stdout.WriteString("\x1b[H\x1b[2J\x1b[3J")
+		return tea.ClearScreen()
+	}
+	return tea.Sequence(clear, tea.Println(strings.Join(rendered, "\n\n")))
 }
 
 // greeting is the first hint block, shown once on startup. Lays out like
@@ -215,14 +269,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(m.width)
+		m.setLive(m.liveResponse)
 		if !m.ready {
 			m.ready = true
 			// Print the greeting straight into scrollback. The live region
 			// sits right under it, and as content arrives new blocks push
 			// the greeting up naturally.
+			*m.blocks = append(*m.blocks, m.greeting())
 			return m, tea.Println(m.greeting().render(m.contentWidth()))
 		}
-		return m, nil
+		m.resizes++
+		n := m.resizes
+		return m, tea.Tick(reflowDelay, func(time.Time) tea.Msg { return reflowMsg(n) })
+
+	case reflowMsg:
+		if int(msg) != m.resizes {
+			return m, nil
+		}
+		return m, m.reflow()
 
 	case tea.KeyMsg:
 		// ctrl+c quits from any mode. Each sub-handler ignores it otherwise,
@@ -304,7 +368,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		m.busy = false
-		m.liveResponse = ""
+		m.setLive("")
 		m.lastTurnTime = msg.turn.Took
 		switch {
 		case msg.err != nil:
@@ -321,7 +385,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamDeltaMsg:
 		if m.busy {
-			m.liveResponse += string(msg)
+			m.setLive(m.liveResponse + string(msg))
 		}
 		return m, m.listenStream()
 
@@ -449,7 +513,7 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 		answer = agent.Approved
 	}
 	m.busy = true
-	m.liveResponse = ""
+	m.setLive("")
 	return m, tea.Batch(m.resolve(answer), m.spin.Tick)
 }
 
@@ -633,7 +697,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(echo, cmd)
 	}
 	m.busy = true
-	m.liveResponse = ""
+	m.setLive("")
 	return m, tea.Batch(
 		m.printBlock(userBlock{text}),
 		m.send(text),
@@ -823,8 +887,8 @@ func (m model) View() string {
 	// Leading blank row keeps the live region from hugging the last
 	// printed block in scrollback.
 	parts := []string{""}
-	if m.liveResponse != "" {
-		parts = append(parts, agentBlock{m.liveResponse}.render(m.contentWidth()))
+	if m.liveRendered != "" {
+		parts = append(parts, m.liveRendered)
 	}
 	parts = append(parts, m.workingLine(), bottom, m.statusBar())
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
@@ -873,7 +937,12 @@ func (m model) approvalPicker() string {
 	}
 	hint := styleHint.Render("approve?")
 	keys := styleHint.Render("(↑↓ enter · y / n · esc)")
-	line := hint + "  " + yes + "    " + no + "    " + keys
+	line := hint + "  " + yes + "    " + no
+	// The key hint is the first thing to go on a narrow terminal, so the
+	// picker stays one row tall.
+	if withKeys := line + "    " + keys; lipgloss.Width(withKeys) <= m.width {
+		line = withKeys
+	}
 	return styleApprove.Width(m.width).Render(line)
 }
 
@@ -906,7 +975,7 @@ func (m model) statusBar() string {
 	right := m.agent.Model() + " "
 	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	bar := left + strings.Repeat(" ", gap) + right
-	return styleStatus.Width(m.width).Render(bar)
+	return styleStatus.Width(m.width).MaxHeight(1).Render(bar)
 }
 
 // humanDuration formats a completed turn duration for the compact status bar.

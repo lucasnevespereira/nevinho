@@ -272,7 +272,7 @@ func renderMarkdown(s string, w int) string {
 		// surface, so `code` spans blend with the rest of the palette.
 		r, err := glamour.NewTermRenderer(
 			glamour.WithStyles(prosePalette()),
-			glamour.WithWordWrap(w-4),
+			glamour.WithWordWrap(w),
 		)
 		if err != nil {
 			return s
