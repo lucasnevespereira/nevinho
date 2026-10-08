@@ -163,3 +163,25 @@ func TestAnthropicCachesTheConversation(t *testing.T) {
 		t.Fatalf("input = %d, want 1000 with cached tokens counted", resp.Usage.Input())
 	}
 }
+
+// A stream that breaks is an error, never a short reply passed off as
+// complete.
+func TestAnthropicBrokenStreamIsAnError(t *testing.T) {
+	start := []string{
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		``,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The answer is"}}`,
+		``,
+	}
+	for name, tail := range map[string][]string{
+		"error event":       {`data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, ``},
+		"connection closed": {},
+	} {
+		srv := sseServer(t, "/v1/messages", strings.Join(append(start, tail...), "\n"))
+		resp, err := NewAnthropic("key", srv.URL, "claude-opus-5-5").StreamComplete(context.Background(), &Request{MaxTokens: 10}, nil)
+		srv.Close()
+		if err == nil {
+			t.Errorf("%s: got reply %q, want an error", name, resp.Text)
+		}
+	}
+}

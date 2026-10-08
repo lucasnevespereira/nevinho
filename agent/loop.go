@@ -119,6 +119,8 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 	a.maybeLoadSummary(userID)
 
+	before := a.messages(userID)
+	replied := false
 	if evicted := a.appendHistory(userID, llm.UserMessage(text, images)); len(evicted) > 2 {
 		a.summarizeAndPrepend(userID, evicted)
 	}
@@ -148,8 +150,16 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		}
 		if err != nil {
 			logger.Err(err)
+			// Nothing came back for this message, so take it out again.
+			// Otherwise a retry stacks a second copy of the question on
+			// top of the first. Once the model has replied, the steps it
+			// took stay in history so the user can say continue.
+			if !replied {
+				a.setMessages(userID, before)
+			}
 			return Turn{}, err
 		}
+		replied = true
 
 		usage.Add(resp.Usage)
 		a.appendReply(userID, resp)
