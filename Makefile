@@ -12,7 +12,7 @@ run:
 	@go run main.go
 
 test:
-	@go test ./... -count=1
+	@go test ./... -race -count=1
 
 clean:
 	@rm -rf bin

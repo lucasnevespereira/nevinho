@@ -2,6 +2,7 @@ package agent
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lucasnevespereira/nevinho/config"
@@ -365,5 +366,29 @@ func TestRejectedThinkingIsDroppedFromHistory(t *testing.T) {
 	a.appendReply("u", &llm.Response{ThinkingRejected: true, Assistant: assistantMsg("b")})
 	if len(a.history["u"]) != 4 || a.history["u"][1].Wire != nil {
 		t.Fatalf("history = %+v", a.history["u"])
+	}
+}
+
+// Two users (or a user and a scheduled run) take turns at the same time.
+// Run with -race: unguarded, this dies with "concurrent map writes".
+func TestHistoryIsSafeAcrossUsers(t *testing.T) {
+	a := &Agent{history: map[string][]llm.Message{}, userLock: map[string]*sync.Mutex{}}
+	var wg sync.WaitGroup
+	for _, userID := range []string{"alice", "scheduler:1"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lock := a.getUserLock(userID)
+			for range 2000 {
+				lock.Lock()
+				a.appendHistory(userID, userMsg("hi"))
+				_ = a.messages(userID)
+				lock.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if got := len(a.messages("alice")); got != 2000 {
+		t.Fatalf("alice has %d messages, want 2000", got)
 	}
 }

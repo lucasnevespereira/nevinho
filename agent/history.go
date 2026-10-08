@@ -12,19 +12,37 @@ import (
 	"github.com/lucasnevespereira/nevinho/memory"
 )
 
+// messages returns one user's history. The history map is shared by
+// every user, so each read and write of it takes a.mu. The per-user lock
+// only keeps one user's turns from interleaving, it does not protect the
+// map from another user's turn.
+func (a *Agent) messages(userID string) []llm.Message {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.history[userID]
+}
+
+// setMessages replaces one user's history. See messages.
+func (a *Agent) setMessages(userID string, msgs []llm.Message) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.history[userID] = msgs
+}
+
 func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm.Message) {
-	a.history[userID] = append(a.history[userID], msgs...)
-	if estimateTokens(a.history[userID]) <= maxHistoryTokens {
+	hist := append(a.messages(userID), msgs...)
+	if estimateTokens(hist) <= maxHistoryTokens {
+		a.setMessages(userID, hist)
 		return nil
 	}
-	trimmed := trimHistoryByTokens(a.history[userID], maxHistoryTokens)
-	evictedCount := len(a.history[userID]) - len(trimmed)
+	trimmed := trimHistoryByTokens(hist, maxHistoryTokens)
+	evictedCount := len(hist) - len(trimmed)
 	evicted = make([]llm.Message, evictedCount)
-	copy(evicted, a.history[userID][:evictedCount])
+	copy(evicted, hist[:evictedCount])
 	// Thinking blocks are only valid while every turn before them is
 	// still in place, so they cannot outlive an eviction.
 	dropThinking(trimmed)
-	a.history[userID] = trimmed
+	a.setMessages(userID, trimmed)
 	return evicted
 }
 
@@ -33,7 +51,7 @@ func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm
 // them would make every later request fail the same way first.
 func (a *Agent) appendReply(userID string, resp *llm.Response) {
 	if resp.ThinkingRejected {
-		dropThinking(a.history[userID])
+		dropThinking(a.messages(userID))
 	}
 	a.appendHistory(userID, resp.Assistant)
 }
@@ -93,8 +111,8 @@ func (a *Agent) ClearHistory(userID string) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
-	delete(a.history, userID)
 	a.mu.Lock()
+	delete(a.history, userID)
 	delete(a.pendingToolID, userID)
 	a.mu.Unlock()
 	if err := deleteSummary(a.cfg.Dir(), userID); err != nil {
@@ -108,7 +126,7 @@ func (a *Agent) maybeLoadSummary(userID string) {
 	if !a.cfg.ElephantEnabled() {
 		return
 	}
-	if len(a.history[userID]) > 0 {
+	if len(a.messages(userID)) > 0 {
 		return
 	}
 	summary := loadSummary(a.cfg.Dir(), userID)
@@ -116,7 +134,7 @@ func (a *Agent) maybeLoadSummary(userID string) {
 		return
 	}
 	preamble := llm.UserMessage("[Previous conversation: "+summary+"]", nil)
-	a.history[userID] = append(a.history[userID], preamble)
+	a.setMessages(userID, []llm.Message{preamble})
 	logger.Info("loaded persisted summary")
 }
 
@@ -141,7 +159,7 @@ func (a *Agent) summarizeAndPrepend(userID string, evicted []llm.Message) {
 		return
 	}
 	preamble := llm.UserMessage("[Conversation so far: "+resp.Text+"]", nil)
-	a.history[userID] = append([]llm.Message{preamble}, a.history[userID]...)
+	a.setMessages(userID, append([]llm.Message{preamble}, a.messages(userID)...))
 }
 
 // PersistAll summarizes each active user's in-memory history and writes it to
