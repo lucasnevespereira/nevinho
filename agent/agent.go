@@ -23,6 +23,8 @@ const (
 	// Budgets for models with room to spare, see budgetFor.
 	largeOutputTokens  = 16_000
 	largeHistoryTokens = 100_000
+	// OpenRouter routes vary. See budgetFor.
+	routedHistoryTokens = 60_000
 
 	systemPromptDaemon = `You are nevinho, a personal AI assistant running on the user's VPS. The user talks to you from Discord on their phone. They have no terminal access. You are their only way to interact with this machine.
 
@@ -225,9 +227,20 @@ func (a *Agent) addUsage(u llm.Usage) {
 // be for a model. The large tier is for families whose smallest listed
 // model has a 200k token window. History is estimated at four bytes per
 // token, which undercounts code, so 100k leaves a wide margin there.
-// Everything else (small hosted models, local models) keeps the tight
-// budgets, since their windows and output caps vary and are often small.
+//
+// OpenRouter sits in between. Nine in ten of its routes have a window of
+// 128k tokens or more (checked against its model list, October 2026), so
+// 60k of history fits them with margin. A route with a smaller window
+// will overflow and needs a different model.
+//
+// Groq and Ollama keep the tight budgets on purpose. Groq limits tokens
+// per minute, as low as 8k on its base plan, so a bigger request is
+// refused however large the model's window is. Ollama's window is a
+// local setting nevinho cannot see, and it is small by default.
 func budgetFor(model string) (historyTokens, outputTokens int) {
+	if strings.HasPrefix(model, "openrouter:") {
+		return routedHistoryTokens, largeOutputTokens
+	}
 	for _, family := range []string{"claude-", "gpt-5", "gpt-6", "gemini-"} {
 		if strings.HasPrefix(model, family) {
 			return largeHistoryTokens, largeOutputTokens
