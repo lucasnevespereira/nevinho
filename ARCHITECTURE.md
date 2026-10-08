@@ -340,8 +340,12 @@ nevinho/
                          the neutral Message type, stop reasons.
                          Adapters translate it to their wire format.
     anthropic.go         Anthropic Messages API plus prompt caching.
-    openai.go            OpenAI chat completions (plus Ollama via the
+    openai.go            OpenAI chat completions, for gpt-4o and older
+                         (plus Groq, OpenRouter and Ollama via the
                          compatible endpoint).
+    openai_responses.go  OpenAI Responses API, for the reasoning models
+                         (gpt-5, gpt-6, o series). Sends reasoning items
+                         back with tool results.
     gemini.go            Gemini generateContent. Tool results go in
                          user-role contents, not function-role.
     errors.go            FriendlyError. Maps provider error codes to
