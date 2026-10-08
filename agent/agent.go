@@ -366,25 +366,56 @@ func estimateCost(model string, tokensIn, tokensOut int) float64 {
 // priceFor looks up per-1M token prices for a model. The matcher is a
 // loose substring check so versioned ids ("claude-haiku-4-5-20251001",
 // "gemini-2.5-pro-preview") fall onto the same row as the base name.
+// Order matters: a narrower name must come before the family it sits in.
 func priceFor(model string) (in, out float64) {
 	switch {
-	// Anthropic.
+	// Anthropic. OpenRouter spells versions with a dot (claude-opus-4.7).
+	case strings.Contains(model, "haiku-5"):
+		return 0.10, 0.50
 	case strings.Contains(model, "haiku"):
-		return 0.80, 4.00
+		return 1.00, 5.00
+	case strings.Contains(model, "sonnet-5"):
+		return 2.00, 10.00
 	case strings.Contains(model, "sonnet"):
 		return 3.00, 15.00
+	case strings.Contains(model, "opus-5-5"), strings.Contains(model, "opus-5.5"):
+		return 4.00, 20.00
 	case strings.Contains(model, "opus"):
-		return 15.00, 75.00
+		return 5.00, 25.00
+	case strings.Contains(model, "fable"):
+		return 10.00, 50.00
 
 	// OpenAI.
+	case strings.Contains(model, "gpt-6-astra"):
+		return 10.00, 50.00
+	case strings.Contains(model, "gpt-6-luna"):
+		return 0.10, 0.50
+	case strings.Contains(model, "gpt-6"):
+		return 2.00, 10.00
+	case strings.Contains(model, "gpt-5-nano"):
+		return 0.05, 0.40
+	case strings.Contains(model, "gpt-5-mini"):
+		return 0.25, 2.00
+	case strings.Contains(model, "gpt-5"):
+		return 1.25, 10.00
 	case strings.Contains(model, "gpt-4o-mini"):
 		return 0.15, 0.60
 	case strings.Contains(model, "gpt-4o"):
 		return 2.50, 10.00
+	case strings.Contains(model, "gpt-4-turbo"):
+		return 10.00, 30.00
 	case strings.Contains(model, "o3-mini"), strings.Contains(model, "o4-mini"):
 		return 1.10, 4.40
 
 	// Google Gemini.
+	case strings.Contains(model, "gemini-3.8-flash"):
+		return 0.75, 3.75
+	case strings.Contains(model, "gemini-3.5-flash-lite"):
+		return 0.30, 2.50
+	case strings.Contains(model, "gemini-3.1-flash-lite"):
+		return 0.25, 1.50
+	case strings.Contains(model, "gemini-3.1-pro"):
+		return 2.00, 12.00
 	case strings.Contains(model, "gemini-2.5-pro"):
 		return 1.25, 10.00
 	case strings.Contains(model, "gemini-2.5-flash-lite"):

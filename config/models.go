@@ -18,6 +18,10 @@ var KnownModels = map[string][]string{
 		"claude-sonnet-4-6",
 		"claude-opus-4-6",
 		"claude-opus-4-7",
+		"claude-haiku-5-5",
+		"claude-sonnet-5-5",
+		"claude-opus-5-5",
+		"claude-fable-5-1",
 	},
 	"openai": {
 		"gpt-4o-mini",
@@ -26,14 +30,19 @@ var KnownModels = map[string][]string{
 		"gpt-5",
 		"gpt-4o",
 		"gpt-4-turbo",
-		"o1-mini",
 		"o3-mini",
 		"o4-mini",
+		"gpt-6-luna",
+		"gpt-6.1-sol",
+		"gpt-6-astra",
 	},
 	"gemini": {
 		"gemini-2.5-flash",
 		"gemini-2.5-pro",
 		"gemini-3.1-flash-lite",
+		"gemini-3.5-flash-lite",
+		"gemini-3.8-flash",
+		"gemini-3.1-pro-preview",
 	},
 	// Groq's free tier covers all listed models within rate limits
 	// (~14k req/day at writing). Names are passed through to Groq's
