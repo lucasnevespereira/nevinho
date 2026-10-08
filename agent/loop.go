@@ -126,6 +126,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	}
 
 	var lastText string
+	retriedEmpty := false
 	_, maxOutput := budgetFor(a.llm.Model())
 	for range limits.loops {
 		if ctx.Err() != nil {
@@ -169,9 +170,20 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 
 		if len(resp.ToolCalls) == 0 {
 			reply := resp.Text
-			// Empty terminal turn: the model stopped with no tool call
-			// and no text. Gemini does this after a tool loop. One more
-			// pass with tools off forces it to answer in words.
+			// Empty turn: the model stopped with no tool call and no
+			// text. Gemini does this now and then.
+			if reply == "" && len(toolsUsed) == 0 {
+				// Nothing has been done yet, so ask again as is. Nudging
+				// here would tell the model to summarize work it never
+				// did, with no tools to do it, and it makes the work up.
+				if !retriedEmpty {
+					retriedEmpty = true
+					continue
+				}
+				reply = "The model sent back an empty reply twice. Try again, or pick another model with /model."
+			}
+			// After a tool loop, one more pass with tools off forces it
+			// to answer in words.
 			if reply == "" {
 				nudged, nudgeUsage := a.nudgeForReply(ctx, userID, prompt)
 				usage.Add(nudgeUsage)

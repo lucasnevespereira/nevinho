@@ -340,25 +340,21 @@ func TestCatalogModelsHavePrices(t *testing.T) {
 	}
 }
 
-// Evicting old turns invalidates the thinking blocks that came after
-// them, so a trim drops them from what is left.
-func TestTrimDropsThinking(t *testing.T) {
+// Trimming evicts whole old turns and leaves the kept ones as they are.
+// Gemini 3 rejects a tool call that comes back without its signature, so
+// the agent must not strip what a provider stored on a surviving turn.
+func TestTrimLeavesKeptTurnsIntact(t *testing.T) {
 	a := &Agent{llm: &fallbackProvider{}, history: map[string][]llm.Message{}}
-	big := strings.Repeat("x", maxHistoryTokens*4)
-	a.appendHistory("u", userMsg(big[:len(big)/2]), assistantMsg("old"))
+	half := strings.Repeat("x", maxHistoryTokens*2)
+	a.appendHistory("u", userMsg(half), assistantMsg("old"))
 	a.appendHistory("u", userMsg("next"), llm.Message{Role: llm.RoleAssistant, Text: "kept", Wire: []byte(`[]`)})
-	if a.history["u"][len(a.history["u"])-1].Wire == nil {
-		t.Fatal("thinking should survive while nothing is evicted")
-	}
 
-	evicted := a.appendHistory("u", userMsg(big))
-	if len(evicted) == 0 {
-		t.Fatal("expected an eviction")
+	if evicted := a.appendHistory("u", userMsg(half)); len(evicted) != 2 {
+		t.Fatalf("evicted %d messages, want the first turn", len(evicted))
 	}
-	for _, m := range a.history["u"] {
-		if m.Wire != nil {
-			t.Fatal("thinking survived an eviction")
-		}
+	hist := a.history["u"]
+	if hist[0].Text != "next" || hist[1].Wire == nil {
+		t.Fatalf("kept turn lost its stored content: %+v", hist[1])
 	}
 }
 

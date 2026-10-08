@@ -199,4 +199,3 @@ func readSSE(ctx context.Context, r io.Reader, onData func([]byte) error) error 
 	}
 	return flush()
 }
-

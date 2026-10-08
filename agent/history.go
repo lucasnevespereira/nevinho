@@ -40,9 +40,6 @@ func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm
 	evictedCount := len(hist) - len(trimmed)
 	evicted = make([]llm.Message, evictedCount)
 	copy(evicted, hist[:evictedCount])
-	// Thinking blocks are only valid while every turn before them is
-	// still in place, so they cannot outlive an eviction.
-	dropThinking(trimmed)
 	a.setMessages(userID, trimmed)
 	return evicted
 }
