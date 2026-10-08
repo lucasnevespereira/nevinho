@@ -165,3 +165,50 @@ func TestFailedTurnLeavesHistoryUsable(t *testing.T) {
 		}
 	})
 }
+
+// emptyProvider returns an empty reply for its first `empties` calls.
+type emptyProvider struct {
+	calls    int
+	empties  int
+	sawNudge bool
+}
+
+func (p *emptyProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	p.calls++
+	for _, m := range req.Messages {
+		if strings.Contains(m.Text, "Your last turn was empty") {
+			p.sawNudge = true
+		}
+	}
+	if p.calls <= p.empties {
+		return &llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant}, StopReason: llm.StopEndTurn}, nil
+	}
+	return &llm.Response{Text: "answer", Assistant: llm.Message{Role: llm.RoleAssistant, Text: "answer"}, StopReason: llm.StopEndTurn}, nil
+}
+
+func (p *emptyProvider) Model() string { return "fake" }
+
+// An empty first reply is asked again as is. It is never turned into
+// "summarize what you did", because nothing was done.
+func TestEmptyReplyBeforeAnyToolIsRetriedNotNudged(t *testing.T) {
+	for name, tc := range map[string]struct {
+		empties  int
+		wantText string
+	}{
+		"empty once":  {1, "answer"},
+		"empty twice": {2, "empty reply twice"},
+	} {
+		cfg, err := config.Load(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &emptyProvider{empties: tc.empties}
+		turn, err := New(p, cfg, "test", "", ModeLocal).Chat("u", "read the file", false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.calls != 2 || p.sawNudge || !strings.Contains(turn.Text, tc.wantText) {
+			t.Errorf("%s: calls=%d nudged=%v text=%q", name, p.calls, p.sawNudge, turn.Text)
+		}
+	}
+}
