@@ -70,4 +70,3 @@ func walkProject(cwd string) []string {
 	})
 	return paths
 }
-
