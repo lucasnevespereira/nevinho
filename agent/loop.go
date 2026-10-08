@@ -130,7 +130,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		}
 		req := &llm.Request{
 			SystemPrompt: prompt,
-			Messages:     a.history[userID],
+			Messages:     a.messages(userID),
 			Tools:        a.tools.DefsFor(ctx),
 			MaxTokens:    maxOutputTokens,
 		}
@@ -242,7 +242,7 @@ func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (strin
 		"[Your last turn was empty. Reply to the user now in plain text. Summarize what you did and answer them.]", nil))
 	resp, err := a.llm.Complete(ctx, &llm.Request{
 		SystemPrompt: prompt,
-		Messages:     a.history[userID],
+		Messages:     a.messages(userID),
 		MaxTokens:    maxOutputTokens,
 	})
 	if err != nil {
