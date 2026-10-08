@@ -33,6 +33,11 @@ type Message struct {
 	Images      []Image
 	ToolCalls   []ToolCall   // assistant asked to run these
 	ToolResults []ToolResult // outputs for earlier calls
+
+	// Wire is an assistant turn's content exactly as the provider returned
+	// it, set only when the turn carries thinking blocks. Those blocks are
+	// signed, so they must go back byte for byte or not at all.
+	Wire json.RawMessage
 }
 
 // UserMessage builds a plain user turn.
@@ -47,6 +52,9 @@ func ToolResultMessage(results []ToolResult) Message {
 
 // Size is a rough byte cost, used for the history token budget.
 func (m Message) Size() int {
+	if m.Wire != nil {
+		return len(m.Wire) // already holds the text and the tool calls
+	}
 	n := len(m.Text)
 	for _, c := range m.ToolCalls {
 		n += len(c.Name) + len(c.Input)
@@ -79,6 +87,11 @@ type Response struct {
 	Usage      Usage
 	Assistant  Message
 	StopReason StopReason
+
+	// ThinkingRejected reports that the provider refused the thinking
+	// blocks in the request and answered without them. The caller should
+	// drop Wire from its history so the next request does not repeat that.
+	ThinkingRejected bool
 }
 
 // StopReason is the normalized reason a provider stopped generating. Each

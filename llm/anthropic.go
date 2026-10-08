@@ -26,7 +26,54 @@ func NewAnthropic(apiKey, baseURL, model string) *Anthropic {
 
 func (a *Anthropic) Model() string { return a.model }
 
+// thinkingRoom is the extra output budget given to models that think on
+// every request. Thinking is billed against max_tokens, so without it a
+// short cap can be spent before the model writes a word of the reply.
+const thinkingRoom = 8192
+
+// maxTokens widens the caller's cap for models that always think, so the
+// cap keeps meaning "length of the visible reply".
+func (a *Anthropic) maxTokens(limit int) int {
+	for _, family := range []string{"fable", "opus-5", "sonnet-5", "haiku-5"} {
+		if strings.Contains(a.model, family) {
+			return limit + thinkingRoom
+		}
+	}
+	return limit
+}
+
+// withThinkingRetry runs call with thinking blocks replayed. The API
+// rejects those blocks when anything before them in the conversation has
+// changed (a trimmed history, a new system prompt). The documented
+// recovery is to resend the same history without them.
+func withThinkingRetry(req *Request, call func(*Request) (*Response, error)) (*Response, error) {
+	resp, err := call(req)
+	if err == nil || !strings.Contains(err.Error(), "API 400") || !strings.Contains(err.Error(), "in `thinking` block") {
+		return resp, err
+	}
+	bare := *req
+	bare.Messages = make([]Message, len(req.Messages))
+	for i, m := range req.Messages {
+		m.Wire = nil
+		bare.Messages[i] = m
+	}
+	resp, err = call(&bare)
+	if resp != nil {
+		resp.ThinkingRejected = true
+	}
+	return resp, err
+}
+
+// isThinking reports whether a content block type is model reasoning.
+func isThinking(blockType string) bool {
+	return blockType == "thinking" || blockType == "redacted_thinking"
+}
+
 func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, error) {
+	return withThinkingRetry(req, func(req *Request) (*Response, error) { return a.complete(ctx, req) })
+}
+
+func (a *Anthropic) complete(ctx context.Context, req *Request) (*Response, error) {
 	tools := a.formatTools(req.Tools)
 	// Mark last tool with cache_control so the entire prefix (system + tools) is cached
 	if len(tools) > 0 {
@@ -35,7 +82,7 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 
 	body := map[string]interface{}{
 		"model":      a.model,
-		"max_tokens": req.MaxTokens,
+		"max_tokens": a.maxTokens(req.MaxTokens),
 		"system": []map[string]interface{}{
 			{
 				"type":          "text",
@@ -81,6 +128,8 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 	}
 
 	var textParts []string
+	var wire []json.RawMessage
+	thought := false
 	for _, block := range raw.Content {
 		var b struct {
 			Type  string          `json:"type"`
@@ -90,6 +139,11 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 			Input json.RawMessage `json:"input"`
 		}
 		json.Unmarshal(block, &b)
+		thought = thought || isThinking(b.Type)
+		// The API rejects an empty text block when it is sent back.
+		if b.Type != "text" || b.Text != "" {
+			wire = append(wire, block)
+		}
 		if b.Type == "text" && b.Text != "" {
 			textParts = append(textParts, b.Text)
 		}
@@ -101,18 +155,25 @@ func (a *Anthropic) Complete(ctx context.Context, req *Request) (*Response, erro
 	}
 	resp.Text = strings.Join(textParts, "\n")
 	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
+	if thought {
+		resp.Assistant.Wire, _ = json.Marshal(wire)
+	}
 
 	return resp, nil
 }
 
 func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error) {
+	return withThinkingRetry(req, func(req *Request) (*Response, error) { return a.streamComplete(ctx, req, cb) })
+}
+
+func (a *Anthropic) streamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error) {
 	tools := a.formatTools(req.Tools)
 	if len(tools) > 0 {
 		tools[len(tools)-1]["cache_control"] = map[string]string{"type": "ephemeral"}
 	}
 	body := map[string]interface{}{
 		"model":      a.model,
-		"max_tokens": req.MaxTokens,
+		"max_tokens": a.maxTokens(req.MaxTokens),
 		"system": []map[string]interface{}{{
 			"type":          "text",
 			"text":          req.SystemPrompt,
@@ -146,6 +207,8 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
+				Signature   string `json:"signature"`
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
@@ -182,6 +245,14 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 					cb(ev.Delta.Text)
 				}
 			}
+			if ev.Delta.Type == "thinking_delta" {
+				prev, _ := b["thinking"].(string)
+				b["thinking"] = prev + ev.Delta.Thinking
+			}
+			if ev.Delta.Type == "signature_delta" {
+				prev, _ := b["signature"].(string)
+				b["signature"] = prev + ev.Delta.Signature
+			}
 			if ev.Delta.Type == "input_json_delta" && ev.Delta.PartialJSON != "" {
 				prev, _ := b["_partial_json"].(string)
 				b["_partial_json"] = prev + ev.Delta.PartialJSON
@@ -195,7 +266,8 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 		return nil, err
 	}
 
-	var content []map[string]interface{}
+	var wire []map[string]interface{}
+	thought := false
 	for _, idx := range order {
 		b := blocks[idx]
 		if b == nil {
@@ -205,7 +277,12 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 			b["input"] = json.RawMessage(partial)
 			delete(b, "_partial_json")
 		}
-		content = append(content, b)
+		blockType, _ := b["type"].(string)
+		thought = thought || isThinking(blockType)
+		// The API rejects an empty text block when it is sent back.
+		if blockType != "text" || b["text"] != "" {
+			wire = append(wire, b)
+		}
 		if b["type"] == "tool_use" {
 			input, _ := json.Marshal(b["input"])
 			resp.ToolCalls = append(resp.ToolCalls, ToolCall{ID: fmt.Sprint(b["id"]), Name: fmt.Sprint(b["name"]), Input: input})
@@ -215,6 +292,11 @@ func (a *Anthropic) StreamComplete(ctx context.Context, req *Request, cb StreamC
 		resp.StopReason = StopEndTurn
 	}
 	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
+	if thought {
+		// A marshal error means a tool input was cut off mid JSON. The
+		// turn is then rebuilt from Text and ToolCalls like any other.
+		resp.Assistant.Wire, _ = json.Marshal(wire)
+	}
 	return resp, nil
 }
 
@@ -296,6 +378,11 @@ func anthropicEncode(msgs []Message) []json.RawMessage {
 		case RoleTool:
 			out = append(out, anthropicToolResults(m.ToolResults))
 		case RoleAssistant:
+			if m.Wire != nil {
+				msg, _ := json.Marshal(map[string]interface{}{"role": "assistant", "content": m.Wire})
+				out = append(out, msg)
+				continue
+			}
 			var content []map[string]interface{}
 			if m.Text != "" {
 				content = append(content, map[string]interface{}{"type": "text", "text": m.Text})

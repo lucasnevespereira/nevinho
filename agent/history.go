@@ -21,8 +21,29 @@ func (a *Agent) appendHistory(userID string, msgs ...llm.Message) (evicted []llm
 	evictedCount := len(a.history[userID]) - len(trimmed)
 	evicted = make([]llm.Message, evictedCount)
 	copy(evicted, a.history[userID][:evictedCount])
+	// Thinking blocks are only valid while every turn before them is
+	// still in place, so they cannot outlive an eviction.
+	dropThinking(trimmed)
 	a.history[userID] = trimmed
 	return evicted
+}
+
+// appendReply records the model's turn. If the provider had to answer
+// without the thinking blocks it was sent, they are stale, and keeping
+// them would make every later request fail the same way first.
+func (a *Agent) appendReply(userID string, resp *llm.Response) {
+	if resp.ThinkingRejected {
+		dropThinking(a.history[userID])
+	}
+	a.appendHistory(userID, resp.Assistant)
+}
+
+// dropThinking makes every assistant turn replay from its text and tool
+// calls alone.
+func dropThinking(msgs []llm.Message) {
+	for i := range msgs {
+		msgs[i].Wire = nil
+	}
 }
 
 func estimateTokens(msgs []llm.Message) int {

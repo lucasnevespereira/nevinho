@@ -153,7 +153,7 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		usage.In += resp.Usage.In
 		usage.Out += resp.Usage.Out
 		cacheRead += resp.Usage.CacheRead
-		a.appendHistory(userID, resp.Assistant)
+		a.appendReply(userID, resp)
 		if resp.Text != "" {
 			lastText = resp.Text
 		}
@@ -249,7 +249,7 @@ func (a *Agent) nudgeForReply(ctx context.Context, userID, prompt string) (strin
 		logger.Err(fmt.Errorf("reply nudge failed: %w", err))
 		return "", llm.Usage{}
 	}
-	a.appendHistory(userID, resp.Assistant)
+	a.appendReply(userID, resp)
 	return resp.Text, resp.Usage
 }
 
