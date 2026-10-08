@@ -34,9 +34,11 @@ type Message struct {
 	ToolCalls   []ToolCall   // assistant asked to run these
 	ToolResults []ToolResult // outputs for earlier calls
 
-	// Wire is an assistant turn's content exactly as the provider returned
-	// it, set only when the turn carries thinking blocks. Those blocks are
-	// signed, so they must go back byte for byte or not at all.
+	// Wire is an assistant turn exactly as the provider returned it, set
+	// when the turn carries the model's reasoning (Anthropic thinking
+	// blocks, OpenAI reasoning items). Reasoning is signed or encrypted,
+	// so it must go back unchanged or not at all. Only the provider that
+	// produced it can read it. Switching model clears history.
 	Wire json.RawMessage
 }
 
@@ -205,6 +207,9 @@ func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 		}
 		if !IsKnownModel(name) {
 			return nil, fmt.Errorf("unknown OpenAI model %q (not in catalog)", name)
+		}
+		if usesResponsesAPI(name) {
+			return NewOpenAIResponses(pc.OpenAIKey, "", name), nil
 		}
 		return NewOpenAI(pc.OpenAIKey, "", name), nil
 	case strings.HasPrefix(name, "claude-"):
