@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -112,4 +113,55 @@ func TestCostCountsCachedInput(t *testing.T) {
 	if in, out, _ := a.Usage(); in != 1000 || out != 5 {
 		t.Errorf("usage = %d in, %d out, want 1000 in, 5 out", in, out)
 	}
+}
+
+// failingProvider returns an error on the calls listed in failOn and
+// otherwise behaves like loopingProvider.
+type failingProvider struct {
+	loopingProvider
+	failOn map[int]bool
+}
+
+func (p *failingProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+	if p.failOn[p.calls+1] {
+		p.calls++
+		return nil, errors.New("API 529: overloaded")
+	}
+	return p.loopingProvider.Complete(ctx, req)
+}
+
+func TestFailedTurnLeavesHistoryUsable(t *testing.T) {
+	newAgent := func(p llm.Provider) *Agent {
+		cfg, err := config.Load(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return New(p, cfg, "test", "", ModeDaemon)
+	}
+
+	t.Run("no reply at all: the message is taken back", func(t *testing.T) {
+		a := newAgent(&failingProvider{failOn: map[int]bool{1: true}})
+		if _, err := a.Chat("u", "hello", false, nil); err == nil {
+			t.Fatal("want an error")
+		}
+		if got := len(a.messages("u")); got != 0 {
+			t.Fatalf("history has %d messages, want 0", got)
+		}
+	})
+
+	t.Run("failure mid task: finished steps stay", func(t *testing.T) {
+		// Call 1 asks for a tool, call 2 fails, call 3 answers.
+		p := &failingProvider{loopingProvider: loopingProvider{stopAfter: 2}, failOn: map[int]bool{2: true}}
+		a := newAgent(p)
+		if _, err := a.Chat("u", "do the task", false, nil); err == nil {
+			t.Fatal("want an error")
+		}
+		if got := len(a.messages("u")); got != 3 {
+			t.Fatalf("history has %d messages, want the question, the tool call and its result", got)
+		}
+		turn, err := a.Chat("u", "continue", false, nil)
+		if err != nil || turn.Text != "finished" {
+			t.Fatalf("continue gave %q, %v", turn.Text, err)
+		}
+	})
 }

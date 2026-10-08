@@ -193,6 +193,7 @@ func (a *Anthropic) streamComplete(ctx context.Context, req *Request, cb StreamC
 	}
 
 	resp := &Response{}
+	stopped := false
 	blocks := map[int]map[string]interface{}{}
 	var order []int
 	err := doSSE(ctx, a.baseURL+"/v1/messages", body, map[string]string{
@@ -266,12 +267,24 @@ func (a *Anthropic) streamComplete(ctx context.Context, req *Request, cb StreamC
 				b["_partial_json"] = prev + ev.Delta.PartialJSON
 			}
 		case "message_delta":
-			resp.StopReason = anthropicStopReason(ev.Delta.StopReason)
+			if ev.Delta.StopReason != "" {
+				stopped = true
+				resp.StopReason = anthropicStopReason(ev.Delta.StopReason)
+			}
+		case "error":
+			// Sent in place of the rest of the reply, for example when
+			// the API is overloaded partway through.
+			return fmt.Errorf("API stream error: %s", data)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Every complete reply ends with a stop reason. Without one the
+	// connection closed early, and what arrived is a fragment.
+	if !stopped {
+		return nil, fmt.Errorf("API stream ended before the reply was complete")
 	}
 
 	var wire []map[string]interface{}
@@ -295,9 +308,6 @@ func (a *Anthropic) streamComplete(ctx context.Context, req *Request, cb StreamC
 			input, _ := json.Marshal(b["input"])
 			resp.ToolCalls = append(resp.ToolCalls, ToolCall{ID: fmt.Sprint(b["id"]), Name: fmt.Sprint(b["name"]), Input: input})
 		}
-	}
-	if resp.StopReason == "" {
-		resp.StopReason = StopEndTurn
 	}
 	resp.Assistant = Message{Role: RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls}
 	if thought {
