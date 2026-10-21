@@ -9,6 +9,7 @@ import (
 
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
+	"github.com/lucasnevespereira/nevinho/tools"
 )
 
 // loopingProvider asks for a tool on every call until it has been called
@@ -59,6 +60,9 @@ func TestTurnLimitPausesAndContinues(t *testing.T) {
 			if p.calls != tc.want || !strings.Contains(turn.Text, "Say continue") {
 				t.Fatalf("calls=%d text=%q, want %d calls and a pause", p.calls, turn.Text, tc.want)
 			}
+			if got := a.Status(); !strings.Contains(got, "Interactive turns: 1 · step cap: 1 · timeout: 0") {
+				t.Fatalf("status after step cap: %s", got)
+			}
 
 			turn, err = a.Chat("u", "continue", false, nil)
 			if err != nil {
@@ -66,6 +70,9 @@ func TestTurnLimitPausesAndContinues(t *testing.T) {
 			}
 			if turn.Text != "finished" {
 				t.Fatalf("after continue got %q, want finished", turn.Text)
+			}
+			if got := a.Status(); !strings.Contains(got, "Interactive turns: 2 · step cap: 1 · timeout: 0") {
+				t.Fatalf("status after continue: %s", got)
 			}
 		})
 	}
@@ -87,9 +94,30 @@ func TestScheduledTurnUsesRunnerDeadline(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	_, err = New(&waitForCancelProvider{}, cfg, "test", "", ModeDaemon).ChatScheduledContext(ctx, "scheduler:test", "wait")
+	a := New(&waitForCancelProvider{}, cfg, "test", "", ModeDaemon)
+	_, err = a.ChatScheduledContext(ctx, "scheduler:test", "wait")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("scheduled turn error = %v, want deadline exceeded", err)
+	}
+	if got := a.Status(); !strings.Contains(got, "Scheduled runs: 1 · step cap: 0 · timeout: 1") {
+		t.Fatalf("status after scheduled timeout: %s", got)
+	}
+}
+
+func TestInteractiveDeadlineCountsAsLimitHit(t *testing.T) {
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	a := New(&waitForCancelProvider{}, cfg, "test", "", ModeLocal)
+	_, err = a.chat(ctx, "u", "wait", false, nil, tools.SourceInteractive, nil, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("interactive turn error = %v, want deadline exceeded", err)
+	}
+	if got := a.Status(); !strings.Contains(got, "Interactive turns: 1 · step cap: 0 · timeout: 1") {
+		t.Fatalf("status after interactive timeout: %s", got)
 	}
 }
 

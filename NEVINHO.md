@@ -36,7 +36,7 @@ Each transport carries the same command set. In Discord they are slash commands 
 - `/session`. Show the persisted conversation summary for the current user.
 - `/cancel`. Cancel the in-flight operation (Discord).
 - `/model`. Show or switch the LLM model. Picker in the terminal.
-- `/status`. Uptime, tokens, cost, model.
+- `/status`. Uptime, tokens, cost, model, turn cap, and step/timeout hits since process start.
 - `/config`. View or update configuration (also `/config KEY VALUE`).
 - `/paths`. List approved write paths. In the terminal, enter on a row revokes that path. `/paths clear` wipes all.
 - `/help`. Show capabilities.

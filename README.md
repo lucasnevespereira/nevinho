@@ -152,7 +152,7 @@ Slash commands inside the terminal:
 | `/config`      | Set provider keys, toggle CAVEMAN, ELEPHANT |
 | `/memory`      | Show what nevinho remembers about you       |
 | `/session`     | Show this project's checkpoint and summary  |
-| `/status`      | Model, uptime, token usage, cost            |
+| `/status`      | Model, usage, cost, turn cap, limit hits    |
 | `/paths`       | List approved paths, enter to revoke one    |
 | `/paths clear` | Revoke all path permissions                 |
 | `/forget`      | Wipe this project's saved conversation      |
