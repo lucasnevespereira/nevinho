@@ -54,14 +54,3 @@ func TestProseMatchesCardWidth(t *testing.T) {
 		t.Fatalf("prose fits %d words per row, card fits %d", prose, card)
 	}
 }
-
-func TestApprovalPickerStaysOneRow(t *testing.T) {
-	for _, w := range []int{30, 120} {
-		m := newModel(nil, nil, nil, "")
-		m.width = w
-		// One content row plus the top and bottom rules.
-		if rows := lipgloss.Height(m.approvalPicker()); rows != 3 {
-			t.Fatalf("width %d: picker is %d rows, want 3", w, rows)
-		}
-	}
-}

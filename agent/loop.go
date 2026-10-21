@@ -22,13 +22,21 @@ const (
 	TurnApproval TurnKind = "approval" // the reply asks permission
 )
 
+// ApprovalRequest describes the held action without exposing executable state.
+// Transports can show its scope without parsing the human-readable reply.
+type ApprovalRequest struct {
+	Kind   string // "code" for one command, "path" for saved directory access
+	Detail string
+}
+
 // Turn is the outcome of one agent turn.
 type Turn struct {
-	Kind  TurnKind
-	Text  string
-	Usage llm.Usage
-	Files []tools.FileDisplay
-	Took  time.Duration
+	Kind     TurnKind
+	Text     string
+	Usage    llm.Usage
+	Files    []tools.FileDisplay
+	Took     time.Duration
+	Approval *ApprovalRequest
 }
 
 func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (Turn, error) {
@@ -250,12 +258,19 @@ func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, toolsUse
 	a.addUsage(usage)
 	logger.Done(start, usage.Input(), usage.Out, usage.CacheRead, toolsUsed, estimateCost(a.llm.Model(), usage))
 	logger.Nevinho(reply)
+	var approval *ApprovalRequest
+	if kind == TurnApproval {
+		if p := a.tools.PendingApproval(userID); p != nil {
+			approval = &ApprovalRequest{Kind: p.Kind, Detail: p.Detail}
+		}
+	}
 	return Turn{
-		Kind:  kind,
-		Text:  reply,
-		Usage: usage,
-		Files: a.tools.DrainFileDisplays(userID),
-		Took:  time.Since(start),
+		Kind:     kind,
+		Text:     reply,
+		Usage:    usage,
+		Files:    a.tools.DrainFileDisplays(userID),
+		Took:     time.Since(start),
+		Approval: approval,
 	}, nil
 }
 

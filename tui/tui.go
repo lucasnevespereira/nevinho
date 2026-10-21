@@ -93,7 +93,10 @@ type model struct {
 	busy           bool
 	selecting      bool // a picker (model or config) is open
 	approving      bool // a tool action is awaiting yes/no
-	approvalCursor int  // 0 = yes, 1 = no
+	approvalCursor int  // 0 = approve, 1 = deny
+	approvalOffset int  // first visible line of the pending action
+	approval       *agent.ApprovalRequest
+	approvalText   string
 	sel            selector
 	selKind        string // "model" or "config": what the open picker resolves to
 	configKey      string // non-empty while the input captures a value for this key
@@ -374,11 +377,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
 		case msg.turn.Kind == agent.TurnApproval:
-			// The picker at the bottom resolves the decision. The message
-			// itself goes to scrollback like any other block.
+			// Keep the request in the live picker while a decision is pending.
+			// It enters scrollback once the user has answered.
 			m.approving = true
 			m.approvalCursor = 0
-			return m, m.printBlock(approvalBlock{msg.turn.Text})
+			m.approvalOffset = 0
+			m.approval = msg.turn.Approval
+			m.approvalText = msg.turn.Text
+			return m, nil
 		default:
 			return m, m.printBlock(agentBlock{msg.turn.Text})
 		}
@@ -489,6 +495,21 @@ func (m *model) toggleConfig(key string) tea.Cmd {
 // and y/n/esc are shortcuts.
 func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "pgdown":
+		m.moveApprovalPage(1)
+		return m, nil
+	case "pgup":
+		m.moveApprovalPage(-1)
+		return m, nil
+	case "home":
+		m.approvalOffset = 0
+		return m, nil
+	case "end":
+		m.approvalOffset = max(0, len(m.approvalLines())-approvalPreviewRows)
+		return m, nil
+	case "tab", "shift+tab":
+		m.approvalCursor = 1 - m.approvalCursor
+		return m, nil
 	case "left", "h", "up", "k":
 		m.approvalCursor = 0
 		return m, nil
@@ -507,14 +528,23 @@ func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 
 // decideApproval exits approval mode and resolves the pending call.
 func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
+	_, detail, scope, action := m.approvalContent()
+	decision := "Denied"
+	if approve {
+		decision = action
+	}
+	record := approvalBlock{text: decision + "\n" + detail + "\n" + scope, approved: approve}
 	m.approving = false
+	m.approval = nil
+	m.approvalText = ""
+	m.approvalOffset = 0
 	answer := agent.Denied
 	if approve {
 		answer = agent.Approved
 	}
 	m.busy = true
 	m.setLive("")
-	return m, tea.Batch(m.resolve(answer), m.spin.Tick)
+	return m, tea.Sequence(m.printBlock(record), tea.Batch(m.resolve(answer), m.spin.Tick))
 }
 
 // canMention reports whether typing @ should arm the file picker. Only
@@ -921,29 +951,6 @@ func (m model) mentionPickerView() string {
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-// approvalPicker renders the yes/no chooser shown in place of the input
-// while a tool action is awaiting a decision. Single-line content so the
-// height matches the input box and the layout does not jump.
-func (m model) approvalPicker() string {
-	yes, no := "yes", "no"
-	if m.approvalCursor == 0 {
-		yes = styleSelected.Render("→ yes")
-		no = "  " + no
-	} else {
-		yes = "  " + yes
-		no = styleSelected.Render("→ no")
-	}
-	hint := styleHint.Render("approve?")
-	keys := styleHint.Render("(↑↓ enter · y / n · esc)")
-	line := hint + "  " + yes + "    " + no
-	// The key hint is the first thing to go on a narrow terminal, so the
-	// picker stays one row tall.
-	if withKeys := line + "    " + keys; lipgloss.Width(withKeys) <= m.width {
-		line = withKeys
-	}
-	return styleApprove.Width(m.width).Render(line)
 }
 
 // workingLine is the one row above the input: the spinner while a turn

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // cardPreviewLines caps how many lines of tool output a card shows.
@@ -52,14 +53,19 @@ func (b errorBlock) render(w int) string {
 	return styleErr.Width(w).Render("⚠ " + b.msg)
 }
 
-// approvalBlock is the agent asking permission for an action. It renders in
-// the warning colour. The chooser at the bottom of the screen resolves the
-// yes/no decision.
-type approvalBlock struct{ text string }
+// approvalBlock records a resolved request in scrollback after the live
+// chooser closes.
+type approvalBlock struct {
+	text     string
+	approved bool
+}
 
 func (b approvalBlock) render(w int) string {
-	msg := strings.ReplaceAll(strings.TrimRight(b.text, "\n"), "`", "")
-	return styleApproveLn.Width(w).Render("⏸  " + msg)
+	msg := strings.TrimRight(b.text, "\n")
+	if b.approved {
+		return lipgloss.NewStyle().Foreground(success).Width(w).Render("✓  " + msg)
+	}
+	return styleErr.Width(w).Render("✕  " + msg)
 }
 
 // toolBlock is a finished tool call: a header line plus a boxed preview.
