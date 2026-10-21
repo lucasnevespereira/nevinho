@@ -151,11 +151,11 @@ Slash commands inside the terminal:
 | `/model`       | Pick a model from an interactive list       |
 | `/config`      | Set provider keys, toggle CAVEMAN, ELEPHANT |
 | `/memory`      | Show what nevinho remembers about you       |
-| `/session`     | Show the saved conversation summary         |
+| `/session`     | Show this project's checkpoint and summary  |
 | `/status`      | Model, uptime, token usage, cost            |
 | `/paths`       | List approved paths, enter to revoke one    |
 | `/paths clear` | Revoke all path permissions                 |
-| `/forget`      | Wipe this conversation and saved summary    |
+| `/forget`      | Wipe this project's saved conversation      |
 | `/help`        | Show the command list                       |
 | `/quit`        | Leave (or ctrl+c)                           |
 
@@ -168,7 +168,7 @@ config.enc          encrypted configuration (AES-256-GCM)
 secret.key          auto-generated encryption key
 approved_paths.json persisted write permissions
 memory.md           learned user preferences
-summaries/          per-user conversation summaries (ELEPHANT)
+summaries/          encrypted turn checkpoints and shutdown summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
 chat.log            terminal client runtime log
 ```
@@ -177,7 +177,9 @@ chat.log            terminal client runtime log
 
 Set `CAVEMAN=on` via `/config` for a token-saving caveman-style response. Off by default.
 
-Set `ELEPHANT=off` via `/config` to stop persisting conversation summaries across restarts. On by default. When on, nevinho summarizes your conversation on shutdown and reloads it on the next start.
+Set `ELEPHANT=off` via `/config` to stop persisting conversations across restarts. On by default. When on, nevinho saves an encrypted checkpoint after each completed turn and restores it on restart. Image bytes are omitted. The Discord daemon also writes a short summary on graceful shutdown as a fallback.
+
+Terminal conversations are scoped to the directory where you launch `nevinho`. `/forget` clears that project's saved state. Older terminal summaries under the former shared `terminal` ID remain on disk but are not loaded into a project automatically.
 
 ## Project structure
 

@@ -65,11 +65,11 @@ The only thing that differs is `RunMode`, set when the agent is constructed.
 - `ModeLocal` is for the TUI. Strict approvals. Every bash command and every write outside the cwd needs a yes. The system prompt tells the model it is running on the user's own machine.
 - `ModeDaemon` is for Discord on a VPS. Same approval mechanism but with a longer trust list for the owner. System prompt tells the model it is the owner's remote assistant.
 
-Both modes pass the same `userID` through `Chat()`. Local always uses `cli-local`. Discord uses the Discord user ID. Per-user state (history, locks, pending approvals) is keyed by this string.
+Both modes pass a `userID` through `Chat()`. The terminal derives it from the launch directory, so projects have separate conversations. Discord uses the Discord user ID. Per-user state (history, locks, pending approvals) is keyed by this string.
 
 ### The scheduler
 
-In daemon mode, `schedule.Runner` ticks once a minute and fires due jobs through `Agent.ChatScheduled`. Each job runs under its own `scheduler:<id>` user, so its history never mixes with the owner's chat. The history is cleared before every run, and the result is sent to the owner as a Discord DM. Jobs live encrypted in `~/.nevinho/schedules.enc`.
+In daemon mode, `schedule.Runner` ticks once a minute and fires due jobs through `Agent.ChatScheduledContext`. The runner's cancellation and deadline reach provider requests and tools. Each job runs under its own `scheduler:<id>` user, so its history never mixes with the owner's chat. The history is cleared before every run, and the result is sent to the owner as a Discord DM. Jobs live encrypted in `~/.nevinho/schedules.enc`.
 
 ### Capabilities
 
@@ -204,9 +204,9 @@ Evicted messages do not just vanish. The agent asks the LLM to summarize them in
 
 ## Persistence (Elephant)
 
-When `ELEPHANT` is on (the default, override with `ELEPHANT=off`), the agent writes a summary of each active user's history to disk on shutdown. On next start the summary loads back so the conversation resumes with context intact.
+When `ELEPHANT` is on (the default, override with `ELEPHANT=off`), each completed conversation turn writes an encrypted checkpoint of the bounded message history. On restart that checkpoint restores the recent turns without another LLM call. Image bytes are excluded. Scheduled jobs do not persist conversation checkpoints.
 
-Files live in `~/.nevinho/summaries/<userID>.md`. `/session` in the TUI dumps the current summary.
+Checkpoints live in `~/.nevinho/summaries/<userID>.history.enc`. The Discord daemon still writes a short summary to `<userID>.md` on graceful shutdown, and it loads if no usable checkpoint is available. `/session` in the TUI reports checkpoint state and shows the short summary when present.
 
 Schedules live in `~/.nevinho/schedules.enc`, encrypted like the config. Every write to disk goes through `safeio.WriteFile` (temp file, fsync, rename), so a crash mid-write leaves the old file or the new one, never a truncated mix.
 
@@ -335,7 +335,7 @@ nevinho/
     history.go           appendHistory, trimHistoryByTokens,
                          summarizeAndPrepend, MemoryView, SummaryView,
                          ClearHistory.
-    persistence.go       Per-user summary path helpers, sanitization.
+    persistence.go       Per-user encrypted checkpoints, summary paths, sanitization.
   llm/
     provider.go          Provider and StreamingProvider interfaces,
                          the neutral Message type, stop reasons.

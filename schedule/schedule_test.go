@@ -332,8 +332,8 @@ func TestPrependCappedTrims(t *testing.T) {
 
 func TestDueSchedulesReturnsOnlyEnabledAndPastDue(t *testing.T) {
 	s := newTestStore(t)
-	a, _ := s.Create("a", "@daily", "x", "")
-	_, _ = s.Create("b", "@daily", "x", "")
+	a, _ := s.Create("a", "@every 1h", "x", "")
+	_, _ = s.Create("b", "@every 1h", "x", "")
 	_, _ = s.SetEnabled("b", false)
 
 	// Force a's NextRun to the past.

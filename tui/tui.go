@@ -9,6 +9,8 @@
 package tui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,8 +27,16 @@ import (
 	"github.com/lucasnevespereira/nevinho/tools"
 )
 
-// userID namespaces this session's history in the agent.
-const userID = "terminal"
+// terminalUserID gives each working directory its own durable conversation.
+// The hash keeps paths private in checkpoint filenames and safe as user IDs.
+func terminalUserID(cwd string) string {
+	canonical := filepath.Clean(cwd)
+	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
+		canonical = resolved
+	}
+	sum := sha256.Sum256([]byte(canonical))
+	return "terminal-" + hex.EncodeToString(sum[:8])
+}
 
 // inputPlaceholder is the textarea's resting placeholder text.
 const inputPlaceholder = "Ask nevinho anything…"
@@ -34,6 +44,7 @@ const inputPlaceholder = "Ask nevinho anything…"
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
 // the status bar. configDir is where the agent's log file is written.
 func Run(a *agent.Agent, cwd, configDir string) error {
+	userID := terminalUserID(cwd)
 	// The agent logs through the stdlib logger, which writes to stderr.
 	// Send it to a file so the terminal stays clean. tail ~/.nevinho/chat.log
 	// to follow it live.
@@ -86,6 +97,7 @@ type model struct {
 	events chan agent.ToolEvent
 	stream chan string
 	cwd    string
+	userID string
 
 	input textarea.Model
 	spin  spinner.Model
@@ -147,6 +159,7 @@ func newModel(a *agent.Agent, events chan agent.ToolEvent, stream chan string, c
 		events:     events,
 		stream:     stream,
 		cwd:        cwd,
+		userID:     terminalUserID(cwd),
 		input:      ta,
 		spin:       sp,
 		historyIdx: -1,
@@ -202,7 +215,7 @@ func (m *model) setLive(text string) {
 // resolve answers a pending approval off the UI goroutine.
 func (m model) resolve(answer agent.Answer) tea.Cmd {
 	return func() tea.Msg {
-		turn, err := m.agent.ResolveStream(userID, answer, func(delta string) {
+		turn, err := m.agent.ResolveStream(m.userID, answer, func(delta string) {
 			select {
 			case m.stream <- delta:
 			default:
@@ -215,7 +228,7 @@ func (m model) resolve(answer agent.Answer) tea.Cmd {
 // send runs one blocking agent turn off the UI goroutine.
 func (m model) send(text string) tea.Cmd {
 	return func() tea.Msg {
-		turn, err := m.agent.ChatStream(userID, text, false, nil, func(delta string) {
+		turn, err := m.agent.ChatStream(m.userID, text, false, nil, func(delta string) {
 			select {
 			case m.stream <- delta:
 			default:
@@ -308,7 +321,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// While a turn is running, esc interrupts the agent. The Chat
 			// goroutine returns "Cancelled." which lands as a normal reply.
 			if m.busy {
-				m.agent.Cancel(userID)
+				m.agent.Cancel(m.userID)
 				return m, nil
 			}
 			if m.mentioning {
@@ -460,6 +473,7 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 			if err := m.agent.SwitchModel(chosen); err != nil {
 				return m, m.printBlock(errorBlock{err.Error()})
 			}
+			m.agent.ClearHistory(m.userID)
 			return m, m.printBlock(hintBlock{"switched to " + chosen})
 		}
 	case "config":
@@ -774,7 +788,7 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 	case "/quit", "/q":
 		return tea.Quit, true
 	case "/forget":
-		m.agent.ClearHistory(userID)
+		m.agent.ClearHistory(m.userID)
 		return m.printBlock(hintBlock{"history cleared"}), true
 	case "/model":
 		return m.handleModel(arg), true
@@ -783,7 +797,7 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 	case "/memory":
 		return m.printBlock(agentBlock{m.agent.MemoryView()}), true
 	case "/session":
-		return m.printBlock(agentBlock{m.agent.SummaryView(userID)}), true
+		return m.printBlock(agentBlock{fmt.Sprintf("Project: `%s`\n\n%s", m.cwd, m.agent.SummaryView(m.userID))}), true
 	case "/status":
 		return m.printBlock(agentBlock{m.agent.Status()}), true
 	case "/paths":
@@ -886,6 +900,7 @@ func (m *model) handleModel(name string) tea.Cmd {
 	if err := m.agent.SwitchModel(name); err != nil {
 		return m.printBlock(errorBlock{err.Error()})
 	}
+	m.agent.ClearHistory(m.userID)
 	return m.printBlock(hintBlock{"switched to " + name})
 }
 

@@ -21,7 +21,9 @@ Two layers of state survive between sessions:
 
 1. **`~/.nevinho/memory.md`**. Facts the user told you to remember. Auto-injected into your system prompt every turn. Pattern-triggered writes ("remember X", "always X", "never X"). 20-entry cap with dedup.
 
-2. **`~/.nevinho/summaries/{userID}.md`**. A summary of each user's conversation (the ELEPHANT feature, on by default). Written on shutdown, reloaded on next start as `[Previous conversation: ...]` preamble. Toggle with `ELEPHANT=off` via `/config`.
+2. **`~/.nevinho/summaries/{userID}.history.enc`**. Encrypted recent conversation history, saved after each completed turn and restored after restart. Image bytes are omitted. The terminal uses a separate user ID for each launch directory.
+
+3. **`~/.nevinho/summaries/{userID}.md`**. A short summary written when the Discord daemon shuts down gracefully. Used as a fallback when no usable checkpoint exists. Toggle both forms of conversation persistence with `ELEPHANT=off` via `/config`.
 
 Everything else (in-memory history, tool state, approval state) is lost on restart.
 
@@ -29,7 +31,7 @@ Everything else (in-memory history, tool state, approval state) is lost on resta
 
 Each transport carries the same command set. In Discord they are slash commands or plain text. In the terminal they are slash commands typed at the input.
 
-- `/forget`. Wipe in-memory history AND the saved summary for this user.
+- `/forget`. Wipe in-memory history, the checkpoint, and the saved summary for this conversation.
 - `/memory`. Show what you remember about the user (memory.md entries).
 - `/session`. Show the persisted conversation summary for the current user.
 - `/cancel`. Cancel the in-flight operation (Discord).
@@ -69,7 +71,7 @@ When approval is required, the tool returns `NEEDS_APPROVAL:` and you must stop 
 
 Single Go binary. Packages:
 
-- `agent/`. Split into `agent.go` (struct, API), `loop.go` (the Chat loop, tool execution, approval handshake), `history.go` (append, trim, summarize), `persistence.go` (per-user summary files).
+- `agent/`. Split into `agent.go` (struct, API), `loop.go` (the Chat loop, tool execution, approval handshake), `history.go` (append, trim, summarize), `persistence.go` (per-user checkpoints and summary files).
 - `llm/`. Provider interface plus Anthropic, OpenAI, Gemini, Groq, OpenRouter, Ollama.
 - `tools/`. bash, file_read/write/edit/list, find, grep, web_search/read, schedule.
 - `tui/`. Terminal client. Bubble Tea, inline rendering, slash commands, pickers, approval picker.

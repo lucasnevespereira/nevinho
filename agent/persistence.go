@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/lucasnevespereira/nevinho/crypto"
+	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/safeio"
 )
 
@@ -13,6 +16,89 @@ const (
 	summariesDir   = "summaries"
 	summaryMaxSize = 4000 // ~1000 tokens
 )
+
+type conversationCheckpoint struct {
+	Model    string        `json:"model"`
+	Messages []llm.Message `json:"messages"`
+}
+
+func checkpointPath(configDir, userID string) (string, error) {
+	path, err := summaryPath(configDir, userID)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(path, ".md") + ".history.enc", nil
+}
+
+// saveCheckpoint stores a completed turn without another model request. Image
+// bytes are omitted: the model's text reply remains, while the binary input
+// would make a small conversation checkpoint unexpectedly huge.
+func (a *Agent) saveCheckpoint(userID string) error {
+	path, err := checkpointPath(a.cfg.Dir(), userID)
+	if err != nil {
+		return err
+	}
+	msgs := a.messages(userID)
+	copyMsgs := make([]llm.Message, len(msgs))
+	copy(copyMsgs, msgs)
+	for i := range copyMsgs {
+		copyMsgs[i].Images = nil
+	}
+	plain, err := json.Marshal(conversationCheckpoint{Model: a.llm.Model(), Messages: copyMsgs})
+	if err != nil {
+		return fmt.Errorf("marshal checkpoint: %w", err)
+	}
+	key, err := crypto.LoadOrCreateKey(a.cfg.Dir())
+	if err != nil {
+		return fmt.Errorf("checkpoint key: %w", err)
+	}
+	enc, err := crypto.Encrypt(key, plain)
+	if err != nil {
+		return fmt.Errorf("encrypt checkpoint: %w", err)
+	}
+	return safeio.WriteFile(path, enc, 0o600)
+}
+
+func (a *Agent) loadCheckpoint(userID string) ([]llm.Message, error) {
+	path, err := checkpointPath(a.cfg.Dir(), userID)
+	if err != nil {
+		return nil, err
+	}
+	enc, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	key, err := crypto.LoadOrCreateKey(a.cfg.Dir())
+	if err != nil {
+		return nil, err
+	}
+	plain, err := crypto.Decrypt(key, enc)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt checkpoint: %w", err)
+	}
+	var checkpoint conversationCheckpoint
+	if err := json.Unmarshal(plain, &checkpoint); err != nil {
+		return nil, fmt.Errorf("decode checkpoint: %w", err)
+	}
+	if checkpoint.Model != a.llm.Model() {
+		return nil, nil
+	}
+	return checkpoint.Messages, nil
+}
+
+func deleteCheckpoint(configDir, userID string) error {
+	path, err := checkpointPath(configDir, userID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
 
 // summaryPath returns the on-disk location for a user's persisted summary.
 // The userID is sanitized to prevent path traversal even though Discord IDs

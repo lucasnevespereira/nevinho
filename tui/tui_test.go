@@ -1,12 +1,32 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+func TestTerminalUserIDIsScopedToDirectory(t *testing.T) {
+	base := t.TempDir()
+	one := filepath.Join(base, "one")
+	two := filepath.Join(base, "two")
+	if err := os.MkdirAll(one, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(two, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if terminalUserID(one) == terminalUserID(two) {
+		t.Fatal("different projects share a conversation ID")
+	}
+	if terminalUserID(one) != terminalUserID(filepath.Join(one, ".")) {
+		t.Fatal("same directory has unstable conversation ID")
+	}
+}
 
 // A resize reprints the transcript only once the size has settled, and
 // every block is rendered at the new width.

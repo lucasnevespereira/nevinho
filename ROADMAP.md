@@ -76,10 +76,10 @@ One file covers Groq, Together, OpenRouter, LM Studio, vLLM, local servers.
 
 The terminal client uses one shared summary today, so context from project A leaks into project B when the user hops between repos. Real pain for anyone running `nevinho` in more than one place.
 
-- [ ] Derive the terminal userID from the cwd at launch (`terminal:` + short hash of `os.Getwd()`), so each project gets its own summary file.
+- [x] Derive the terminal userID from the cwd at launch, so each project gets its own conversation files.
 - [ ] Cap retained summaries (last N by mtime) so `~/.nevinho/summaries/` does not grow unbounded over the years.
-- [ ] `/forget` clears just the current cwd's summary, not all of them.
-- [ ] `/session` in the terminal mentions which cwd is currently active.
+- [x] `/forget` clears just the current cwd's checkpoint and summary, not all of them.
+- [x] `/session` in the terminal mentions which cwd is currently active.
 
 ### Terminal UI follow-ups
 
@@ -144,6 +144,8 @@ Real but deferred. Ship when the above is solid or when a user hits the pain.
 - [x] **Voice.** Discord voice notes through OpenAI Whisper to agent input. Supports ogg, mp3, wav, m4a, webm.
 - [x] **Web tooling.** Tavily advanced search and extract. Jina Reader fallback. Polite headers. Explicit error signaling. 429/5xx retries.
 - [x] **Conversation persistence (ELEPHANT).** On shutdown, summarize each user's history to `~/.nevinho/summaries/{userID}.md`. Reload as `[Previous conversation: ...]` preamble on next start. Default on, toggle via `ELEPHANT=off`. `/forget` wipes both in-memory history and the saved summary.
+- [x] **Crash-safe turn checkpoints.** After each completed turn, atomically save encrypted bounded history without image bytes. Restore it on restart, falling back to the shutdown summary. Scheduled runs skip checkpoints.
+- [x] **Scheduler cancellation.** Pass the runner's deadline and shutdown context through the agent to providers and tools.
 - [x] **Self-knowledge.** `NEVINHO.md` at repo root, embedded in the binary via `go:embed` and auto-injected into the system prompt. Covers identity, persistence model, commands, architecture, and source-lookup strategy (local file_read for dev installs, web_read against GitHub raw for binary installs). `/memory` and `/summary` expose persisted state to the user.
 - [x] **Image input.** Discord image attachments (JPEG/PNG/GIF/WebP) routed inline to vision-capable models. 5MB per image, 4 per message. Vision capability checked per model before send. Anthropic and OpenAI both supported.
 - [x] **Google Gemini provider.** Native integration for Gemini models (2.0 and 1.5). Includes support for system instructions, function calling, and image input.
