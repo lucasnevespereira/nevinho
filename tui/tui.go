@@ -94,6 +94,7 @@ type model struct {
 	selecting      bool // a picker (model or config) is open
 	approving      bool // a tool action is awaiting yes/no
 	approvalCursor int  // 0 = approve, 1 = deny
+	approvalOffset int  // first visible line of the pending action
 	approval       *agent.ApprovalRequest
 	approvalText   string
 	sel            selector
@@ -376,14 +377,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
 		case msg.turn.Kind == agent.TurnApproval:
-			// The picker at the bottom resolves the decision. The message
-			// itself goes to scrollback like any other block.
+			// Keep the request in the live picker while a decision is pending.
+			// It enters scrollback once the user has answered.
 			m.approving = true
 			m.approvalCursor = 0
+			m.approvalOffset = 0
 			m.approval = msg.turn.Approval
 			m.approvalText = msg.turn.Text
-			title, detail, scope, _ := m.approvalContent()
-			return m, m.printBlock(approvalBlock{title + "\n" + detail + "\n" + scope})
+			return m, nil
 		default:
 			return m, m.printBlock(agentBlock{msg.turn.Text})
 		}
@@ -494,6 +495,18 @@ func (m *model) toggleConfig(key string) tea.Cmd {
 // and y/n/esc are shortcuts.
 func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 	switch key {
+	case "pgdown":
+		m.moveApprovalPage(1)
+		return m, nil
+	case "pgup":
+		m.moveApprovalPage(-1)
+		return m, nil
+	case "home":
+		m.approvalOffset = 0
+		return m, nil
+	case "end":
+		m.approvalOffset = max(0, len(m.approvalLines())-approvalPreviewRows)
+		return m, nil
 	case "tab", "shift+tab":
 		m.approvalCursor = 1 - m.approvalCursor
 		return m, nil
@@ -515,16 +528,23 @@ func (m model) updateApproval(key string) (tea.Model, tea.Cmd) {
 
 // decideApproval exits approval mode and resolves the pending call.
 func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
+	_, detail, scope, action := m.approvalContent()
+	decision := "Denied"
+	if approve {
+		decision = action
+	}
+	record := approvalBlock{text: decision + "\n" + detail + "\n" + scope, approved: approve}
 	m.approving = false
 	m.approval = nil
 	m.approvalText = ""
+	m.approvalOffset = 0
 	answer := agent.Denied
 	if approve {
 		answer = agent.Approved
 	}
 	m.busy = true
 	m.setLive("")
-	return m, tea.Batch(m.resolve(answer), m.spin.Tick)
+	return m, tea.Sequence(m.printBlock(record), tea.Batch(m.resolve(answer), m.spin.Tick))
 }
 
 // canMention reports whether typing @ should arm the file picker. Only

@@ -43,16 +43,29 @@ func approvalLiteral(text string) string {
 	return b.String()
 }
 
+const approvalPreviewRows = 6
+
+func (m model) approvalLines() []string {
+	_, detail, _, _ := m.approvalContent()
+	return strings.Split(lipgloss.NewStyle().Width(max(m.width, 1)).Render(detail), "\n")
+}
+
+func (m *model) moveApprovalPage(direction int) {
+	last := max(0, len(m.approvalLines())-approvalPreviewRows)
+	m.approvalOffset = min(max(m.approvalOffset+direction*approvalPreviewRows, 0), last)
+}
+
 // approvalPicker keeps the action and its permission scope next to the keys.
-// Long details remain available in scrollback instead of filling the live area.
+// Long details can be paged through without leaving the live chooser.
 func (m model) approvalPicker() string {
 	w := max(m.width, 1)
-	title, detail, scope, action := m.approvalContent()
-	wrap := lipgloss.NewStyle().Width(w)
-	lines := strings.Split(wrap.Render(detail), "\n")
-	const previewRows = 6
-	if len(lines) > previewRows {
-		lines = append(lines[:previewRows], styleHint.Render("… full details above"))
+	title, _, scope, action := m.approvalContent()
+	lines := m.approvalLines()
+	start := min(max(m.approvalOffset, 0), max(0, len(lines)-approvalPreviewRows))
+	end := min(start+approvalPreviewRows, len(lines))
+	preview := strings.Join(lines[start:end], "\n")
+	if len(lines) > approvalPreviewRows {
+		preview += "\n" + styleHint.Render("lines "+strconv.Itoa(start+1)+"-"+strconv.Itoa(end)+"/"+strconv.Itoa(len(lines))+" · PgUp/PgDn")
 	}
 
 	approve, deny := "  "+action, "  Deny"
@@ -68,7 +81,7 @@ func (m model) approvalPicker() string {
 
 	body := strings.Join([]string{
 		styleApproveLn.Bold(true).Render(title),
-		strings.Join(lines, "\n"),
+		preview,
 		styleHint.Render(scope),
 		"",
 		choices,
