@@ -206,6 +206,16 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 		var results []llm.ToolResult
 		needsApproval := false
 		for _, tc := range resp.ToolCalls {
+			if needsApproval {
+				// Later calls could depend on the held action or overwrite its
+				// approval. Keep a result for every call without dispatching it.
+				results = append(results, llm.ToolResult{
+					ID:      tc.ID,
+					Output:  "not executed: an earlier tool call is waiting for approval. Reconsider this call after that approval is resolved.",
+					IsError: true,
+				})
+				continue
+			}
 			toolsUsed = append(toolsUsed, tc.Name)
 			detail := toolDetail(tc.Name, tc.Input)
 			logger.Tool(tc.Name, detail)
