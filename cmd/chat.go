@@ -28,13 +28,17 @@ func Chat(configDir, version, selfDoc string) {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
 	}
-	// Keep boot-time logger.Info lines out of the TUI. Route them to
-	// chat.log if possible, otherwise drop them. The model is already in
-	// the status bar so the user does not need the boot line on screen.
-	if f, err := os.OpenFile(filepath.Join(configDir, "chat.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+	// Keep logs out of the TUI and bound their on-disk size.
+	previousLogOutput := log.Writer()
+	if f, err := openRotatingLog(filepath.Join(configDir, "chat.log"), terminalLogMaxBytes, terminalLogBackups); err == nil {
 		log.SetOutput(f)
+		defer func() {
+			log.SetOutput(previousLogOutput)
+			f.Close()
+		}()
 	} else {
 		log.SetOutput(io.Discard)
+		defer log.SetOutput(previousLogOutput)
 	}
 
 	provider := detectProvider(cfg)
@@ -44,7 +48,7 @@ func Chat(configDir, version, selfDoc string) {
 	a := agent.New(provider, cfg, version, selfDoc, agent.ModeLocal)
 
 	cwd, _ := os.Getwd()
-	if err := tui.Run(a, cwd, configDir); err != nil {
+	if err := tui.Run(a, cwd); err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}

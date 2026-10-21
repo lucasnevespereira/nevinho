@@ -170,7 +170,7 @@ approved_paths.json persisted write permissions
 memory.md           learned user preferences
 summaries/          encrypted turn checkpoints and shutdown summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
-chat.log            terminal client runtime log
+chat.log            terminal client runtime log (8 MiB, 3 rotated backups)
 last_alive.json     daemon heartbeat and clean-shutdown marker
 ```
 
