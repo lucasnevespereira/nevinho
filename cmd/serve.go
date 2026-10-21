@@ -50,6 +50,10 @@ func Serve(configDir, version, selfDoc string) {
 	if err := bot.Start(); err != nil {
 		log.Fatalf("failed to start bot: %v", err)
 	}
+	heartbeat, err := startCrashHeartbeat(configDir, bot.SendOwnerDM, time.Minute)
+	if err != nil {
+		logger.Err(err)
+	}
 
 	runner, err := startScheduler(a, bot, configDir)
 	if err != nil {
@@ -77,6 +81,11 @@ func Serve(configDir, version, selfDoc string) {
 	cancel()
 
 	bot.Stop()
+	if heartbeat != nil {
+		if err := heartbeat.Stop(); err != nil {
+			logger.Err(fmt.Errorf("mark clean shutdown: %w", err))
+		}
+	}
 }
 
 // startScheduler loads the schedule store, wires it to the agent's tool

@@ -171,6 +171,7 @@ memory.md           learned user preferences
 summaries/          encrypted turn checkpoints and shutdown summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
 chat.log            terminal client runtime log
+last_alive.json     daemon heartbeat and clean-shutdown marker
 ```
 
 `.env` in the project directory also works for development. Env vars take priority over the encrypted config.
@@ -178,6 +179,8 @@ chat.log            terminal client runtime log
 Set `CAVEMAN=on` via `/config` for a token-saving caveman-style response. Off by default.
 
 Set `ELEPHANT=off` via `/config` to stop persisting conversations across restarts. On by default. When on, nevinho saves an encrypted checkpoint after each completed turn and restores it on restart. Image bytes are omitted. The Discord daemon also writes a short summary on graceful shutdown as a fallback.
+
+The Discord daemon updates `last_alive.json` every minute. If it restarts after an unclean stop, it sends the owner one DM with the last recorded heartbeat time.
 
 Terminal conversations are scoped to the directory where you launch `nevinho`. `/forget` clears that project's saved state. Older terminal summaries under the former shared `terminal` ID remain on disk but are not loaded into a project automatically.
 

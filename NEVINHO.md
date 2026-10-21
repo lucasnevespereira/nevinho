@@ -25,6 +25,8 @@ Two layers of state survive between sessions:
 
 3. **`~/.nevinho/summaries/{userID}.md`**. A short summary written when the Discord daemon shuts down gracefully. Used as a fallback when no usable checkpoint exists. Toggle both forms of conversation persistence with `ELEPHANT=off` via `/config`.
 
+The Discord daemon also keeps `~/.nevinho/last_alive.json` updated once a minute. After an unclean stop it DMs the owner on restart with the last heartbeat time.
+
 Everything else (in-memory history, tool state, approval state) is lost on restart.
 
 ## Commands the user can invoke
