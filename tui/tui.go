@@ -42,15 +42,9 @@ func terminalUserID(cwd string) string {
 const inputPlaceholder = "Ask nevinho anything…"
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
-// the status bar. configDir is where the agent's log file is written.
-func Run(a *agent.Agent, cwd, configDir string) error {
+// the status bar.
+func Run(a *agent.Agent, cwd string) error {
 	userID := terminalUserID(cwd)
-	// The agent logs through the stdlib logger, which writes to stderr.
-	// Send it to a file so the terminal stays clean. tail ~/.nevinho/chat.log
-	// to follow it live.
-	if f, err := tea.LogToFile(filepath.Join(configDir, "chat.log"), ""); err == nil {
-		defer f.Close()
-	}
 
 	// Buffered so the agent's tool callback never blocks on a slow UI. a
 	// full buffer just drops an event, which only costs a missed card.
