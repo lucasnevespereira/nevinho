@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -40,11 +41,11 @@ type Turn struct {
 }
 
 func (a *Agent) Chat(userID, text string, isVoice bool, images []llm.Image) (Turn, error) {
-	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, nil, answerIn(text))
+	return a.chat(context.Background(), userID, text, isVoice, images, tools.SourceInteractive, nil, answerIn(text))
 }
 
 func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image, cb llm.StreamCallback) (Turn, error) {
-	return a.chat(userID, text, isVoice, images, tools.SourceInteractive, cb, answerIn(text))
+	return a.chat(context.Background(), userID, text, isVoice, images, tools.SourceInteractive, cb, answerIn(text))
 }
 
 // ChatScheduled is the entry point the schedule runner uses. It tags the
@@ -57,17 +58,26 @@ func (a *Agent) ChatStream(userID, text string, isVoice bool, images []llm.Image
 // history trimming leaves a model functionCall turn without its immediately
 // preceding user/functionResponse turn.
 func (a *Agent) ChatScheduled(userID, prompt string) (Turn, error) {
-	a.ClearHistory(userID)
-	return a.chat(userID, prompt, false, nil, tools.SourceScheduled, nil, nil)
+	return a.ChatScheduledContext(context.Background(), userID, prompt)
 }
 
-func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback, answer *Answer) (Turn, error) {
+// ChatScheduledContext lets the runner's deadline and shutdown cancellation
+// reach provider requests and tools.
+func (a *Agent) ChatScheduledContext(ctx context.Context, userID, prompt string) (Turn, error) {
+	if err := ctx.Err(); err != nil {
+		return Turn{}, err
+	}
+	a.ClearHistory(userID)
+	return a.chat(ctx, userID, prompt, false, nil, tools.SourceScheduled, nil, nil)
+}
+
+func (a *Agent) chat(parent context.Context, userID, text string, isVoice bool, images []llm.Image, source tools.Source, streamCb llm.StreamCallback, answer *Answer) (Turn, error) {
 	lock := a.getUserLock(userID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	limits := a.turnLimits()
-	ctx, cancel := context.WithTimeout(context.Background(), limits.timeout)
+	ctx, cancel := context.WithTimeout(parent, limits.timeout)
 	ctx = tools.WithExecContext(ctx, tools.ExecContext{
 		Source: source,
 		Caps:   tools.DefaultCaps[source],
@@ -138,6 +148,9 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 	_, maxOutput := budgetFor(a.llm.Model())
 	for range limits.loops {
 		if ctx.Err() != nil {
+			if source == tools.SourceScheduled {
+				return Turn{}, ctx.Err()
+			}
 			return Turn{Kind: TurnText, Text: "Cancelled.", Took: time.Since(start)}, nil
 		}
 		req := &llm.Request{
@@ -158,6 +171,9 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 			resp, err = a.llm.Complete(ctx, req)
 		}
 		if err != nil {
+			if source == tools.SourceScheduled && ctx.Err() != nil {
+				err = ctx.Err()
+			}
 			logger.Err(err)
 			// Nothing came back for this message, so take it out again.
 			// Otherwise a retry stacks a second copy of the question on
@@ -167,6 +183,9 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 				a.setMessages(userID, before)
 			}
 			return Turn{}, err
+		}
+		if source == tools.SourceScheduled && ctx.Err() != nil {
+			return Turn{}, ctx.Err()
 		}
 		replied = true
 
@@ -255,6 +274,11 @@ func (a *Agent) chat(userID, text string, isVoice bool, images []llm.Image, sour
 // reply. Every terminal path in Chat goes through it so accounting and
 // logging stay identical no matter which exit the loop takes.
 func (a *Agent) finish(userID string, start time.Time, usage llm.Usage, toolsUsed []string, kind TurnKind, reply string) (Turn, error) {
+	if kind == TurnText && a.cfg.ElephantEnabled() && !strings.HasPrefix(userID, "scheduler:") {
+		if err := a.saveCheckpoint(userID); err != nil {
+			logger.Err(fmt.Errorf("save conversation checkpoint: %w", err))
+		}
+	}
 	a.addUsage(usage)
 	logger.Done(start, usage.Input(), usage.Out, usage.CacheRead, toolsUsed, estimateCost(a.llm.Model(), usage))
 	logger.Nevinho(reply)

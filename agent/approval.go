@@ -56,7 +56,7 @@ func (a *Agent) ResolveStream(userID string, answer Answer, cb llm.StreamCallbac
 	if !a.HasPendingApproval(userID) {
 		return Turn{}, fmt.Errorf("nothing is waiting for approval")
 	}
-	return a.chat(userID, "", false, nil, tools.SourceInteractive, cb, &answer)
+	return a.chat(context.Background(), userID, "", false, nil, tools.SourceInteractive, cb, &answer)
 }
 
 // applyAnswer resolves the held tool call and returns the note that tells

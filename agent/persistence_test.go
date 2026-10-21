@@ -1,11 +1,52 @@
 package agent
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/llm"
 )
+
+func TestCompletedTurnCheckpointRestoresAfterRestart(t *testing.T) {
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := New(&fallbackProvider{}, cfg, "test", "", ModeDaemon)
+	image := []byte("private image bytes")
+	if _, err := first.Chat("owner", "inspect this", false, []llm.Image{{MediaType: "image/png", Data: image}}); err != nil {
+		t.Fatal(err)
+	}
+	path, err := checkpointPath(cfg.Dir(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(enc, []byte("inspect this")) || bytes.Contains(enc, image) {
+		t.Fatal("checkpoint contains unencrypted conversation data")
+	}
+
+	restarted := New(&fallbackProvider{}, cfg, "test", "", ModeDaemon)
+	restarted.maybeLoadSummary("owner")
+	msgs := restarted.messages("owner")
+	if len(msgs) != 2 || msgs[0].Text != "inspect this" || msgs[1].Text != "fallback ok" {
+		t.Fatalf("restored messages = %+v", msgs)
+	}
+	if len(msgs[0].Images) != 0 {
+		t.Fatal("image bytes should not be persisted")
+	}
+	restarted.ClearHistory("owner")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("forget should remove checkpoint, stat error: %v", err)
+	}
+}
 
 func TestSummaryRoundtrip(t *testing.T) {
 	dir := t.TempDir()

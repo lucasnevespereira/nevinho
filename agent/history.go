@@ -134,15 +134,25 @@ func (a *Agent) ClearHistory(userID string) {
 	if err := deleteSummary(a.cfg.Dir(), userID); err != nil {
 		logger.Err(fmt.Errorf("delete summary: %w", err))
 	}
+	if err := deleteCheckpoint(a.cfg.Dir(), userID); err != nil {
+		logger.Err(fmt.Errorf("delete checkpoint: %w", err))
+	}
 }
 
-// maybeLoadSummary injects the persisted summary into history if elephant is on
-// and this user has no in-memory history yet (fresh process start).
+// maybeLoadSummary restores the latest checkpoint, falling back to the short
+// shutdown summary when no usable checkpoint exists.
 func (a *Agent) maybeLoadSummary(userID string) {
 	if !a.cfg.ElephantEnabled() {
 		return
 	}
 	if len(a.messages(userID)) > 0 {
+		return
+	}
+	if msgs, err := a.loadCheckpoint(userID); err != nil {
+		logger.Err(fmt.Errorf("load conversation checkpoint: %w", err))
+	} else if len(msgs) > 0 {
+		a.setMessages(userID, msgs)
+		logger.Info("loaded conversation checkpoint")
 		return
 	}
 	summary := loadSummary(a.cfg.Dir(), userID)
@@ -242,7 +252,13 @@ func (a *Agent) persistUser(ctx context.Context, userID string) {
 // summary for the given user. Reflects ELEPHANT state in the empty case.
 func (a *Agent) SummaryView(userID string) string {
 	if !a.cfg.ElephantEnabled() {
-		return "Persistence is off (`ELEPHANT=off`). No summary will be saved on shutdown."
+		return "Persistence is off (`ELEPHANT=off`). No conversation checkpoint or summary will be saved."
+	}
+	checkpointNote := ""
+	if checkpoint, err := checkpointPath(a.cfg.Dir(), userID); err == nil {
+		if _, err := os.Stat(checkpoint); err == nil {
+			checkpointNote = "Recent turns are checkpointed and will resume after a restart.\n\n"
+		}
 	}
 	path, err := summaryPath(a.cfg.Dir(), userID)
 	if err != nil {
@@ -250,14 +266,14 @@ func (a *Agent) SummaryView(userID string) string {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return "No saved summary yet. One will be written when nevinho shuts down."
+		return checkpointNote + "No short summary yet. One will be written when nevinho shuts down."
 	}
 	body := loadSummary(a.cfg.Dir(), userID)
 	if body == "" {
-		return "No saved summary yet. One will be written when nevinho shuts down."
+		return checkpointNote + "No short summary yet. One will be written when nevinho shuts down."
 	}
 	age := time.Since(info.ModTime()).Truncate(time.Second)
-	return fmt.Sprintf("**Saved summary** (loads on next restart)\n\n%s\n\n_Last updated: %s ago_", body, formatDuration(age))
+	return checkpointNote + fmt.Sprintf("**Saved summary** (used if no checkpoint is available)\n\n%s\n\n_Last updated: %s ago_", body, formatDuration(age))
 }
 
 // MemoryView returns the user-visible dump of memory.md entries.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -67,6 +68,28 @@ func TestTurnLimitPausesAndContinues(t *testing.T) {
 				t.Fatalf("after continue got %q, want finished", turn.Text)
 			}
 		})
+	}
+}
+
+type waitForCancelProvider struct{}
+
+func (p *waitForCancelProvider) Complete(ctx context.Context, _ *llm.Request) (*llm.Response, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (p *waitForCancelProvider) Model() string { return "fake" }
+
+func TestScheduledTurnUsesRunnerDeadline(t *testing.T) {
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = New(&waitForCancelProvider{}, cfg, "test", "", ModeDaemon).ChatScheduledContext(ctx, "scheduler:test", "wait")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("scheduled turn error = %v, want deadline exceeded", err)
 	}
 }
 
