@@ -58,7 +58,7 @@ Markdown files with YAML frontmatter in `~/.nevinho/skills/`. System prompt carr
 
 Personal bot on a VPS. Silent failures are the worst kind.
 
-- [ ] Crash heartbeat. On boot after an unclean shutdown, DM the owner: `restarted after crash at <ts>, last seen <ts>`. Write a `last_alive` timestamp every minute. Compare on boot.
+- [x] Crash heartbeat. On boot after an unclean shutdown, DM the owner with the last heartbeat time. Update `last_alive.json` every minute and mark clean shutdowns.
 - [ ] Log rotation. `nevinho logs` file grows unbounded today. Wire `logrotate` config (or in-process rotation) to cap size and keep N days. Ship the config in `install.sh`.
 
 ## Next
