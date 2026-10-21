@@ -103,6 +103,10 @@ func (a *Agent) chat(parent context.Context, userID, text string, isVoice bool, 
 		logger.User(text)
 	}
 	start := time.Now()
+	hitStepLimit := false
+	defer func() {
+		a.recordTurn(source, hitStepLimit, ctx.Err() == context.DeadlineExceeded, time.Since(start))
+	}()
 	var usage llm.Usage
 	var toolsUsed []string
 
@@ -267,6 +271,7 @@ func (a *Agent) chat(parent context.Context, userID, text string, isVoice bool, 
 		}
 	}
 
+	hitStepLimit = true
 	return a.finish(userID, start, usage, toolsUsed, TurnText, fmt.Sprintf("I paused after %d steps, the limit for one turn. Say continue and I will keep going.", limits.loops))
 }
 

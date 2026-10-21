@@ -89,6 +89,14 @@ type turnLimits struct {
 	timeout time.Duration
 }
 
+// turnCounts tracks how often a source reaches its guardrails during this
+// process. Scheduled runs are separate so they do not hide Discord usage.
+type turnCounts struct {
+	total    int
+	steps    int
+	timeouts int
+}
+
 func (a *Agent) turnLimits() turnLimits {
 	if a.mode == ModeLocal {
 		// The user watches the terminal and can press esc.
@@ -138,6 +146,8 @@ type Agent struct {
 	pendingToolID map[string]string
 	startTime     time.Time
 	spent         llm.Usage // lifetime total, for /status and the status bar
+	interactive   turnCounts
+	scheduled     turnCounts
 }
 
 // New builds an agent for the given run mode. Local mode runs the tools in
@@ -221,6 +231,27 @@ func (a *Agent) addUsage(u llm.Usage) {
 	a.mu.Lock()
 	a.spent.Add(u)
 	a.mu.Unlock()
+}
+
+func (a *Agent) recordTurn(source tools.Source, stepLimit, timedOut bool, elapsed time.Duration) {
+	a.mu.Lock()
+	counts := &a.interactive
+	if source == tools.SourceScheduled {
+		counts = &a.scheduled
+	}
+	counts.total++
+	if timedOut {
+		counts.timeouts++
+	} else if stepLimit {
+		counts.steps++
+	}
+	a.mu.Unlock()
+
+	if timedOut {
+		logger.Info(fmt.Sprintf("turn_limit source=%s reason=timeout elapsed=%s", source, elapsed.Truncate(time.Millisecond)))
+	} else if stepLimit {
+		logger.Info(fmt.Sprintf("turn_limit source=%s reason=steps elapsed=%s", source, elapsed.Truncate(time.Millisecond)))
+	}
 }
 
 // budgetFor returns how much history to keep and how long one reply may
@@ -367,6 +398,8 @@ func (a *Agent) AvailableModels() []string {
 func (a *Agent) Status() string {
 	a.mu.Lock()
 	spent := a.spent
+	interactive := a.interactive
+	scheduled := a.scheduled
 	a.mu.Unlock()
 
 	model := a.llm.Model()
@@ -380,6 +413,12 @@ func (a *Agent) Status() string {
 	fmt.Fprintf(&sb, "Uptime: %s\n", formatDuration(uptime))
 	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", spent.Input(), spent.Out)
 	fmt.Fprintf(&sb, "Cost: $%.2f\n", cost)
+	limits := a.turnLimits()
+	fmt.Fprintf(&sb, "Turn cap: %d steps · %s\n", limits.loops, formatDuration(limits.timeout))
+	fmt.Fprintf(&sb, "Interactive turns: %d · step cap: %d · timeout: %d\n", interactive.total, interactive.steps, interactive.timeouts)
+	if scheduled.total > 0 {
+		fmt.Fprintf(&sb, "Scheduled runs: %d · step cap: %d · timeout: %d\n", scheduled.total, scheduled.steps, scheduled.timeouts)
+	}
 
 	if len(paths) > 0 {
 		fmt.Fprintf(&sb, "\nApproved paths:\n")
