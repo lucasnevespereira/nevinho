@@ -58,7 +58,7 @@ func (b errorBlock) render(w int) string {
 type approvalBlock struct{ text string }
 
 func (b approvalBlock) render(w int) string {
-	msg := strings.ReplaceAll(strings.TrimRight(b.text, "\n"), "`", "")
+	msg := strings.TrimRight(b.text, "\n")
 	return styleApproveLn.Width(w).Render("⏸  " + msg)
 }
 
