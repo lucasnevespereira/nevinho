@@ -330,7 +330,7 @@ func (a *Agent) ActivateChatGPT() (string, error) {
 	if len(models) == 0 {
 		return "", fmt.Errorf("connected ChatGPT account has no available models")
 	}
-	name := "chatgpt:" + models[0].Slug
+	name := chatgpt.SelectModel(models, a.Model())
 	if err := a.SwitchModel(name); err != nil {
 		return "", err
 	}

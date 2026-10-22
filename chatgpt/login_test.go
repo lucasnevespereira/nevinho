@@ -116,6 +116,21 @@ func TestLoginRefreshAndModels(t *testing.T) {
 	}
 }
 
+func TestSelectModelKeepsAvailableChoiceAfterLogin(t *testing.T) {
+	models := []Model{{Slug: "gpt-6-luna"}, {Slug: "gpt-6.1-sol"}}
+	if got := SelectModel(models, "chatgpt:gpt-6.1-sol"); got != "chatgpt:gpt-6.1-sol" {
+		t.Fatalf("renewed login changed the selected model to %q", got)
+	}
+	for _, current := range []string{"", "gpt-6.1-sol", "chatgpt:removed"} {
+		if got := SelectModel(models, current); got != "chatgpt:gpt-6-luna" {
+			t.Fatalf("current %q selected %q", current, got)
+		}
+	}
+	if got := SelectModel(nil, "chatgpt:gpt-6.1-sol"); got != "" {
+		t.Fatalf("empty catalog selected %q", got)
+	}
+}
+
 func signedJWT(t *testing.T, key *rsa.PrivateKey, claims map[string]interface{}) string {
 	t.Helper()
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"test-key"}`))

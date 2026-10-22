@@ -91,7 +91,7 @@ func Login(configDir string, args []string) {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
-	model := "chatgpt:" + models[0].Slug
+	model := chatgpt.SelectModel(models, cfg.Model)
 	if err := cfg.Set("MODEL", model); err != nil {
 		fmt.Fprintf(os.Stderr, "save model: %v\n", err)
 		os.Exit(1)

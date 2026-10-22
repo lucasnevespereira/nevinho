@@ -166,6 +166,20 @@ func (s *Store) Models() []Model {
 	return append([]Model(nil), st.Accounts[st.Active].Models...)
 }
 
+// SelectModel keeps the current plan model after a renewed login when it is
+// still offered by the account. A first login picks the first offered model.
+func SelectModel(models []Model, current string) string {
+	for _, model := range models {
+		if current == "chatgpt:"+model.Slug {
+			return current
+		}
+	}
+	if len(models) == 0 {
+		return ""
+	}
+	return "chatgpt:" + models[0].Slug
+}
+
 func (s *Store) ActiveEmail() string {
 	st, err := s.read()
 	if err != nil {
