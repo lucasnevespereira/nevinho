@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -17,9 +18,11 @@ import (
 // Requests are stateless (store is false). Each one carries the whole
 // conversation, like every other provider in this package.
 type OpenAIResponses struct {
-	apiKey  string
-	baseURL string
-	model   string
+	apiKey       string
+	baseURL      string
+	model        string
+	subscription bool
+	tokenSource  func(context.Context) (string, error)
 }
 
 func NewOpenAIResponses(apiKey, baseURL, model string) *OpenAIResponses {
@@ -29,7 +32,19 @@ func NewOpenAIResponses(apiKey, baseURL, model string) *OpenAIResponses {
 	return &OpenAIResponses{apiKey: apiKey, baseURL: baseURL, model: model}
 }
 
-func (o *OpenAIResponses) Model() string { return o.model }
+// NewChatGPTResponses uses an explicitly authorized ChatGPT plan. The
+// subscription endpoint requires streamed, stateless requests and namespaced
+// functions, so it cannot use the ordinary API-key request shape unchanged.
+func NewChatGPTResponses(model string, tokenSource func(context.Context) (string, error)) *OpenAIResponses {
+	return &OpenAIResponses{baseURL: "https://api.openai.com", model: model, subscription: true, tokenSource: tokenSource}
+}
+
+func (o *OpenAIResponses) Model() string {
+	if o.subscription {
+		return "chatgpt:" + o.model
+	}
+	return o.model
+}
 
 // usesResponsesAPI reports whether an OpenAI model should go through the
 // Responses API. Older chat models stay on Chat Completions.
@@ -47,12 +62,14 @@ func (o *OpenAIResponses) body(req *Request) map[string]interface{} {
 		"model":        o.model,
 		"instructions": req.SystemPrompt,
 		"input":        responsesEncode(req.Messages),
-		// Reasoning is billed against this cap, so leave it room.
-		"max_output_tokens": req.MaxTokens + thinkingRoom,
-		"store":             false,
+		"store":        false,
 		// Ask for reasoning in a form that can be sent back, since
 		// nothing is stored on OpenAI's side.
 		"include": []string{"reasoning.encrypted_content"},
+	}
+	if !o.subscription {
+		// Reasoning is billed against this cap, so leave it room.
+		body["max_output_tokens"] = req.MaxTokens + thinkingRoom
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]interface{}, 0, len(req.Tools))
@@ -67,7 +84,15 @@ func (o *OpenAIResponses) body(req *Request) map[string]interface{} {
 				"strict": false,
 			})
 		}
-		body["tools"] = tools
+		if o.subscription {
+			body["tools"] = []map[string]interface{}{{
+				"type": "namespace", "name": "nevinho",
+				"description": "Tools available to the Nevinho agent",
+				"tools":       tools,
+			}}
+		} else {
+			body["tools"] = tools
+		}
 	}
 	return body
 }
@@ -79,8 +104,26 @@ func (o *OpenAIResponses) headers() map[string]string {
 	}
 }
 
+func (o *OpenAIResponses) requestHeaders(ctx context.Context) (map[string]string, error) {
+	if !o.subscription {
+		return o.headers(), nil
+	}
+	token, err := o.tokenSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"Authorization": "Bearer " + token, "Content-Type": "application/json"}, nil
+}
+
 func (o *OpenAIResponses) Complete(ctx context.Context, req *Request) (*Response, error) {
-	data, err := doHTTP(ctx, o.baseURL+"/v1/responses", o.body(req), o.headers())
+	if o.subscription {
+		return o.StreamComplete(ctx, req, nil)
+	}
+	headers, err := o.requestHeaders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data, err := doHTTP(ctx, o.baseURL+"/v1/responses", o.body(req), headers)
 	if err != nil {
 		return nil, err
 	}
@@ -90,28 +133,41 @@ func (o *OpenAIResponses) Complete(ctx context.Context, req *Request) (*Response
 func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb StreamCallback) (*Response, error) {
 	body := o.body(req)
 	body["stream"] = true
+	headers, err := o.requestHeaders(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// Only two things are read from the stream: text deltas for the live
 	// view, and the closing event, which carries the complete response in
 	// the same shape the non-streaming call returns.
 	var final json.RawMessage
-	err := doSSE(ctx, o.baseURL+"/v1/responses", body, o.headers(), func(data []byte) error {
+	var finalEvent string
+	completedItems := make(map[int]json.RawMessage)
+	err = doSSE(ctx, o.baseURL+"/v1/responses", body, headers, func(data []byte) error {
 		var ev struct {
 			Type     string          `json:"type"`
 			Delta    string          `json:"delta"`
 			Message  string          `json:"message"`
 			Response json.RawMessage `json:"response"`
+			Item     json.RawMessage `json:"item"`
+			Index    int             `json:"output_index"`
 		}
 		if err := json.Unmarshal(data, &ev); err != nil {
 			return fmt.Errorf("parse stream chunk: %w", err)
 		}
 		switch ev.Type {
+		case "response.output_item.done":
+			if len(ev.Item) > 0 && json.Valid(ev.Item) {
+				completedItems[ev.Index] = ev.Item
+			}
 		case "response.output_text.delta":
 			if cb != nil && ev.Delta != "" {
 				cb(ev.Delta)
 			}
 		case "response.completed", "response.incomplete", "response.failed":
 			final = ev.Response
+			finalEvent = ev.Type
 		case "error":
 			return fmt.Errorf("API stream error: %s", data)
 		}
@@ -122,6 +178,35 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 	}
 	if final == nil {
 		return nil, fmt.Errorf("API stream ended before the reply was complete")
+	}
+	if o.subscription && finalEvent != "response.completed" {
+		return nil, fmt.Errorf("ChatGPT stream ended with %s: %s", finalEvent, final)
+	}
+	if o.subscription && len(completedItems) > 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(final, &raw); err != nil {
+			return nil, fmt.Errorf("parse ChatGPT final response: %w", err)
+		}
+		var output []json.RawMessage
+		_ = json.Unmarshal(raw["output"], &output)
+		if len(output) == 0 {
+			indices := make([]int, 0, len(completedItems))
+			for index := range completedItems {
+				indices = append(indices, index)
+			}
+			sort.Ints(indices)
+			for _, index := range indices {
+				output = append(output, completedItems[index])
+			}
+			raw["output"], err = json.Marshal(output)
+			if err != nil {
+				return nil, err
+			}
+			final, err = json.Marshal(raw)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return parseResponsesResult(final)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lucasnevespereira/nevinho/chatgpt"
 	"github.com/lucasnevespereira/nevinho/config"
 )
 
@@ -191,6 +192,18 @@ func IsKnownModel(name string) bool {
 // catalogs are large and change frequently. Ollama accepts any local name.
 func Resolve(name string, pc config.ProviderConfig) (Provider, error) {
 	switch {
+	case strings.HasPrefix(name, "chatgpt:"):
+		store := chatgpt.NewStore(pc.ChatGPTDir)
+		if !store.SignedIn() {
+			return nil, fmt.Errorf("ChatGPT is not connected; run nevinho login")
+		}
+		slug := strings.TrimPrefix(name, "chatgpt:")
+		for _, model := range store.Models() {
+			if model.Slug == slug {
+				return NewChatGPTResponses(slug, store.AccessToken), nil
+			}
+		}
+		return nil, fmt.Errorf("model %q is not available on the connected ChatGPT plan; run nevinho login to refresh models", slug)
 	case strings.HasPrefix(name, "groq:"):
 		if pc.GroqKey == "" {
 			return nil, fmt.Errorf("GROQ_API_KEY not configured")

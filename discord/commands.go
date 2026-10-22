@@ -222,7 +222,22 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 	data := i.MessageComponentData()
 
 	switch data.CustomID {
-	case "model_select":
+	case "model_source":
+		if len(data.Values) == 0 {
+			return
+		}
+		source := data.Values[0]
+		components := modelChoiceComponents(b.agent.AvailableModels(), source, b.agent.Model())
+		content := "Choose a model from **" + source + "**:"
+		if len(components) == 0 {
+			content = "No models available from that source. Run `/model` again."
+		}
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{Content: content, Components: components},
+		})
+
+	case "model_select:0", "model_select:1", "model_select:2", "model_select:3", "model_select:4":
 		if len(data.Values) == 0 {
 			return
 		}
@@ -316,7 +331,7 @@ func (b *Bot) sendApprovalPrompt(s *discordgo.Session, channelID, text string) {
 }
 
 func (b *Bot) respondModelSelector(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	content := fmt.Sprintf("Current: `%s`", b.agent.Model())
+	content := fmt.Sprintf("Current: %s", config.ModelLabel(b.agent.Model()))
 	components := b.modelComponents()
 	if len(components) == 0 {
 		content = b.modelStatus()
@@ -331,16 +346,20 @@ func (b *Bot) respondModelSelector(s *discordgo.Session, i *discordgo.Interactio
 }
 
 func (b *Bot) modelComponents() []discordgo.MessageComponent {
-	options := b.modelOptions()
+	models := b.agent.AvailableModels()
+	options := modelSourceOptions(models)
 	if len(options) == 0 {
 		return nil
+	}
+	if len(options) == 1 {
+		return modelChoiceComponents(models, options[0].Value, b.agent.Model())
 	}
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
 				discordgo.SelectMenu{
-					CustomID:    "model_select",
-					Placeholder: "Switch model",
+					CustomID:    "model_source",
+					Placeholder: "Choose a source",
 					Options:     options,
 				},
 			},
@@ -348,48 +367,51 @@ func (b *Bot) modelComponents() []discordgo.MessageComponent {
 	}
 }
 
-func (b *Bot) modelOptions() []discordgo.SelectMenuOption {
-	current := b.agent.Model()
-	pc := b.cfg.ProviderConfig()
+// The first dropdown stays short even when several provider catalogs are
+// configured. Discord allows at most 25 options per dropdown.
+func modelSourceOptions(models []string) []discordgo.SelectMenuOption {
+	seen := make(map[string]bool)
 	var options []discordgo.SelectMenuOption
-
-	if pc.AnthropicKey != "" {
-		for _, name := range config.KnownModels["anthropic"] {
-			options = append(options, modelOption(name, current))
-		}
-	}
-	if pc.OpenAIKey != "" {
-		for _, name := range config.KnownModels["openai"] {
-			options = append(options, modelOption(name, current))
-		}
-	}
-	if pc.GeminiKey != "" {
-		for _, name := range config.KnownModels["gemini"] {
-			options = append(options, modelOption(name, current))
-		}
-	}
-	if pc.GroqKey != "" {
-		for _, name := range config.KnownModels["groq"] {
-			options = append(options, modelOption(name, current))
-		}
-	}
-	if pc.OpenRouterKey != "" {
-		for _, name := range config.KnownModels["openrouter"] {
-			options = append(options, modelOption(name, current))
+	for _, name := range models {
+		source := config.ModelSource(name)
+		if !seen[source] {
+			seen[source] = true
+			options = append(options, discordgo.SelectMenuOption{Label: source, Value: source})
 		}
 	}
 	return options
 }
 
-// modelOption builds a Discord select menu option, tagging vision capable
-// models so the operator can see at selection time which ones accept images.
+func modelChoiceComponents(models []string, source, current string) []discordgo.MessageComponent {
+	var options []discordgo.SelectMenuOption
+	for _, name := range models {
+		if config.ModelSource(name) == source {
+			options = append(options, modelOption(name, current))
+		}
+	}
+	var rows []discordgo.MessageComponent
+	for len(options) > 0 && len(rows) < 5 {
+		n := len(options)
+		if n > 25 {
+			n = 25
+		}
+		rows = append(rows, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.SelectMenu{CustomID: fmt.Sprintf("model_select:%d", len(rows)), Placeholder: "Choose a " + source + " model", Options: options[:n]},
+		}})
+		options = options[n:]
+	}
+	return rows
+}
+
+// modelOption shows the model name and vision support after the user has
+// selected its source. The raw ID remains the option value.
 func modelOption(name, current string) discordgo.SelectMenuOption {
 	desc := ""
 	if llm.ModelSupportsVision(name) {
 		desc = "vision"
 	}
 	return discordgo.SelectMenuOption{
-		Label:       name,
+		Label:       strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(name, "chatgpt:"), "openrouter:"), "groq:"),
 		Value:       name,
 		Description: desc,
 		Default:     name == current,
@@ -407,47 +429,21 @@ func visionTag(name string) string {
 
 func (b *Bot) modelStatus() string {
 	current := b.agent.Model()
-	pc := b.cfg.ProviderConfig()
-
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Current: `%s`\n\n", current)
-
-	if pc.AnthropicKey != "" {
-		sb.WriteString("**Anthropic**\n")
-		for _, m := range config.KnownModels["anthropic"] {
-			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
+	fmt.Fprintf(&sb, "Current: %s\n\n", config.ModelLabel(current))
+	lastSource := ""
+	for _, name := range b.agent.AvailableModels() {
+		source := config.ModelSource(name)
+		if source != lastSource {
+			if lastSource != "" {
+				sb.WriteString("\n")
+			}
+			fmt.Fprintf(&sb, "**%s**\n", source)
+			lastSource = source
 		}
-		sb.WriteString("\n")
+		fmt.Fprintf(&sb, "• `%s`%s\n", name, visionTag(name))
 	}
-	if pc.OpenAIKey != "" {
-		sb.WriteString("**OpenAI**\n")
-		for _, m := range config.KnownModels["openai"] {
-			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
-		}
-		sb.WriteString("\n")
-	}
-	if pc.GeminiKey != "" {
-		sb.WriteString("**Gemini**\n")
-		for _, m := range config.KnownModels["gemini"] {
-			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
-		}
-		sb.WriteString("\n")
-	}
-	if pc.GroqKey != "" {
-		sb.WriteString("**Groq**\n")
-		for _, m := range config.KnownModels["groq"] {
-			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
-		}
-		sb.WriteString("\n")
-	}
-	if pc.OpenRouterKey != "" {
-		sb.WriteString("**OpenRouter**\n")
-		for _, m := range config.KnownModels["openrouter"] {
-			fmt.Fprintf(&sb, "• `%s`%s\n", m, visionTag(m))
-		}
-		sb.WriteString("\n")
-	}
-	if pc.OllamaURL != "" {
+	if b.cfg.ProviderConfig().OllamaURL != "" {
 		sb.WriteString("**Ollama**\n")
 		sb.WriteString("Any local model name\n\n")
 	}

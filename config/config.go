@@ -207,6 +207,7 @@ type ProviderConfig struct {
 	GroqKey       string
 	OpenRouterKey string
 	OllamaURL     string
+	ChatGPTDir    string
 }
 
 func (c *Config) ProviderConfig() ProviderConfig {
@@ -218,6 +219,7 @@ func (c *Config) ProviderConfig() ProviderConfig {
 		GeminiKey:     c.GeminiAPIKey,
 		GroqKey:       c.GroqAPIKey,
 		OpenRouterKey: c.OpenRouterAPIKey,
+		ChatGPTDir:    c.dir,
 	}
 	if c.OllamaModel != "" {
 		pc.OllamaURL = "http://localhost:11434"

@@ -14,6 +14,7 @@ type Image struct {
 // false so the bot rejects the upload with a clear message rather than
 // silently dropping the image and producing a confusing model reply.
 func ModelSupportsVision(name string) bool {
+	name = strings.TrimPrefix(name, "chatgpt:")
 	switch {
 	case strings.HasPrefix(name, "claude"):
 		return true

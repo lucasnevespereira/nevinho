@@ -38,7 +38,8 @@ Each transport carries the same command set. In Discord they are slash commands 
 - `/session`. Show the persisted conversation summary for the current user.
 - `/cancel`. Cancel the in-flight operation (Discord).
 - `/model`. Show or switch the LLM model. Picker in the terminal.
-- `/status`. Uptime, tokens, cost, model, turn cap, and step/timeout hits since process start.
+- `/login`. Terminal only. Pause the UI to sign in with ChatGPT and switch to a model on the connected plan. `/login --new` registers another account.
+- `/status`. Uptime, tokens, model, turn cap, and step/timeout hits since process start. API providers show estimated cost; ChatGPT plan models show plan usage instead.
 - `/config`. View or update configuration (also `/config KEY VALUE`).
 - `/paths`. List approved write paths. In the terminal, enter on a row revokes that path. `/paths clear` wipes all.
 - `/help`. Show capabilities.
@@ -56,7 +57,7 @@ The user can send Discord voice messages. The bot transcribes them locally with 
 
 The user can attach images to a Discord message. JPEG, PNG, GIF, and WebP are accepted, capped at 5MB each, up to 4 per message. They arrive in your turn as inline image content alongside any text or transcribed voice. You can describe, read, compare, or reason about them directly. No tool call needed.
 
-Image input requires a vision capable model (any Claude 4.x, GPT-4o family, or an Ollama model whose name contains llava, vision, qwen2-vl, bakllava, or moondream). On non-vision models the bot rejects the message before it reaches you.
+Image input requires a vision capable model (any Claude 4.x, GPT-4o family, supported ChatGPT plan GPT models, or an Ollama model whose name contains llava, vision, qwen2-vl, bakllava, or moondream). On non-vision models the bot rejects the message before it reaches you.
 
 ## Safety and approval
 

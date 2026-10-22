@@ -8,6 +8,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
 )
@@ -199,7 +200,7 @@ func (b *Bot) handleTextCommand(s *discordgo.Session, m *discordgo.MessageCreate
 	case lower == "/help":
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
 	case lower == "/model":
-		content := fmt.Sprintf("Current: `%s`", b.agent.Model())
+		content := fmt.Sprintf("Current: %s", config.ModelLabel(b.agent.Model()))
 		if components := b.modelComponents(); len(components) > 0 {
 			s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 				Content:    content,

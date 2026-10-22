@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lucasnevespereira/nevinho/chatgpt"
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/logger"
@@ -269,6 +270,7 @@ func (a *Agent) recordTurn(source tools.Source, stepLimit, timedOut bool, elapse
 // refused however large the model's window is. Ollama's window is a
 // local setting nevinho cannot see, and it is small by default.
 func budgetFor(model string) (historyTokens, outputTokens int) {
+	model = strings.TrimPrefix(model, "chatgpt:")
 	if strings.HasPrefix(model, "openrouter:") {
 		return routedHistoryTokens, largeOutputTokens
 	}
@@ -315,6 +317,24 @@ func (a *Agent) SwitchModel(name string) error {
 	}
 	logger.Info("switched to " + name)
 	return nil
+}
+
+// ActivateChatGPT selects the first model discovered by a completed login.
+// The terminal UI calls this after its suspended login process returns.
+func (a *Agent) ActivateChatGPT() (string, error) {
+	store := chatgpt.NewStore(a.cfg.Dir())
+	if !store.SignedIn() {
+		return "", fmt.Errorf("ChatGPT is not connected; run nevinho login")
+	}
+	models := store.Models()
+	if len(models) == 0 {
+		return "", fmt.Errorf("connected ChatGPT account has no available models")
+	}
+	name := "chatgpt:" + models[0].Slug
+	if err := a.SwitchModel(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // SetConfig writes or clears a config key. An empty value clears it. When
@@ -392,6 +412,12 @@ func (a *Agent) AvailableModels() []string {
 			out = append(out, config.KnownModels[p.name]...)
 		}
 	}
+	store := chatgpt.NewStore(pc.ChatGPTDir)
+	if store.SignedIn() {
+		for _, model := range store.Models() {
+			out = append(out, "chatgpt:"+model.Slug)
+		}
+	}
 	return out
 }
 
@@ -412,7 +438,11 @@ func (a *Agent) Status() string {
 	fmt.Fprintf(&sb, "Model: `%s`\n", model)
 	fmt.Fprintf(&sb, "Uptime: %s\n", formatDuration(uptime))
 	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", spent.Input(), spent.Out)
-	fmt.Fprintf(&sb, "Cost: $%.2f\n", cost)
+	if strings.HasPrefix(model, "chatgpt:") {
+		fmt.Fprintln(&sb, "Usage: ChatGPT plan limits apply")
+	} else {
+		fmt.Fprintf(&sb, "Cost: $%.2f\n", cost)
+	}
 	limits := a.turnLimits()
 	fmt.Fprintf(&sb, "Turn cap: %d steps · %s\n", limits.loops, formatDuration(limits.timeout))
 	fmt.Fprintf(&sb, "Interactive turns: %d · step cap: %d · timeout: %d\n", interactive.total, interactive.steps, interactive.timeouts)
