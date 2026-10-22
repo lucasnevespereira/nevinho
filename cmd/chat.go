@@ -9,6 +9,7 @@ import (
 
 	"github.com/lucasnevespereira/nevinho/agent"
 	"github.com/lucasnevespereira/nevinho/config"
+	"github.com/lucasnevespereira/nevinho/hooks"
 	"github.com/lucasnevespereira/nevinho/tui"
 )
 
@@ -46,9 +47,14 @@ func Chat(configDir, version, selfDoc string) {
 	// machine, which sets its prompt and gates every bash command behind
 	// approval.
 	a := agent.New(provider, cfg, version, selfDoc, agent.ModeLocal)
+	hookRunner, err := hooks.Load(configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hooks config error: %v\n", err)
+		os.Exit(1)
+	}
 
 	cwd, _ := os.Getwd()
-	if err := tui.Run(a, cwd); err != nil {
+	if err := tui.Run(a, cwd, hookRunner); err != nil {
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		os.Exit(1)
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/hooks"
 	"github.com/lucasnevespereira/nevinho/llm"
 	"github.com/lucasnevespereira/nevinho/tools"
 )
@@ -44,14 +45,16 @@ const inputPlaceholder = "Ask nevinho anything…"
 
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
 // the status bar.
-func Run(a *agent.Agent, cwd string) error {
+func Run(a *agent.Agent, cwd string, hookRunner *hooks.Runner) error {
 	userID := terminalUserID(cwd)
+	defer hookRunner.Close()
 
 	// Buffered so the agent's tool callback never blocks on a slow UI. a
 	// full buffer just drops an event, which only costs a missed card.
 	events := make(chan agent.ToolEvent, 64)
 	stream := make(chan string, 256)
 	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
+		emitToolHook(hookRunner, ev)
 		select {
 		case events <- ev:
 		default:
@@ -62,7 +65,9 @@ func Run(a *agent.Agent, cwd string) error {
 	// Inline rendering, not alt-screen. The terminal owns scrollback,
 	// selection, and URL clicks. Bubble Tea only manages the bottom live
 	// region (input, status, pickers).
-	p := tea.NewProgram(newModel(a, events, stream, cwd))
+	m := newModel(a, events, stream, cwd)
+	m.hooks = hookRunner
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }
@@ -95,11 +100,13 @@ type model struct {
 	stream chan string
 	cwd    string
 	userID string
+	hooks  hookEmitter
 
 	input textarea.Model
 	spin  spinner.Model
 
 	busy           bool
+	cancelled      bool // escape requested cancellation of the active turn
 	selecting      bool // a picker (model or config) is open
 	approving      bool // a tool action is awaiting yes/no
 	approvalCursor int  // 0 = approve, 1 = deny
@@ -135,6 +142,26 @@ type model struct {
 	mentionPrefix string
 	mentionItems  []string
 	mentionCursor int
+}
+
+type hookEmitter interface{ Emit(hooks.Event) }
+
+func (m model) emitHook(event hooks.Event) {
+	if m.hooks != nil {
+		m.hooks.Emit(event)
+	}
+}
+
+func emitToolHook(sink hookEmitter, ev agent.ToolEvent) {
+	if sink == nil {
+		return
+	}
+	switch ev.Phase {
+	case agent.ToolStart:
+		sink.Emit(hooks.Event{Event: hooks.ToolStarted, Tool: ev.Name})
+	case agent.ToolDone:
+		sink.Emit(hooks.Event{Event: hooks.ToolFinished, Tool: ev.Name, Status: string(ev.Status)})
+	}
 }
 
 func newModel(a *agent.Agent, events chan agent.ToolEvent, stream chan string, cwd string) model {
@@ -329,6 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// While a turn is running, esc interrupts the agent. The Chat
 			// goroutine returns "Cancelled." which lands as a normal reply.
 			if m.busy {
+				m.cancelled = true
 				m.agent.Cancel(m.userID)
 				return m, nil
 			}
@@ -396,8 +424,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastTurnTime = msg.turn.Took
 		switch {
 		case msg.err != nil:
+			outcome := "error"
+			if m.cancelled {
+				outcome = "cancelled"
+			}
+			m.emitHook(hooks.Event{Event: hooks.TurnFinished, Outcome: outcome})
+			m.cancelled = false
 			return m, m.printBlock(errorBlock{llm.FriendlyError(msg.err)})
 		case msg.turn.Kind == agent.TurnApproval:
+			m.emitHook(hooks.Event{Event: hooks.ApprovalRequested})
+			m.cancelled = false
 			// Keep the request in the live picker while a decision is pending.
 			// It enters scrollback once the user has answered.
 			m.approving = true
@@ -407,6 +443,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.approvalText = msg.turn.Text
 			return m, nil
 		default:
+			outcome := "completed"
+			if m.cancelled {
+				outcome = "cancelled"
+			}
+			m.emitHook(hooks.Event{Event: hooks.TurnFinished, Outcome: outcome})
+			m.cancelled = false
 			return m, m.printBlock(agentBlock{msg.turn.Text})
 		}
 
@@ -565,6 +607,8 @@ func (m model) decideApproval(approve bool) (tea.Model, tea.Cmd) {
 		answer = agent.Approved
 	}
 	m.busy = true
+	m.cancelled = false
+	m.emitHook(hooks.Event{Event: hooks.TurnStarted})
 	m.setLive("")
 	return m, tea.Sequence(m.printBlock(record), tea.Batch(m.resolve(answer), m.spin.Tick))
 }
@@ -749,6 +793,8 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(echo, cmd)
 	}
 	m.busy = true
+	m.cancelled = false
+	m.emitHook(hooks.Event{Event: hooks.TurnStarted})
 	m.setLive("")
 	return m, tea.Batch(
 		m.printBlock(userBlock{text}),
