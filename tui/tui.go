@@ -310,7 +310,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.printBlock(errorBlock{err.Error()})
 		}
 		m.agent.ClearHistory(m.userID)
-		return m, m.printBlock(hintBlock{"signed in with ChatGPT · switched to " + name})
+		return m, m.printBlock(hintBlock{"Signed in with ChatGPT. Using " + name + "."})
 
 	case tea.KeyMsg:
 		// ctrl+c quits from any mode. Each sub-handler ignores it otherwise,
@@ -776,7 +776,7 @@ func isKnownSlash(text string) bool {
 // slashCommands is the canonical list, used for the /help text and the
 // type-ahead hint shown while the input starts with "/".
 var slashCommands = []struct{ name, desc string }{
-	{"/login", "sign in with ChatGPT (/login --new for another account)"},
+	{"/login", "sign in with ChatGPT"},
 	{"/model", "pick a model, or /model <name> to switch directly"},
 	{"/config", "open the config picker, or /config KEY value to set"},
 	{"/memory", "show what nevinho remembers about you"},

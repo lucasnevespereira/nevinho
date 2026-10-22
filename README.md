@@ -156,7 +156,7 @@ Slash commands inside the terminal:
 | Command        | What it does                                |
 | -------------- | ------------------------------------------- |
 | `/model`       | Pick a model from an interactive list       |
-| `/login`       | Sign in with ChatGPT; `--new` adds an account |
+| `/login`       | Sign in with ChatGPT                        |
 | `/config`      | Set provider keys, toggle CAVEMAN, ELEPHANT |
 | `/memory`      | Show what nevinho remembers about you       |
 | `/session`     | Show this project's checkpoint and summary  |
