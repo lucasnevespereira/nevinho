@@ -196,3 +196,34 @@ func TestChatGPTIncompleteStreamFails(t *testing.T) {
 		t.Fatal("accepted incomplete subscription response")
 	}
 }
+
+// The plan route emits full items as output_item.done events, then a
+// response.completed whose output array is empty. The agent must still see
+// the reply or tool call; otherwise it retries and reports an empty reply.
+func TestChatGPTStreamRebuildsCompletedItems(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		item string
+		text string
+		tool bool
+	}{
+		{"text", `{"type":"message","role":"assistant","content":[{"type":"output_text","text":"HELLO"}]}`, "HELLO", false},
+		{"tool", `{"type":"function_call","call_id":"call_1","name":"bash","arguments":"{\"command\":\"pwd\"}"}`, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":" + tc.item + "}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}}\n\n"
+			srv := sseServer(t, "/v1/responses", stream)
+			defer srv.Close()
+			p := NewChatGPTResponses("gpt-6-luna", func(context.Context) (string, error) { return "plan-token", nil })
+			p.baseURL = srv.URL
+			resp, err := p.Complete(context.Background(), &Request{Messages: []Message{UserMessage("hello", nil)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Text != tc.text || (len(resp.ToolCalls) == 1) != tc.tool || len(resp.Assistant.Wire) == 0 {
+				t.Fatalf("text=%q toolCalls=%v wire=%s", resp.Text, resp.ToolCalls, resp.Assistant.Wire)
+			}
+		})
+	}
+}

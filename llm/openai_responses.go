@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -142,17 +143,24 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 	// the same shape the non-streaming call returns.
 	var final json.RawMessage
 	var finalEvent string
+	completedItems := make(map[int]json.RawMessage)
 	err = doSSE(ctx, o.baseURL+"/v1/responses", body, headers, func(data []byte) error {
 		var ev struct {
 			Type     string          `json:"type"`
 			Delta    string          `json:"delta"`
 			Message  string          `json:"message"`
 			Response json.RawMessage `json:"response"`
+			Item     json.RawMessage `json:"item"`
+			Index    int             `json:"output_index"`
 		}
 		if err := json.Unmarshal(data, &ev); err != nil {
 			return fmt.Errorf("parse stream chunk: %w", err)
 		}
 		switch ev.Type {
+		case "response.output_item.done":
+			if len(ev.Item) > 0 && json.Valid(ev.Item) {
+				completedItems[ev.Index] = ev.Item
+			}
 		case "response.output_text.delta":
 			if cb != nil && ev.Delta != "" {
 				cb(ev.Delta)
@@ -173,6 +181,32 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 	}
 	if o.subscription && finalEvent != "response.completed" {
 		return nil, fmt.Errorf("ChatGPT stream ended with %s: %s", finalEvent, final)
+	}
+	if o.subscription && len(completedItems) > 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(final, &raw); err != nil {
+			return nil, fmt.Errorf("parse ChatGPT final response: %w", err)
+		}
+		var output []json.RawMessage
+		_ = json.Unmarshal(raw["output"], &output)
+		if len(output) == 0 {
+			indices := make([]int, 0, len(completedItems))
+			for index := range completedItems {
+				indices = append(indices, index)
+			}
+			sort.Ints(indices)
+			for _, index := range indices {
+				output = append(output, completedItems[index])
+			}
+			raw["output"], err = json.Marshal(output)
+			if err != nil {
+				return nil, err
+			}
+			final, err = json.Marshal(raw)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return parseResponsesResult(final)
 }
