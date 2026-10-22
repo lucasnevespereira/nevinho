@@ -167,9 +167,38 @@ Slash commands inside the terminal:
 | `/help`        | Show the command list                       |
 | `/quit`        | Leave (or ctrl+c)                           |
 
+### Terminal hooks
+
+Create `~/.nevinho/hooks.json` to run your own commands when the terminal client changes state. Hooks are optional and apply only to `nevinho chat`; restart the client after editing the file. Each event maps to a list of commands, and each command is an array of executable and arguments:
+
+```json
+{
+  "turn_finished": [
+    ["/usr/bin/logger", "nevinho finished a turn"]
+  ]
+}
+```
+
+Available events are `turn_started`, `approval_requested`, `turn_finished`, `tool_started`, `tool_finished`, and `session_exited`. A resumed turn after an approval decision emits another `turn_started`. A paused turn emits `approval_requested`, then emits `turn_finished` after it resumes and ends.
+
+Hooks receive one JSON object on standard input. Every object has `event` and a UTC `timestamp`. `turn_finished` also has `outcome` (`completed`, `error`, or `cancelled`); tool events have `tool`, and `tool_finished` has `status` (`ok`, `failed`, `blocked`, or `needs_approval`). Prompt text and tool input/output are not included. Commands inherit Nevinho's environment and working directory. Arguments are passed literally; use an explicit shell command if you want shell expansion.
+
+For example, to show Nevinho's state in [Farol](https://farol.sh/docs), use:
+
+```json
+{
+  "turn_started": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status working"]],
+  "approval_requested": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status waiting"]],
+  "turn_finished": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status done"]],
+  "session_exited": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status clear"]]
+}
+```
+
+Hooks run in event order, off the UI loop. Each command has a five-second timeout. Missing commands, timeouts, and nonzero exits are logged to `~/.nevinho/chat.log` and do not interrupt a turn. Invalid JSON or event names produce a startup error so the configuration can be fixed.
+
 ## Config
 
-Configuration is encrypted and stored in `~/.nevinho/`:
+Provider configuration is encrypted and stored in `~/.nevinho/`. Terminal hooks use a separate editable JSON file in the same directory:
 
 ```
 config.enc          encrypted configuration (AES-256-GCM)
@@ -180,6 +209,7 @@ memory.md           learned user preferences
 summaries/          encrypted turn checkpoints and shutdown summaries (ELEPHANT)
 whisper/            local Whisper model and binary (if voice enabled)
 chat.log            terminal client runtime log (8 MiB, 3 rotated backups)
+hooks.json          optional terminal lifecycle commands
 last_alive.json     daemon heartbeat and clean-shutdown marker
 ```
 
@@ -202,6 +232,7 @@ agent/       agent loop, history, persistence, run mode
 llm/         provider interface and implementations
 tools/       bash, file_read/write/edit, find, grep, web, schedule
 tui/         terminal client, blocks, selector
+hooks/       optional terminal lifecycle command runner
 discord/     bot, message handling, slash commands, indicator
 config/      encrypted config, model catalog, setup wizard
 crypto/      AES-256-GCM
