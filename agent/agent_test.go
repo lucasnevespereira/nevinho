@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +11,48 @@ import (
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/llm"
 )
+
+func TestSwitchModelSaveFailureKeepsCurrentSession(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "config")
+	moved := filepath.Join(parent, "config-moved")
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Set("OLLAMA_MODEL", "llama3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Set("MODEL", "gpt-5"); err != nil {
+		t.Fatal(err)
+	}
+	a := New(llm.NewOpenAIResponses("key", "", "gpt-5"), cfg, "test", "", ModeLocal)
+	a.appendHistory("u", llm.UserMessage("keep this", nil))
+
+	// A path that was a config directory can become unavailable during a
+	// long-running session. Make writes fail without depending on file modes.
+	if err := os.Rename(dir, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SwitchModel("llama3"); err == nil {
+		t.Fatal("switch succeeded despite a failed config save")
+	}
+	if got := a.Model(); got != "gpt-5" {
+		t.Fatalf("live model changed to %q", got)
+	}
+	if got, _ := cfg.Get("MODEL"); got != "gpt-5" {
+		t.Fatalf("config model changed to %q", got)
+	}
+	if history := a.messages("u"); len(history) != 1 || history[0].Text != "keep this" {
+		t.Fatalf("history cleared after failed switch: %v", history)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "config.enc")); err != nil {
+		t.Fatalf("saved config disappeared: %v", err)
+	}
+}
 
 func userMsg(text string) llm.Message {
 	return llm.UserMessage(text, nil)

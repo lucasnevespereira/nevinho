@@ -306,15 +306,15 @@ func (a *Agent) SwitchModel(name string) error {
 	if err != nil {
 		return err
 	}
+	if err := a.cfg.Set("MODEL", name); err != nil {
+		return fmt.Errorf("save model: %w", err)
+	}
 
 	a.mu.Lock()
 	a.llm = p
 	a.history = make(map[string][]llm.Message)
 	a.mu.Unlock()
 
-	if err := a.cfg.Set("MODEL", name); err != nil {
-		logger.Err(fmt.Errorf("failed to persist model: %w", err))
-	}
 	logger.Info("switched to " + name)
 	return nil
 }

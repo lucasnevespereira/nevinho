@@ -86,9 +86,14 @@ func Load(configDir string) (*Config, error) {
 }
 
 func (c *Config) Save() error {
-	c.mu.RLock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.saveLocked()
+}
+
+// saveLocked writes a snapshot while the caller holds c.mu.
+func (c *Config) saveLocked() error {
 	plain, err := json.Marshal(c)
-	c.mu.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -124,14 +129,18 @@ func (c *Config) Set(key, value string) error {
 		}
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	field, ok := c.keymap()[key]
 	if !ok {
-		c.mu.Unlock()
 		return fmt.Errorf("unknown key: %s", key)
 	}
+	previous := *field
 	*field = value
-	c.mu.Unlock()
-	return c.Save()
+	if err := c.saveLocked(); err != nil {
+		*field = previous
+		return err
+	}
+	return nil
 }
 
 func (c *Config) Delete(key string) error {
