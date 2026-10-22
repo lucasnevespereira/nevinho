@@ -227,3 +227,30 @@ func TestChatGPTStreamRebuildsCompletedItems(t *testing.T) {
 		})
 	}
 }
+
+func TestChatGPTStreamMergesItemsMissingFromFinalOutput(t *testing.T) {
+	reasoning := `{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"ENC"}`
+	message := `{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"checking"}]}`
+	tool := `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"bash","arguments":"{}"}`
+	stream := fmt.Sprintf("data: {\"type\":\"response.output_item.done\",\"output_index\":2,\"item\":%s}\n\n", tool) +
+		fmt.Sprintf("data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":%s}\n\n", message) +
+		fmt.Sprintf("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[%s]}}\n\n", reasoning)
+	srv := sseServer(t, "/v1/responses", stream)
+	defer srv.Close()
+	p := NewChatGPTResponses("gpt-6-luna", func(context.Context) (string, error) { return "plan-token", nil })
+	p.baseURL = srv.URL
+	resp, err := p.Complete(context.Background(), &Request{Messages: []Message{UserMessage("hello", nil)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Text != "checking" || len(resp.ToolCalls) != 1 || resp.ToolCalls[0].ID != "call_1" {
+		t.Fatalf("text=%q calls=%v", resp.Text, resp.ToolCalls)
+	}
+	var output []json.RawMessage
+	if err := json.Unmarshal(resp.Assistant.Wire, &output); err != nil || len(output) != 3 {
+		t.Fatalf("wire=%s err=%v", resp.Assistant.Wire, err)
+	}
+	if string(output[0]) != reasoning || string(output[1]) != message || string(output[2]) != tool {
+		t.Fatalf("output order=%s", resp.Assistant.Wire)
+	}
+}
