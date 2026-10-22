@@ -75,7 +75,7 @@ For development, copy `.env.example` to `.env`, fill `DISCORD_BOT_TOKEN`, `DISCO
 
 Configure one or more LLM backends with `nevinho setup` or the in-session `/config` picker.
 
-To use an eligible ChatGPT Plus or Pro plan, run `nevinho login` on the machine where Nevinho runs. Open the printed link and sign in. You can also run `/login` from the terminal UI when already inside Nevinho; it pauses the UI for browser sign-in and then switches to the connected plan's model. On a remote VM, the browser's loopback redirect may fail to load; copy its full final URL from the address bar and paste it into Nevinho's waiting terminal. Login discovers the models available to your account, selects the first one, and adds `chatgpt:` models to `/model`. Run `nevinho login --new` or `/login --new` to register a different ChatGPT account. `nevinho login chatgpt` also works. This uses [OpenAI's Sign in with ChatGPT flow](https://developers.openai.com/siwc/token-sharing-open-source), so plan usage and limits apply; it does not use an API key. Nevinho stores renewable credentials in `~/.nevinho/chatgpt-auth.json` with owner-only permissions. Use [ChatGPT Settings](https://chatgpt.com/#settings) to manage connected app access and usage.
+To use an eligible ChatGPT Plus or Pro plan, run `nevinho login` on the machine where Nevinho runs. Open the printed link and sign in. You can also run `/login` from the terminal UI when already inside Nevinho. It pauses the UI for browser sign-in and then switches to the connected plan's model. On a remote VM, the browser's loopback redirect may fail to load. Copy its full final URL from the address bar and paste it into Nevinho's waiting terminal. Login discovers the models available to your account, selects the first one, and adds `chatgpt:` models to `/model`. Run `nevinho login --new` or `/login --new` to register a different ChatGPT account. `nevinho login chatgpt` also works. This uses [OpenAI's Sign in with ChatGPT flow](https://developers.openai.com/siwc/token-sharing-open-source), so plan usage and limits apply. It does not use an API key. Nevinho stores renewable credentials in `~/.nevinho/chatgpt-auth.json` with owner-only permissions. Use [ChatGPT Settings](https://chatgpt.com/#settings) to manage connected app access and usage.
 
 | Provider   | Env var               | Default model                                     | Get a key                              |
 | ---------- | --------------------- | ------------------------------------------------- | -------------------------------------- |
@@ -169,32 +169,15 @@ Slash commands inside the terminal:
 
 ### Terminal hooks
 
-Create `~/.nevinho/hooks.json` to run your own commands when the terminal client changes state. Hooks are optional and apply only to `nevinho chat`; restart the client after editing the file. Each event maps to a list of commands, and each command is an array of executable and arguments:
+`nevinho chat` can run your commands when a turn starts, needs approval, finishes, uses a tool, or exits. Add `~/.nevinho/hooks.json`:
 
 ```json
 {
-  "turn_finished": [
-    ["/usr/bin/logger", "nevinho finished a turn"]
-  ]
+  "turn_finished": [["/usr/bin/logger", "nevinho finished a turn"]]
 }
 ```
 
-Available events are `turn_started`, `approval_requested`, `turn_finished`, `tool_started`, `tool_finished`, and `session_exited`. A resumed turn after an approval decision emits another `turn_started`. A paused turn emits `approval_requested`, then emits `turn_finished` after it resumes and ends.
-
-Hooks receive one JSON object on standard input. Every object has `event` and a UTC `timestamp`. `turn_finished` also has `outcome` (`completed`, `error`, or `cancelled`); tool events have `tool`, and `tool_finished` has `status` (`ok`, `failed`, `blocked`, or `needs_approval`). Prompt text and tool input/output are not included. Commands inherit Nevinho's environment and working directory. Arguments are passed literally; use an explicit shell command if you want shell expansion.
-
-For example, to show Nevinho's state in [Farol](https://farol.sh/docs), use:
-
-```json
-{
-  "turn_started": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status working"]],
-  "approval_requested": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status waiting"]],
-  "turn_finished": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status done"]],
-  "session_exited": [["/bin/sh", "-c", "[ -z \"$FAROL_CLI\" ] || \"$FAROL_CLI\" status clear"]]
-}
-```
-
-Hooks run in event order, off the UI loop. Each command has a five-second timeout. Missing commands, timeouts, and nonzero exits are logged to `~/.nevinho/chat.log` and do not interrupt a turn. Invalid JSON or event names produce a startup error so the configuration can be fixed.
+Restart Nevinho after editing the file. See [Terminal hooks](docs/hooks.md) for events, payloads, and a Farol setup example.
 
 ## Config
 
