@@ -38,6 +38,8 @@ func main() {
 		}
 	case "config":
 		cmd.Config(configDir, os.Args[2:])
+	case "login":
+		cmd.Login(configDir, os.Args[2:])
 	case "start":
 		cmd.Start(configDir, version, selfDoc)
 	case "stop":
@@ -78,6 +80,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Shared:")
 	fmt.Println("  nevinho config    view, set, or delete config keys")
+	fmt.Println("  nevinho login    sign in with ChatGPT for Codex models (--new: another account)")
 	fmt.Println("  nevinho upgrade   update to the latest version")
 	fmt.Println("  nevinho uninstall remove service, binary, and ~/.nevinho")
 	fmt.Println("  nevinho version   show version")

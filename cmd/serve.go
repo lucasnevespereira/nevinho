@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lucasnevespereira/nevinho/agent"
+	"github.com/lucasnevespereira/nevinho/chatgpt"
 	"github.com/lucasnevespereira/nevinho/config"
 	"github.com/lucasnevespereira/nevinho/discord"
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -166,6 +167,15 @@ func detectProvider(cfg *config.Config) llm.Provider {
 		logger.Info("saved model " + cfg.Model + " unusable: " + err.Error() + ", falling back")
 	}
 
+	store := chatgpt.NewStore(cfg.Dir())
+	if store.SignedIn() {
+		for _, model := range store.Models() {
+			if p, err := llm.Resolve("chatgpt:"+model.Slug, pc); err == nil {
+				logger.Info("provider: ChatGPT plan (" + model.Slug + ")")
+				return p
+			}
+		}
+	}
 	switch {
 	case cfg.OllamaModel != "":
 		logger.Info("provider: ollama (" + cfg.OllamaModel + ")")

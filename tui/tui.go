@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -77,6 +78,8 @@ type responseMsg struct {
 type toolEventMsg agent.ToolEvent
 
 type streamDeltaMsg string
+
+type loginFinishedMsg struct{ err error }
 
 // reflowMsg fires once a resize has settled. It carries the resize count
 // at the time it was scheduled, so a stale one is ignored.
@@ -269,7 +272,7 @@ func (m model) reflow() tea.Cmd {
 // pi's startup header: name and version, then a one-line key hint.
 func (m model) greeting() block {
 	if len(m.agent.AvailableModels()) == 0 {
-		return hintBlock{"nevinho " + m.agent.Version() + "\nno LLM provider configured yet · /config to add one · /model to pick"}
+		return hintBlock{"nevinho " + m.agent.Version() + "\nno LLM provider configured yet · nevinho login or /config · /model to pick"}
 	}
 	return hintBlock{"nevinho " + m.agent.Version() + "\nesc interrupt · ctrl+c quit · / commands · /help for the list"}
 }
@@ -297,6 +300,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.reflow()
+
+	case loginFinishedMsg:
+		if msg.err != nil {
+			return m, m.printBlock(errorBlock{"login did not complete: " + msg.err.Error()})
+		}
+		name, err := m.agent.ActivateChatGPT()
+		if err != nil {
+			return m, m.printBlock(errorBlock{err.Error()})
+		}
+		m.agent.ClearHistory(m.userID)
+		return m, m.printBlock(hintBlock{"signed in with ChatGPT · switched to " + name})
 
 	case tea.KeyMsg:
 		// ctrl+c quits from any mode. Each sub-handler ignores it otherwise,
@@ -762,6 +776,7 @@ func isKnownSlash(text string) bool {
 // slashCommands is the canonical list, used for the /help text and the
 // type-ahead hint shown while the input starts with "/".
 var slashCommands = []struct{ name, desc string }{
+	{"/login", "sign in with ChatGPT (/login --new for another account)"},
 	{"/model", "pick a model, or /model <name> to switch directly"},
 	{"/config", "open the config picker, or /config KEY value to set"},
 	{"/memory", "show what nevinho remembers about you"},
@@ -786,6 +801,19 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 		return m.printBlock(hintBlock{"history cleared"}), true
 	case "/model":
 		return m.handleModel(arg), true
+	case "/login":
+		if arg != "" && arg != "--new" {
+			return m.printBlock(hintBlock{"usage: /login [--new]"}), true
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return m.printBlock(errorBlock{err.Error()}), true
+		}
+		args := []string{"login"}
+		if arg == "--new" {
+			args = append(args, "--new")
+		}
+		return tea.ExecProcess(exec.Command(exe, args...), func(err error) tea.Msg { return loginFinishedMsg{err} }), true
 	case "/config":
 		return m.handleConfig(arg), true
 	case "/memory":
@@ -884,7 +912,7 @@ func (m *model) handleModel(name string) tea.Cmd {
 	if name == "" {
 		models := m.agent.AvailableModels()
 		if len(models) == 0 {
-			return m.printBlock(hintBlock{"no models available. type /config to add a provider"})
+			return m.printBlock(hintBlock{"no models available. Run nevinho login or type /config to add a provider"})
 		}
 		m.sel = newSelector("pick a model", modelItems(models, m.agent.Model()))
 		m.selKind = "model"
@@ -983,7 +1011,12 @@ func (m model) workingLine() string {
 func (m model) statusBar() string {
 	left := " " + shortenHome(m.cwd)
 	if in, out, cost := m.agent.Usage(); in > 0 || out > 0 {
-		left += fmt.Sprintf("  ·  ↑%s ↓%s  $%.2f", humanCount(in), humanCount(out), cost)
+		left += fmt.Sprintf("  ·  ↑%s ↓%s", humanCount(in), humanCount(out))
+		if strings.HasPrefix(m.agent.Model(), "chatgpt:") {
+			left += "  ChatGPT plan"
+		} else {
+			left += fmt.Sprintf("  $%.2f", cost)
+		}
 	}
 	if m.lastTurnTime > 0 {
 		left += "  ·  last " + humanDuration(m.lastTurnTime)

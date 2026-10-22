@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -150,5 +151,48 @@ func TestResponsesHitsOutputCap(t *testing.T) {
 	resp, err := parseResponsesResult([]byte(`{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}`))
 	if err != nil || resp.StopReason != StopMaxTokens {
 		t.Fatalf("stop=%v err=%v", resp, err)
+	}
+}
+
+func TestChatGPTResponsesRequestAndCompletion(t *testing.T) {
+	var body map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer plan-token" || r.URL.Path != "/v1/responses" {
+			t.Errorf("request: path=%s auth=%s", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", responsesToolTurn)
+	}))
+	defer srv.Close()
+	p := NewChatGPTResponses("gpt-5", func(context.Context) (string, error) { return "plan-token", nil })
+	p.baseURL = srv.URL
+	response, err := p.Complete(context.Background(), &Request{SystemPrompt: "system", Messages: []Message{UserMessage("hello", nil)}, Tools: []ToolDef{{Name: "bash", Schema: `{"type":"object"}`}}, MaxTokens: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StopReason != StopToolUse || p.Model() != "chatgpt:gpt-5" {
+		t.Fatalf("response=%v model=%s", response, p.Model())
+	}
+	if _, ok := body["max_output_tokens"]; ok {
+		t.Fatal("subscription request included max_output_tokens")
+	}
+	if string(body["store"]) != "false" || string(body["stream"]) != "true" || string(body["instructions"]) != `"system"` {
+		t.Fatalf("body=%v", body)
+	}
+	if !strings.Contains(string(body["tools"]), `"type":"namespace"`) || !strings.Contains(string(body["tools"]), `"name":"nevinho"`) {
+		t.Fatalf("tools=%s", body["tools"])
+	}
+}
+
+func TestChatGPTIncompleteStreamFails(t *testing.T) {
+	srv := sseServer(t, "/v1/responses", "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"output\":[]}}\n\n")
+	defer srv.Close()
+	p := NewChatGPTResponses("gpt-5", func(context.Context) (string, error) { return "plan-token", nil })
+	p.baseURL = srv.URL
+	if _, err := p.Complete(context.Background(), &Request{}); err == nil {
+		t.Fatal("accepted incomplete subscription response")
 	}
 }

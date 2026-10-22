@@ -136,7 +136,7 @@ func (s selector) view() string {
 func modelItems(models []string, current string) []selectorItem {
 	items := make([]selectorItem, len(models))
 	for i, name := range models {
-		items[i] = selectorItem{label: name, value: name, marked: name == current}
+		items[i] = selectorItem{label: config.ModelLabel(name), value: name, marked: name == current}
 	}
 	return items
 }
