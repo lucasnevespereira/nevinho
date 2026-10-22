@@ -189,14 +189,14 @@ func TestFlattenMessages(t *testing.T) {
 			contains: []string{"user: hello", "assistant: hi"},
 		},
 		{
-			name:     "truncates long content at 200 runes",
-			msgs:     []llm.Message{userMsg(strings.Repeat("a", 300))},
-			contains: []string{strings.Repeat("a", 200) + "..."},
+			name:     "truncates long content with explicit excerpt marker",
+			msgs:     []llm.Message{userMsg(strings.Repeat("a", 1000))},
+			contains: []string{strings.Repeat("a", 300) + "\n[excerpt truncated]\n" + strings.Repeat("a", 300)},
 		},
 		{
-			name:     "non-string content shows tool interaction",
+			name:     "tool content preserves result evidence",
 			msgs:     []llm.Message{toolMsg()},
-			contains: []string{"[tool interaction]"},
+			contains: []string{`tool result "1" (error=false): ok`},
 		},
 		{
 			name:     "empty input returns empty string",
