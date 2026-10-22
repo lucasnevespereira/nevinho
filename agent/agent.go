@@ -438,6 +438,14 @@ func (a *Agent) Status() string {
 	fmt.Fprintf(&sb, "Model: `%s`\n", model)
 	fmt.Fprintf(&sb, "Uptime: %s\n", formatDuration(uptime))
 	fmt.Fprintf(&sb, "Tokens: %d in · %d out\n", spent.Input(), spent.Out)
+	// Scope matches spent: process totals, across users and model switches.
+	// This is reuse among reported cache tokens, not a fraction of all input.
+	if cached := spent.CacheRead + spent.CacheWrite; cached > 0 {
+		reuse := 100 * float64(spent.CacheRead) / float64(cached)
+		fmt.Fprintf(&sb, "Cache (process): %d read · %d written · %.1f%% reuse (read / (read + written))\n", spent.CacheRead, spent.CacheWrite, reuse)
+	} else {
+		fmt.Fprintln(&sb, "Cache (process): no cache tokens reported")
+	}
 	if strings.HasPrefix(model, "chatgpt:") {
 		fmt.Fprintln(&sb, "Usage: ChatGPT plan limits apply")
 	} else {
