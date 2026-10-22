@@ -138,9 +138,8 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 		return nil, err
 	}
 
-	// Only two things are read from the stream: text deltas for the live
-	// view, and the closing event, which carries the complete response in
-	// the same shape the non-streaming call returns.
+	// Text deltas update the live view. Completed output items also matter for
+	// ChatGPT plan streams, whose closing event may omit some or all output.
 	var final json.RawMessage
 	var finalEvent string
 	completedItems := make(map[int]json.RawMessage)
@@ -151,15 +150,15 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 			Message  string          `json:"message"`
 			Response json.RawMessage `json:"response"`
 			Item     json.RawMessage `json:"item"`
-			Index    int             `json:"output_index"`
+			Index    *int            `json:"output_index"`
 		}
 		if err := json.Unmarshal(data, &ev); err != nil {
 			return fmt.Errorf("parse stream chunk: %w", err)
 		}
 		switch ev.Type {
 		case "response.output_item.done":
-			if len(ev.Item) > 0 && json.Valid(ev.Item) {
-				completedItems[ev.Index] = ev.Item
+			if ev.Index != nil && *ev.Index >= 0 && len(ev.Item) > 0 && json.Valid(ev.Item) {
+				completedItems[*ev.Index] = ev.Item
 			}
 		case "response.output_text.delta":
 			if cb != nil && ev.Delta != "" {
@@ -188,24 +187,33 @@ func (o *OpenAIResponses) StreamComplete(ctx context.Context, req *Request, cb S
 			return nil, fmt.Errorf("parse ChatGPT final response: %w", err)
 		}
 		var output []json.RawMessage
-		_ = json.Unmarshal(raw["output"], &output)
-		if len(output) == 0 {
-			indices := make([]int, 0, len(completedItems))
-			for index := range completedItems {
+		if len(raw["output"]) > 0 {
+			if err := json.Unmarshal(raw["output"], &output); err != nil {
+				return nil, fmt.Errorf("parse ChatGPT final output: %w", err)
+			}
+		}
+		for index := range output {
+			if item, ok := completedItems[index]; ok {
+				output[index] = item
+			}
+		}
+		indices := make([]int, 0, len(completedItems))
+		for index := range completedItems {
+			if index >= len(output) {
 				indices = append(indices, index)
 			}
-			sort.Ints(indices)
-			for _, index := range indices {
-				output = append(output, completedItems[index])
-			}
-			raw["output"], err = json.Marshal(output)
-			if err != nil {
-				return nil, err
-			}
-			final, err = json.Marshal(raw)
-			if err != nil {
-				return nil, err
-			}
+		}
+		sort.Ints(indices)
+		for _, index := range indices {
+			output = append(output, completedItems[index])
+		}
+		raw["output"], err = json.Marshal(output)
+		if err != nil {
+			return nil, err
+		}
+		final, err = json.Marshal(raw)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return parseResponsesResult(final)
