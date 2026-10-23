@@ -3,6 +3,7 @@ package discord
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/lucasnevespereira/nevinho/agent"
@@ -23,6 +24,9 @@ type Bot struct {
 	cfg       *config.Config
 	cmds      []*discordgo.ApplicationCommand
 	schedules *schedule.Store
+	sessionMu sync.Mutex
+	activeID  string
+	busy      bool
 }
 
 // SetScheduleStore wires the schedule store so the /schedules command
@@ -55,6 +59,16 @@ func New(token, ownerID string, a *agent.Agent, cfg *config.Config) (*Bot, error
 		agent:   a,
 		cfg:     cfg,
 	}
+	var active agent.TerminalSession
+	if cfg.ElephantEnabled() {
+		active, err = a.OpenDiscordSession(ownerID, "")
+	} else {
+		active, err = a.NewDiscordSession(ownerID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open Discord conversation: %w", err)
+	}
+	bot.activeID = active.ID
 
 	session.AddHandler(bot.onMessage)
 	session.AddHandler(bot.onInteraction)

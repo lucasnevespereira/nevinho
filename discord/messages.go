@@ -117,15 +117,21 @@ func (b *Bot) onMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if b.handleTextCommand(s, m, text) {
 		return
 	}
+	conversationID, ok := b.beginTurn()
+	if !ok {
+		s.ChannelMessageSend(m.ChannelID, "Another response is still running. Use `/cancel` or wait for it.")
+		return
+	}
+	defer b.endTurn()
 
 	s.ChannelTyping(m.ChannelID)
 	stopTyping := keepTyping(s, m.ChannelID)
 
 	indicator := newActivityIndicator(s, m.ChannelID)
-	b.agent.SetToolCallback(m.Author.ID, indicator.onEvent)
+	b.agent.SetToolCallback(conversationID, indicator.onEvent)
 
-	turn, err := b.agent.Chat(m.Author.ID, text, isVoice, images)
-	b.agent.SetToolCallback(m.Author.ID, nil)
+	turn, err := b.agent.Chat(conversationID, text, isVoice, images)
+	b.agent.SetToolCallback(conversationID, nil)
 	indicator.Close()
 	stopTyping()
 	if err != nil {
@@ -185,18 +191,36 @@ func (b *Bot) handleTextCommand(s *discordgo.Session, m *discordgo.MessageCreate
 	lower := strings.ToLower(text)
 	switch {
 	case lower == "/cancel":
-		if b.agent.Cancel(m.Author.ID) {
+		if b.agent.Cancel(b.sessionID()) {
 			s.ChannelMessageSend(m.ChannelID, "Cancelled.")
 		} else {
 			s.ChannelMessageSend(m.ChannelID, "Nothing running.")
 		}
+	case lower == "/new":
+		reply, err := b.changeSession("", false)
+		if err != nil {
+			reply = "Could not start a conversation: " + err.Error()
+		}
+		s.ChannelMessageSend(m.ChannelID, reply)
+	case lower == "/resume":
+		content, components := b.sessionChoices(0)
+		s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{Content: content, Components: components})
+	case strings.HasPrefix(lower, "/resume "):
+		reply, err := b.changeSession(strings.TrimSpace(text[len("/resume "):]), false)
+		if err != nil {
+			reply = "Could not resume: " + err.Error()
+		}
+		s.ChannelMessageSend(m.ChannelID, reply)
 	case lower == "/forget":
-		b.agent.ClearHistory(m.Author.ID)
-		s.ChannelMessageSend(m.ChannelID, "Forgotten. Fresh thread.")
+		reply, err := b.changeSession("", true)
+		if err != nil {
+			reply = "Could not forget: " + err.Error()
+		}
+		s.ChannelMessageSend(m.ChannelID, reply)
 	case lower == "/memory":
 		s.ChannelMessageSend(m.ChannelID, b.agent.MemoryView())
 	case lower == "/summary":
-		s.ChannelMessageSend(m.ChannelID, b.agent.SummaryView(m.Author.ID))
+		s.ChannelMessageSend(m.ChannelID, b.agent.SummaryView(b.sessionID()))
 	case lower == "/help":
 		s.ChannelMessageSend(m.ChannelID, helpMessage())
 	case lower == "/model":
@@ -242,11 +266,10 @@ func (b *Bot) handleTextCommand(s *discordgo.Session, m *discordgo.MessageCreate
 		s.ChannelMessageSend(m.ChannelID, b.scheduleAction(action, name))
 	case strings.HasPrefix(lower, "/model "):
 		name := strings.TrimSpace(text[7:])
-		if err := b.agent.SwitchModel(name); err != nil {
+		if err := b.switchModel(name); err != nil {
 			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Failed to switch: %v", err))
 		} else {
-			b.agent.ClearHistory(m.Author.ID)
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Switched to `%s`. History cleared.", name))
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Switched to `%s`. Started a fresh conversation; use `/resume` to return.", name))
 		}
 	case lower == "/config":
 		s.ChannelMessageSend(m.ChannelID, b.configStatus())

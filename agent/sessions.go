@@ -2,6 +2,7 @@ package agent
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -50,10 +51,14 @@ func sessionTitle(msgs []llm.Message) string {
 }
 
 func validateTerminalScope(scope string) error {
-	if !strings.HasPrefix(scope, "terminal-") || len(scope) != len("terminal-")+16 {
+	return validateSessionScope(scope, "terminal-")
+}
+
+func validateSessionScope(scope, prefix string) error {
+	if !strings.HasPrefix(scope, prefix) || len(scope) != len(prefix)+16 {
 		return fmt.Errorf("invalid terminal session scope")
 	}
-	if _, err := hex.DecodeString(strings.TrimPrefix(scope, "terminal-")); err != nil {
+	if _, err := hex.DecodeString(strings.TrimPrefix(scope, prefix)); err != nil {
 		return fmt.Errorf("invalid terminal session scope")
 	}
 	return nil
@@ -92,6 +97,10 @@ func (a *Agent) TerminalSessions(scope string) ([]TerminalSession, error) {
 	if err := validateTerminalScope(scope); err != nil {
 		return nil, err
 	}
+	return a.sessions(scope)
+}
+
+func (a *Agent) sessions(scope string) ([]TerminalSession, error) {
 	if !a.cfg.ElephantEnabled() {
 		return nil, fmt.Errorf("session persistence is off; enable it with /config ELEPHANT on")
 	}
@@ -189,6 +198,10 @@ func (a *Agent) OpenTerminalSession(scope, id string) (TerminalSession, error) {
 	if err := validateTerminalScope(scope); err != nil {
 		return TerminalSession{}, err
 	}
+	return a.openSession(scope, id, scope)
+}
+
+func (a *Agent) openSession(scope, id, legacyID string) (TerminalSession, error) {
 	if !a.cfg.ElephantEnabled() {
 		return TerminalSession{}, fmt.Errorf("session persistence is off; enable it with /config ELEPHANT on")
 	}
@@ -199,7 +212,7 @@ func (a *Agent) OpenTerminalSession(scope, id string) (TerminalSession, error) {
 		} else if !os.IsNotExist(err) {
 			return TerminalSession{}, err
 		} else {
-			return a.migrateTerminalSession(scope)
+			return a.migrateSession(scope, legacyID)
 		}
 	}
 	if !validSessionID(scope, id) {
@@ -231,13 +244,13 @@ func (a *Agent) OpenTerminalSession(scope, id string) (TerminalSession, error) {
 	return terminalSession(id, cp), nil
 }
 
-func (a *Agent) migrateTerminalSession(scope string) (TerminalSession, error) {
-	cp, err := a.readCheckpoint(scope)
+func (a *Agent) migrateSession(scope, legacyID string) (TerminalSession, error) {
+	cp, err := a.readCheckpoint(legacyID)
 	if err != nil {
 		return TerminalSession{}, err
 	}
 	if cp.Model == "" {
-		if summary := loadSummary(a.cfg.Dir(), scope); summary != "" {
+		if summary := loadSummary(a.cfg.Dir(), legacyID); summary != "" {
 			cp = conversationCheckpoint{Model: a.Model(), Messages: []llm.Message{llm.UserMessage("[Previous conversation: "+summary+"]", nil)}}
 		}
 	}
@@ -249,7 +262,7 @@ func (a *Agent) migrateTerminalSession(scope string) (TerminalSession, error) {
 		}
 	}
 	if cp.Model == "" {
-		return a.NewTerminalSession(scope)
+		return a.createTerminalSession(scope, conversationCheckpoint{Model: a.Model(), UpdatedAt: time.Now().UTC()})
 	}
 	cp.Title = sessionTitle(cp.Messages)
 	if cp.UpdatedAt.IsZero() {
@@ -261,6 +274,43 @@ func (a *Agent) migrateTerminalSession(scope string) (TerminalSession, error) {
 	}
 	a.setMessages(session.ID, cp.Messages)
 	return session, nil
+}
+
+// DiscordScope separates an owner's saved conversations from terminal projects.
+// The hash keeps the Discord snowflake out of checkpoint filenames.
+func DiscordScope(ownerID string) string {
+	sum := sha256.Sum256([]byte(ownerID))
+	return "discord-" + hex.EncodeToString(sum[:8])
+}
+
+func (a *Agent) OpenDiscordSession(ownerID, id string) (TerminalSession, error) {
+	scope := DiscordScope(ownerID)
+	return a.openSession(scope, id, ownerID)
+}
+
+func (a *Agent) NewDiscordSession(ownerID string) (TerminalSession, error) {
+	return a.createTerminalSession(DiscordScope(ownerID), conversationCheckpoint{Model: a.Model(), UpdatedAt: time.Now().UTC()})
+}
+
+func (a *Agent) DiscordSessions(ownerID string) ([]TerminalSession, error) {
+	return a.sessions(DiscordScope(ownerID))
+}
+
+func (a *Agent) ForgetDiscordSession(ownerID, id string) error {
+	scope := DiscordScope(ownerID)
+	if !validSessionID(scope, id) {
+		return fmt.Errorf("session does not belong to this Discord owner")
+	}
+	if err := deleteCheckpoint(a.cfg.Dir(), id); err != nil {
+		return err
+	}
+	a.ClearPending(id)
+	a.ClearHistory(id)
+	// Remove the old single-conversation fallback so it cannot reappear.
+	if err := deleteCheckpoint(a.cfg.Dir(), ownerID); err != nil {
+		return err
+	}
+	return deleteSummary(a.cfg.Dir(), ownerID)
 }
 
 // ForgetTerminalSession also removes the old single-conversation fallback so

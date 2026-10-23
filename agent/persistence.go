@@ -64,7 +64,7 @@ func (a *Agent) saveCheckpoint(userID string) error {
 	}
 	// A session created while persistence was disabled becomes durable when
 	// the user enables it and completes a turn. Make it the launch default too.
-	if scope, _, ok := strings.Cut(userID, "-session-"); ok && validateTerminalScope(scope) == nil && validSessionID(scope, userID) {
+	if scope, _, ok := strings.Cut(userID, "-session-"); ok && validSessionID(scope, userID) && (validateTerminalScope(scope) == nil || validateSessionScope(scope, "discord-") == nil) {
 		return a.activateTerminalSession(scope, userID)
 	}
 	return nil

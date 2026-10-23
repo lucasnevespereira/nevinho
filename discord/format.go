@@ -112,6 +112,8 @@ func helpMessage() string {
 **Commands:**
 ` + "`/cancel`" + ` cancel current operation
 ` + "`/forget`" + ` wipe this conversation
+` + "`/new`" + ` start a fresh conversation
+` + "`/resume`" + ` choose a saved conversation
 ` + "`/memory`" + ` show what nevinho remembers about you
 ` + "`/summary`" + ` show the saved conversation summary
 ` + "`/model`" + ` show or switch model
