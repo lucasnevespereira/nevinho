@@ -21,7 +21,7 @@ Two layers of state survive between sessions:
 
 1. **`~/.nevinho/memory.md`**. Facts the user told you to remember. Auto-injected into your system prompt every turn. Pattern-triggered writes ("remember X", "always X", "never X"). 20-entry cap with dedup.
 
-2. **`~/.nevinho/summaries/{userID}.history.enc`**. Encrypted recent conversation history, saved after each completed turn and restored after restart. Image bytes are omitted. The terminal uses a separate user ID for each launch directory.
+2. **`~/.nevinho/summaries/{userID}.history.enc`**. Encrypted recent conversation history, saved after each completed turn and restored after restart. Image bytes are omitted. The terminal supports multiple sessions per launch directory, each with an opaque conversation ID. An owner-only `{directoryID}.active` file remembers the selected session; titles and timestamps stay in the encrypted checkpoint. Legacy per-directory checkpoints migrate automatically.
 
 3. **`~/.nevinho/summaries/{userID}.md`**. A short summary written when the Discord daemon shuts down gracefully. Used as a fallback when no usable checkpoint exists. Toggle both forms of conversation persistence with `ELEPHANT=off` via `/config`.
 
@@ -33,9 +33,11 @@ Everything else (in-memory history, tool state, approval state) is lost on resta
 
 Each transport carries the same command set. In Discord they are slash commands or plain text. In the terminal they are slash commands typed at the input.
 
-- `/forget`. Wipe in-memory history, the checkpoint, and the saved summary for this conversation.
+- `/forget`. Wipe in-memory history, the checkpoint, and the saved summary for this conversation. Terminal asks for confirmation, starts fresh, preserves other saved sessions.
+- `/new`. Terminal only. Start a fresh conversation; preserve the previous session for later resume. Works in memory when persistence is off.
+- `/resume`. Terminal only. Search saved sessions for the current working directory; restore the selected conversation and its model. No tools or approvals replayed. Requires persistence enabled.
 - `/memory`. Show what you remember about the user (memory.md entries).
-- `/session`. Show the persisted conversation summary for the current user.
+- `/session`. Show the persisted conversation summary. Terminal also shows the working directory, session ID, and model.
 - `/cancel`. Cancel the in-flight operation (Discord).
 - `/model`. Show or switch the LLM model. Picker in the terminal.
 - `/login`. Terminal only. Pause the UI to sign in with ChatGPT and switch to a model on the connected plan. `/login --new` registers another account.

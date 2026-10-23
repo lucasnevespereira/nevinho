@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lucasnevespereira/nevinho/crypto"
 	"github.com/lucasnevespereira/nevinho/llm"
@@ -18,8 +19,11 @@ const (
 )
 
 type conversationCheckpoint struct {
-	Model    string        `json:"model"`
-	Messages []llm.Message `json:"messages"`
+	Model         string        `json:"model"`
+	Messages      []llm.Message `json:"messages"`
+	Title         string        `json:"title,omitempty"`
+	UpdatedAt     time.Time     `json:"updated_at,omitempty"`
+	ImagesOmitted bool          `json:"images_omitted,omitempty"`
 }
 
 func checkpointPath(configDir, userID string) (string, error) {
@@ -41,10 +45,33 @@ func (a *Agent) saveCheckpoint(userID string) error {
 	msgs := a.messages(userID)
 	copyMsgs := make([]llm.Message, len(msgs))
 	copy(copyMsgs, msgs)
+	previous, err := a.readCheckpoint(userID)
+	if err != nil {
+		return err // Never overwrite an unreadable checkpoint.
+	}
 	for i := range copyMsgs {
+		previous.ImagesOmitted = previous.ImagesOmitted || len(copyMsgs[i].Images) > 0
 		copyMsgs[i].Images = nil
 	}
-	plain, err := json.Marshal(conversationCheckpoint{Model: a.llm.Model(), Messages: copyMsgs})
+	if previous.Title == "" {
+		previous.Title = sessionTitle(copyMsgs)
+	}
+	previous.Model = a.llm.Model()
+	previous.Messages = copyMsgs
+	previous.UpdatedAt = time.Now().UTC()
+	if err := a.writeCheckpoint(path, previous); err != nil {
+		return err
+	}
+	// A session created while persistence was disabled becomes durable when
+	// the user enables it and completes a turn. Make it the launch default too.
+	if scope, _, ok := strings.Cut(userID, "-session-"); ok && validateTerminalScope(scope) == nil && validSessionID(scope, userID) {
+		return a.activateTerminalSession(scope, userID)
+	}
+	return nil
+}
+
+func (a *Agent) writeCheckpoint(path string, checkpoint conversationCheckpoint) error {
+	plain, err := json.Marshal(checkpoint)
 	if err != nil {
 		return fmt.Errorf("marshal checkpoint: %w", err)
 	}
@@ -59,29 +86,37 @@ func (a *Agent) saveCheckpoint(userID string) error {
 	return safeio.WriteFile(path, enc, 0o600)
 }
 
-func (a *Agent) loadCheckpoint(userID string) ([]llm.Message, error) {
+func (a *Agent) readCheckpoint(userID string) (conversationCheckpoint, error) {
+	var checkpoint conversationCheckpoint
 	path, err := checkpointPath(a.cfg.Dir(), userID)
 	if err != nil {
-		return nil, err
+		return checkpoint, err
 	}
 	enc, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return checkpoint, nil
 	}
 	if err != nil {
-		return nil, err
+		return checkpoint, err
 	}
 	key, err := crypto.LoadOrCreateKey(a.cfg.Dir())
 	if err != nil {
-		return nil, err
+		return checkpoint, err
 	}
 	plain, err := crypto.Decrypt(key, enc)
 	if err != nil {
-		return nil, fmt.Errorf("decrypt checkpoint: %w", err)
+		return checkpoint, fmt.Errorf("decrypt checkpoint: %w", err)
 	}
-	var checkpoint conversationCheckpoint
 	if err := json.Unmarshal(plain, &checkpoint); err != nil {
-		return nil, fmt.Errorf("decode checkpoint: %w", err)
+		return checkpoint, fmt.Errorf("decode checkpoint: %w", err)
+	}
+	return checkpoint, nil
+}
+
+func (a *Agent) loadCheckpoint(userID string) ([]llm.Message, error) {
+	checkpoint, err := a.readCheckpoint(userID)
+	if err != nil {
+		return nil, err
 	}
 	if checkpoint.Model != a.llm.Model() {
 		return nil, nil
