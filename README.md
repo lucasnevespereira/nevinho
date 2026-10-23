@@ -159,13 +159,27 @@ Slash commands inside the terminal:
 | `/login`       | Sign in with ChatGPT                        |
 | `/config`      | Set provider keys, toggle CAVEMAN, ELEPHANT |
 | `/memory`      | Show what nevinho remembers about you       |
-| `/session`     | Show this project's checkpoint and summary  |
+| `/new`         | Start fresh; keep the previous conversation |
+| `/resume`      | Search saved sessions for this directory    |
+| `/session`     | Show current session details and summary    |
 | `/status`      | Model, usage, cost, turn cap, limit hits    |
 | `/paths`       | List approved paths, enter to revoke one    |
 | `/paths clear` | Revoke all path permissions                 |
-| `/forget`      | Wipe this project's saved conversation      |
+| `/forget`      | Delete current session, with confirmation   |
 | `/help`        | Show the command list                       |
 | `/quit`        | Leave (or ctrl+c)                           |
+
+### Terminal sessions
+
+Launch `nevinho` to continue the active session for the current working directory. A short notice identifies the restored conversation; previous transcript blocks are not replayed into scrollback.
+
+- `/new` starts a separate conversation without deleting the old one.
+- `/resume` opens a searchable picker, newest activity first. Type to filter, Enter to restore, Esc to cancel. The current session is saved before switching. Titles come from the first user message, without an extra model call.
+- Resuming restores the saved model; if its provider is unavailable, an error leaves the checkpoint untouched. Tools and pending approvals are never replayed. Original images must be reattached when needed.
+- `/forget` defaults to Cancel. Confirming deletion removes only the current session and starts a fresh one; other sessions remain resumable. Terminal scrollback is not erased.
+- `ELEPHANT=off` disables saving and `/resume`; `/new` still works in memory. Existing saved sessions are not deleted.
+
+Session IDs are scoped to the same canonical working-directory identity as before, not the Git root. Existing per-directory checkpoints or fallback summaries migrate automatically on first launch. Concurrent terminal processes sharing one session are not coordinated; use `/new` for separate work.
 
 ### Terminal hooks
 
@@ -204,7 +218,7 @@ Set `ELEPHANT=off` via `/config` to stop persisting conversations across restart
 
 The Discord daemon updates `last_alive.json` every minute. If it restarts after an unclean stop, it sends the owner one DM with the last recorded heartbeat time.
 
-Terminal conversations are scoped to the directory where you launch `nevinho`. `/forget` clears that project's saved state. Older terminal summaries under the former shared `terminal` ID remain on disk but are not loaded into a project automatically.
+Terminal sessions are scoped to the directory where you launch `nevinho`. Each session has an encrypted checkpoint containing its title, model, last activity, and recent history. An owner-only `.active` file stores only the opaque active session ID. `/forget` deletes the current session plus the old per-directory migration fallback, leaving other sessions intact. Older terminal summaries under the former shared `terminal` ID remain on disk but are not loaded into a project automatically.
 
 ## Project structure
 

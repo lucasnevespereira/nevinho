@@ -46,29 +46,25 @@ const inputPlaceholder = "Ask nevinho anything…"
 // Run starts the terminal UI and blocks until the user quits. cwd shows in
 // the status bar.
 func Run(a *agent.Agent, cwd string, hookRunner *hooks.Runner) error {
-	userID := terminalUserID(cwd)
 	defer hookRunner.Close()
 
 	// Buffered so the agent's tool callback never blocks on a slow UI. a
 	// full buffer just drops an event, which only costs a missed card.
 	events := make(chan agent.ToolEvent, 64)
 	stream := make(chan string, 256)
-	a.SetToolCallback(userID, func(ev agent.ToolEvent) {
-		emitToolHook(hookRunner, ev)
-		select {
-		case events <- ev:
-		default:
-		}
-	})
-	defer a.SetToolCallback(userID, nil)
 
 	// Inline rendering, not alt-screen. The terminal owns scrollback,
 	// selection, and URL clicks. Bubble Tea only manages the bottom live
 	// region (input, status, pickers).
 	m := newModel(a, events, stream, cwd)
 	m.hooks = hookRunner
+	m.initializeSession()
 	p := tea.NewProgram(m)
-	_, err := p.Run()
+	final, err := p.Run()
+	if last, ok := final.(model); ok {
+		a.SetToolCallback(last.userID, nil)
+	}
+	a.SetToolCallback(m.userID, nil)
 	return err
 }
 
@@ -101,6 +97,9 @@ type model struct {
 	cwd    string
 	userID string
 	hooks  hookEmitter
+
+	sessionNotice string
+	sessionErr    string
 
 	input textarea.Model
 	spin  spinner.Model
@@ -299,9 +298,9 @@ func (m model) reflow() tea.Cmd {
 // pi's startup header: name and version, then a one-line key hint.
 func (m model) greeting() block {
 	if len(m.agent.AvailableModels()) == 0 {
-		return hintBlock{"nevinho " + m.agent.Version() + "\nno LLM provider configured yet · nevinho login or /config · /model to pick"}
+		return hintBlock{"nevinho " + m.agent.Version() + "\nno LLM provider configured yet · nevinho login or /config · /model to pick\n" + m.sessionNotice}
 	}
-	return hintBlock{"nevinho " + m.agent.Version() + "\nesc interrupt · ctrl+c quit · / commands · /help for the list"}
+	return hintBlock{"nevinho " + m.agent.Version() + "\nesc interrupt · ctrl+c quit · / commands · /help for the list\n" + m.sessionNotice}
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -336,8 +335,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m, m.printBlock(errorBlock{err.Error()})
 		}
-		m.agent.ClearHistory(m.userID)
-		return m, m.printBlock(hintBlock{"Signed in with ChatGPT. Using " + name + "."})
+		cmd := m.modelChanged("Signed in with ChatGPT. Using " + name + ".")
+		return m, cmd
 
 	case tea.KeyMsg:
 		// ctrl+c quits from any mode. Each sub-handler ignores it otherwise,
@@ -523,14 +522,22 @@ func (m model) updateSelector(key string) (tea.Model, tea.Cmd) {
 			if err := m.agent.SwitchModel(chosen); err != nil {
 				return m, m.printBlock(errorBlock{err.Error()})
 			}
-			m.agent.ClearHistory(m.userID)
-			return m, m.printBlock(hintBlock{"switched to " + chosen})
+			cmd := m.modelChanged("switched to " + chosen)
+			return m, cmd
 		}
 	case "config":
 		// chosen is a config key name. capture its value next.
 		m.configKey = chosen
 		m.input.Reset()
 		m.input.Placeholder = "value for " + configLabels[chosen]
+	case "resume":
+		cmd := m.resumeSession(chosen)
+		return m, cmd
+	case "forget":
+		if chosen == "delete" {
+			cmd := m.forgetSession()
+			return m, cmd
+		}
 	case "paths":
 		if m.agent.RevokePath(chosen) {
 			return m, m.printBlock(hintBlock{"revoked " + chosen})
@@ -792,6 +799,9 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Sequence(echo, cmd)
 	}
+	if m.sessionErr != "" {
+		return m, m.printBlock(errorBlock{m.sessionErr + " · use /new to start fresh or /resume to select another session"})
+	}
 	m.busy = true
 	m.cancelled = false
 	m.emitHook(hooks.Event{Event: hooks.TurnStarted})
@@ -826,10 +836,12 @@ var slashCommands = []struct{ name, desc string }{
 	{"/model", "pick a model, or /model <name> to switch directly"},
 	{"/config", "open the config picker, or /config KEY value to set"},
 	{"/memory", "show what nevinho remembers about you"},
-	{"/session", "show the saved session summary"},
+	{"/new", "start fresh; keep previous conversation resumable"},
+	{"/resume", "pick a saved conversation for this working directory"},
+	{"/session", "show current session details and saved summary"},
 	{"/status", "model, tokens, cost, approved paths"},
 	{"/paths", "pick an approved path to revoke, or /paths clear"},
-	{"/forget", "wipe this session's history"},
+	{"/forget", "delete current session history (asks for confirmation)"},
 	{"/help", "show this list"},
 	{"/quit", "leave (or ctrl+c)"},
 }
@@ -842,9 +854,14 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 	switch cmd {
 	case "/quit", "/q":
 		return tea.Quit, true
+	case "/new":
+		return m.newSession(), true
+	case "/resume":
+		return m.resumeSessions(), true
 	case "/forget":
-		m.agent.ClearHistory(m.userID)
-		return m.printBlock(hintBlock{"history cleared"}), true
+		m.sel = newSelector("delete current session history?", []selectorItem{{label: "Cancel", value: "cancel"}, {label: "Delete current session", value: "delete"}})
+		m.selKind, m.selecting = "forget", true
+		return nil, true
 	case "/model":
 		return m.handleModel(arg), true
 	case "/login":
@@ -865,7 +882,7 @@ func (m *model) handleSlash(text string) (tea.Cmd, bool) {
 	case "/memory":
 		return m.printBlock(agentBlock{m.agent.MemoryView()}), true
 	case "/session":
-		return m.printBlock(agentBlock{fmt.Sprintf("Project: `%s`\n\n%s", m.cwd, m.agent.SummaryView(m.userID))}), true
+		return m.sessionDetails(), true
 	case "/status":
 		return m.printBlock(agentBlock{m.agent.Status()}), true
 	case "/paths":
@@ -968,8 +985,7 @@ func (m *model) handleModel(name string) tea.Cmd {
 	if err := m.agent.SwitchModel(name); err != nil {
 		return m.printBlock(errorBlock{err.Error()})
 	}
-	m.agent.ClearHistory(m.userID)
-	return m.printBlock(hintBlock{"switched to " + name})
+	return m.modelChanged("switched to " + name)
 }
 
 func (m model) View() string {
