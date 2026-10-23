@@ -95,6 +95,12 @@ ChatGPT plan models are prefixed with `chatgpt:` and come from the signed-in acc
 Switch models with `/model` (picker) or `/model <name>`.
 The terminal picker and Discord model menus show whether a model uses the ChatGPT plan, an API key, or OpenRouter. The saved model ID remains unchanged when you switch.
 
+## Discord conversations
+
+In a DM with the bot, `/new` starts a separate conversation and keeps the current one saved. `/resume` opens a private, paged picker of saved conversations. Each one restores its model and recent text context; images must be attached again. You can also select a conversation with `/resume <id>` in a plain-text DM or the command's `id` option. `/forget` deletes only the current conversation and starts a fresh one. Existing Discord conversation history is imported on first launch after upgrading.
+
+Conversation switching waits for the current response to finish and for any pending tool approval to be answered. With `ELEPHANT=off`, `/new` still starts a fresh in-memory conversation, while `/resume` is unavailable.
+
 ## Tools
 
 | Tool         | What it does                                       |

@@ -21,7 +21,7 @@ Two layers of state survive between sessions:
 
 1. **`~/.nevinho/memory.md`**. Facts the user told you to remember. Auto-injected into your system prompt every turn. Pattern-triggered writes ("remember X", "always X", "never X"). 20-entry cap with dedup.
 
-2. **`~/.nevinho/summaries/{userID}.history.enc`**. Encrypted recent conversation history, saved after each completed turn and restored after restart. Image bytes are omitted. The terminal supports multiple sessions per launch directory, each with an opaque conversation ID. An owner-only `{directoryID}.active` file remembers the selected session; titles and timestamps stay in the encrypted checkpoint. Legacy per-directory checkpoints migrate automatically.
+2. **`~/.nevinho/summaries/{userID}.history.enc`**. Encrypted recent conversation history, saved after each completed turn and restored after restart. Image bytes are omitted. The terminal supports multiple sessions per launch directory, and Discord supports multiple sessions per owner. Each has an opaque conversation ID and an owner-only `.active` file remembers the selection. Titles and timestamps stay in encrypted checkpoints. Legacy checkpoints migrate automatically.
 
 3. **`~/.nevinho/summaries/{userID}.md`**. A short summary written when the Discord daemon shuts down gracefully. Used as a fallback when no usable checkpoint exists. Toggle both forms of conversation persistence with `ELEPHANT=off` via `/config`.
 
@@ -31,11 +31,11 @@ Everything else (in-memory history, tool state, approval state) is lost on resta
 
 ## Commands the user can invoke
 
-Each transport carries the same command set. In Discord they are slash commands or plain text. In the terminal they are slash commands typed at the input.
+Discord commands are slash commands or plain text. In the terminal, type slash commands at the input.
 
 - `/forget`. Wipe in-memory history, the checkpoint, and the saved summary for this conversation. Terminal asks for confirmation, starts fresh, preserves other saved sessions.
-- `/new`. Terminal only. Start a fresh conversation; preserve the previous session for later resume. Works in memory when persistence is off.
-- `/resume`. Terminal only. Search saved sessions for the current working directory; restore the selected conversation and its model. No tools or approvals replayed. Requires persistence enabled.
+- `/new`. Start a fresh conversation; preserve the previous session for later resume. Works in memory when persistence is off.
+- `/resume`. Choose a saved conversation and restore its model. Discord shows a private, paged picker and accepts `/resume <id>`. The terminal searches sessions for the current working directory. No tools or approvals replayed. Requires persistence enabled.
 - `/memory`. Show what you remember about the user (memory.md entries).
 - `/session`. Show the persisted conversation summary. Terminal also shows the working directory, session ID, and model.
 - `/cancel`. Cancel the in-flight operation (Discord).

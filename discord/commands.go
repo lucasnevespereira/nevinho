@@ -3,6 +3,7 @@ package discord
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 
 var slashCommands = []*discordgo.ApplicationCommand{
 	{Name: "cancel", Description: "Cancel the current operation"},
+	{Name: "new", Description: "Start a fresh conversation and save this one"},
+	{Name: "resume", Description: "Choose a saved conversation", Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "id", Description: "Saved conversation ID (optional)", Required: false}}},
 	{Name: "forget", Description: "Wipe this conversation and any persisted summary"},
 	{Name: "memory", Description: "Show what nevinho remembers about you"},
 	{Name: "summary", Description: "Show the saved summary of the current conversation"},
@@ -128,7 +131,7 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 
 	if i.Type == discordgo.InteractionMessageComponent {
-		b.onComponent(s, i, userID)
+		b.onComponent(s, i)
 		return
 	}
 	if i.Type != discordgo.InteractionApplicationCommand {
@@ -137,24 +140,45 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	data := i.ApplicationCommandData()
 	var reply string
+	var err error
 
 	switch data.Name {
 	case "cancel":
-		if b.agent.Cancel(userID) {
+		if b.agent.Cancel(b.sessionID()) {
 			reply = "Cancelled."
 		} else {
 			reply = "Nothing running."
 		}
 
+	case "new":
+		reply, err = b.changeSession("", false)
+		if err != nil {
+			reply = "Could not start a conversation: " + err.Error()
+		}
+
+	case "resume":
+		if len(data.Options) > 0 {
+			reply, err = b.changeSession(data.Options[0].StringValue(), false)
+			if err != nil {
+				reply = "Could not resume: " + err.Error()
+			}
+		} else {
+			content, components := b.sessionChoices(0)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: content, Components: components, Flags: discordgo.MessageFlagsEphemeral}})
+			return
+		}
+
 	case "forget":
-		b.agent.ClearHistory(userID)
-		reply = "Forgotten. Fresh thread."
+		reply, err = b.changeSession("", true)
+		if err != nil {
+			reply = "Could not forget: " + err.Error()
+		}
 
 	case "memory":
 		reply = b.agent.MemoryView()
 
 	case "summary":
-		reply = b.agent.SummaryView(userID)
+		reply = b.agent.SummaryView(b.sessionID())
 
 	case "help":
 		reply = helpMessage()
@@ -162,11 +186,10 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	case "model":
 		if len(data.Options) > 0 {
 			name := data.Options[0].StringValue()
-			if err := b.agent.SwitchModel(name); err != nil {
+			if err := b.switchModel(name); err != nil {
 				reply = fmt.Sprintf("Failed to switch: %v", err)
 			} else {
-				b.agent.ClearHistory(userID)
-				reply = fmt.Sprintf("Switched to `%s`. History cleared.", name)
+				reply = fmt.Sprintf("Switched to `%s`. Started a fresh conversation; use `/resume` to return.", name)
 			}
 		} else {
 			b.respondModelSelector(s, i)
@@ -218,10 +241,29 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	})
 }
 
-func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.MessageComponentData()
+	if strings.HasPrefix(data.CustomID, "resume_page:") {
+		page, err := strconv.Atoi(strings.TrimPrefix(data.CustomID, "resume_page:"))
+		if err != nil {
+			return
+		}
+		content, components := b.sessionChoices(page)
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: content, Components: components}})
+		return
+	}
 
 	switch data.CustomID {
+	case "resume_session":
+		if len(data.Values) == 0 {
+			return
+		}
+		content, err := b.changeSession(data.Values[0], false)
+		if err != nil {
+			content = "Could not resume: " + err.Error()
+		}
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: content, Components: []discordgo.MessageComponent{}}})
+
 	case "model_source":
 		if len(data.Values) == 0 {
 			return
@@ -242,7 +284,7 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 			return
 		}
 		name := data.Values[0]
-		if err := b.agent.SwitchModel(name); err != nil {
+		if err := b.switchModel(name); err != nil {
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseUpdateMessage,
 				Data: &discordgo.InteractionResponseData{
@@ -252,16 +294,23 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 			})
 			return
 		}
-		b.agent.ClearHistory(userID)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
-				Content:    fmt.Sprintf("Switched to `%s`. History cleared.", name),
+				Content:    fmt.Sprintf("Switched to `%s`. Started a fresh conversation; use `/resume` to return.", name),
 				Components: []discordgo.MessageComponent{},
 			},
 		})
 
 	case "approve":
+		userID, ok := b.beginTurn()
+		if !ok || !b.agent.HasPendingApproval(userID) {
+			if ok {
+				b.endTurn()
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "No approval is ready. Wait for the current response or approval.", Flags: discordgo.MessageFlagsEphemeral}})
+			return
+		}
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
@@ -272,6 +321,14 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		go b.runApproval(s, i.ChannelID, userID, agent.Approved)
 
 	case "deny":
+		userID, ok := b.beginTurn()
+		if !ok || !b.agent.HasPendingApproval(userID) {
+			if ok {
+				b.endTurn()
+			}
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "No approval is ready. Wait for the current response or approval.", Flags: discordgo.MessageFlagsEphemeral}})
+			return
+		}
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
@@ -284,6 +341,7 @@ func (b *Bot) onComponent(s *discordgo.Session, i *discordgo.InteractionCreate, 
 }
 
 func (b *Bot) runApproval(s *discordgo.Session, channelID, userID string, answer agent.Answer) {
+	defer b.endTurn()
 	s.ChannelTyping(channelID)
 	stopTyping := keepTyping(s, channelID)
 
